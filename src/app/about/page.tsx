@@ -36,8 +36,8 @@ export default function About() {
           <p className="creed-beat">Ten years in. The work starts now.</p>
 
           <p>
-            The planet on the home page is live NASA imagery. Nobody asked for
-            it.
+            The planet on the home page is NASA satellite data, lit by the
+            real position of the sun. Nobody asked for it.
           </p>
 
           <p className="creed-place">

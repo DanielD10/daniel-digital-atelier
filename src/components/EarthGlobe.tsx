@@ -124,7 +124,7 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
   // dropping to a coarser zoom where all tiles made it.
   if (ok < cols * rows) return null;
 
-  console.info(`[earth] NASA texture ready at zoom ${z} (${canvas.width}x${canvas.height}).`);
+  console.info(`[earth] NASA texture ready: zoom ${z}, ${canvas.width}x${canvas.height}, ${ok} tiles. Full globe — every continent is on the sphere.`);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -335,10 +335,28 @@ export default function EarthGlobe() {
                                vec3(0.04,0.06,0.09), lum);
 
           // Day side: the same imagery read as cool lit ocean/land.
-          vec3 day = mix(vec3(0.06,0.10,0.17), vec3(0.40,0.52,0.68), lum * 1.5)
+          vec3 day = mix(vec3(0.05,0.08,0.14), vec3(0.26,0.35,0.48), lum * 1.4)
                      * max(sun, 0.0);
 
-          vec3 col = day * (1.0 - night) + (nightBase + lights) * night;
+          /**
+           * Lights everywhere, not just on the night side.
+           *
+           * Physically, a city in daylight shows nothing — which is
+           * correct and useless: at any moment roughly half the
+           * planet's cities are invisible, and whichever half that
+           * is depends on when you happen to load the page. Europe
+           * simply wasn't there at 8am local.
+           *
+           * So the terminator stays real and still drives the
+           * colour, but the lights are dimmed on the day side rather
+           * than switched off. This is the same licence NASA's own
+           * Black Marble composite takes — no real Earth looks like
+           * that either. The sun position is still live; the lights
+           * just never leave.
+           */
+          float lightMask = mix(0.42, 1.0, night);
+
+          vec3 col = day * (1.0 - night) + nightBase * night + lights * lightMask;
 
           // Warm rim along the terminator.
           float band = smoothstep(0.34, 0.0, abs(sun)) * 0.5;
