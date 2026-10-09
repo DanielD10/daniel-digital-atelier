@@ -310,14 +310,14 @@ html.js .veil { opacity: 0; }
 }
 
 /* Everything in the document sits above the space layer. */
-main,
-.mast,
-.rail {
-  position: relative;
-  z-index: 3;
-}
-.mast { position: fixed; }
-.rail { position: fixed; }
+/*
+  These must not share a z-index. main comes later in the DOM, so at
+  equal z-index it paints over the fixed header — which hid the nav
+  on the homepage and swallowed every click on it.
+*/
+main { position: relative; z-index: 3; }
+.rail { position: fixed; z-index: 50; }
+.mast { position: fixed; z-index: 60; }
 
 /* Interior sections need their own backdrop or the globe shows
    through the case studies. Kept slightly translucent so the stars
