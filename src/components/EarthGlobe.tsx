@@ -396,16 +396,8 @@ export default function EarthGlobe() {
       const t = elapsed;
 
       if (!reduced) {
-        /**
-         * Sway, not spin.
-         *
-         * A full rotation looks alive for thirty seconds and then
-         * parks you over the Pacific. Most of the audience is in
-         * North America, so the planet breathes around that face
-         * instead: a slow sine of +/-14deg, one cycle every ~2
-         * minutes. Still visibly moving, never not the Americas.
-         */
-        earth.rotation.y = baseRotY + Math.sin(t * 0.052) * 14 * DEG;
+        // One full turn every 90 seconds, starting from the Americas.
+        earth.rotation.y = baseRotY + (t / 90) * Math.PI * 2;
 
         // Drift through the starfield. Stars that pass the camera
         // are recycled to the back of the volume.
