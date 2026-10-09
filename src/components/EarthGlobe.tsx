@@ -177,7 +177,7 @@ export default function EarthGlobe() {
       0.1,
       2000,
     );
-    camera.position.set(0, 0, 5.8);
+    camera.position.set(0, 0, 4.4);
 
     // ── Starfield. Depth-sorted points the camera drifts through, so
     //    near stars stream past and far ones barely move. That
@@ -326,7 +326,7 @@ export default function EarthGlobe() {
     const BASE_LON = -100;
     const baseRotY = -Math.PI / 2 - BASE_LON * DEG;
     earth.rotation.order = "YXZ"; // spin first, then tilt the result
-    earth.rotation.x = 0.3; // ~17deg, northern hemisphere favoured
+    earth.rotation.x = 0.42; // ~24deg, looking down on the top of North America
     earth.rotation.y = baseRotY;
     earth.rotation.z = 0;
     scene.add(earth);
@@ -396,8 +396,23 @@ export default function EarthGlobe() {
       const t = elapsed;
 
       if (!reduced) {
-        // One full turn every 90 seconds, starting from the Americas.
-        earth.rotation.y = baseRotY + (t / 90) * Math.PI * 2;
+        /**
+         * One full turn every seven minutes.
+         *
+         * The starting orientation is correct — derived, not
+         * guessed. With SphereGeometry and an equirectangular map,
+         * longitude -90 faces the camera at rotation.y = 0, and the
+         * front longitude is -90 - rotation.y. For -100 that's +10
+         * degrees, which is what baseRotY computes.
+         *
+         * So the ocean wasn't a bad starting angle, it was the spin.
+         * At 90s a turn you leave North America in about fifteen
+         * seconds and spend the next half-minute over the Pacific,
+         * which is a third of the planet and has nothing on it. At
+         * seven minutes it's still visibly moving but stays on the
+         * Americas for most of any real visit.
+         */
+        earth.rotation.y = baseRotY + (t / 420) * Math.PI * 2;
 
         // Drift through the starfield. Stars that pass the camera
         // are recycled to the back of the volume.
