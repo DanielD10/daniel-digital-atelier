@@ -883,6 +883,34 @@ main { position: relative; z-index: 3; }
 .prose { max-width: 62ch; line-height: 1.75; color: #cfc9bf; font-size: 16px; }
 .prose p { margin: 0 0 20px; }
 
+/* Slightly longer measure for the About page — the copy there is
+   paced in short paragraphs, so 62ch reads as choppy. */
+.prose-wide { max-width: 68ch; font-size: 17px; }
+
+/*
+  One line gets to stand alone. Set in the display face at a size
+  that stops the eye, with air either side. Everything around it is
+  quiet so this one lands — spend your boldness in one place.
+*/
+.prose-beat {
+  font-family: var(--f-display);
+  font-size: clamp(24px, 3.4vw, 44px);
+  line-height: 1.2;
+  color: #f6f2ea;
+  margin: 56px 0 56px !important;
+  letter-spacing: -0.01em;
+}
+
+.prose-link {
+  color: var(--bone);
+  border-bottom: 1px solid var(--bronze);
+  padding-bottom: 1px;
+  transition: border-color 0.4s ease, color 0.4s ease;
+}
+.prose-link:hover { border-bottom-color: var(--bone); }
+
+.prose em { font-style: italic; color: #ece7de; }
+
 .back {
   display: inline-block;
   margin-bottom: 48px;
