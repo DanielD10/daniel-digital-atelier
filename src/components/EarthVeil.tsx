@@ -2,53 +2,40 @@
 
 import { useEffect, useRef } from "react";
 import { cities } from "@/lib/cities";
+import { landmasses } from "@/lib/landmasses";
 
 /**
- * Earth at night, drawn live on a canvas.
+ * Earth at night, drawn live on a canvas and spinning in real time.
  *
- * Two things make this honest rather than decorative:
+ * What makes it honest rather than decorative:
  *
- *   1. The city lights are at real coordinates. You don't recognise
- *      Earth from coastlines — you recognise it from where the light
- *      is. Europe's sprawl, the Indian subcontinent, the Japanese
- *      arc, two American coasts, and the dark middle of Africa,
- *      Australia and the Sahara.
+ *   1. 221 cities at real coordinates. You don't recognise Earth from
+ *      coastlines — you recognise it from where the light is.
  *
- *   2. The day/night line is computed from the actual sun position
- *      for the current moment. Whatever half of Earth is dark right
- *      now is the half that's lit up here. Open the page at 3am and
- *      it is a different planet than at noon.
+ *   2. The day/night line comes from the actual sub-solar point for
+ *      this moment. Whichever half of Earth is dark right now is the
+ *      half lit up here.
  *
- * Canvas 2D with hand-rolled spherical projection rather than
- * three.js — a sphere of points doesn't need a WebGL context, a
- * scene graph, or 600KB of library. It also means no second GPU
- * context fighting the CSS 3D stage.
+ * Performance note: the glow sprite is rendered once into an
+ * offscreen canvas and then blitted ~1500 times per frame. Building
+ * a radial gradient per light per frame is the obvious way to write
+ * this and it drops you to single-digit FPS — gradient construction,
+ * not fill rate, is the bottleneck.
  */
 
-const ROTATION_PERIOD_MS = 240_000; // one turn every four minutes
+const SPIN_PERIOD_MS = 90_000; // one full turn every 90s — visibly live
 const DEG = Math.PI / 180;
 
-type Pt = { x: number; y: number; z: number; lit: number; i: number; seed: number };
-
-/**
- * Sub-solar point for a given moment: the lat/lon where the sun is
- * directly overhead. Declination from day-of-year, longitude from
- * UTC time. Accurate to well under a degree, which is far beyond
- * what anyone can perceive here.
- */
+/** Sub-solar point: the lat/lon where the sun is directly overhead. */
 function subsolarPoint(now: Date): { lat: number; lon: number } {
   const start = Date.UTC(now.getUTCFullYear(), 0, 0);
   const dayOfYear = (now.getTime() - start) / 86_400_000;
 
-  // Axial tilt projected through the year.
   const lat = 23.44 * Math.sin(((360 / 365.24) * (dayOfYear - 81)) * DEG);
 
   const utcHours =
-    now.getUTCHours() +
-    now.getUTCMinutes() / 60 +
-    now.getUTCSeconds() / 3600;
+    now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
 
-  // Noon UTC puts the sun over the prime meridian; 15 deg per hour.
   let lon = -15 * (utcHours - 12);
   if (lon > 180) lon -= 360;
   if (lon < -180) lon += 360;
@@ -56,10 +43,29 @@ function subsolarPoint(now: Date): { lat: number; lon: number } {
   return { lat, lon };
 }
 
-/** Deterministic noise so light sprawl is stable between frames. */
 function hash(n: number): number {
   const s = Math.sin(n * 127.1) * 43758.5453;
   return s - Math.floor(s);
+}
+
+/** One radial glow, rendered once and reused for every city. */
+function makeGlowSprite(size: number): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const g = c.getContext("2d")!;
+  const r = size / 2;
+
+  const grad = g.createRadialGradient(r, r, 0, r, r, r);
+  grad.addColorStop(0, "rgba(255,241,214,1)");
+  grad.addColorStop(0.12, "rgba(255,214,150,0.92)");
+  grad.addColorStop(0.34, "rgba(232,168,80,0.42)");
+  grad.addColorStop(0.68, "rgba(188,126,48,0.12)");
+  grad.addColorStop(1, "rgba(182,135,63,0)");
+
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  return c;
 }
 
 export default function EarthVeil() {
@@ -68,11 +74,12 @@ export default function EarthVeil() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d", { alpha: true });
     if (!ctx) return;
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const SPRITE = 64;
+    const glow = makeGlowSprite(SPRITE);
 
     let width = 0;
     let height = 0;
@@ -82,30 +89,36 @@ export default function EarthVeil() {
     let frame = 0;
     let running = true;
 
-    // Pre-expand each city into a small cluster so lights read as
-    // urban sprawl rather than as pins on a map.
+    // Expand each city into a cluster so lights read as sprawl.
     const points: Array<{ lon: number; lat: number; i: number; seed: number }> = [];
     cities.forEach((c, index) => {
       const [lon, lat, intensity] = c;
       points.push({ lon, lat, i: intensity, seed: index * 7.3 });
 
-      const sprawl = Math.round(2 + intensity * 7);
+      const sprawl = Math.round(3 + intensity * 9);
       for (let s = 0; s < sprawl; s++) {
         const h1 = hash(index * 31.7 + s * 2.3);
         const h2 = hash(index * 17.3 + s * 5.1);
-        const spread = 1.1 + intensity * 2.6;
+        const spread = 1.2 + intensity * 3.0;
         points.push({
-          lon: lon + (h1 - 0.5) * spread * 2,
+          lon: lon + (h1 - 0.5) * spread * 2.1,
           lat: lat + (h2 - 0.5) * spread,
-          i: intensity * (0.18 + h1 * 0.4),
+          i: intensity * (0.2 + h1 * 0.45),
           seed: index * 7.3 + s * 1.7,
         });
       }
     });
 
+    // Fixed starfield in screen space.
+    const stars = Array.from({ length: 220 }, (_, i) => ({
+      x: hash(i * 3.1),
+      y: hash(i * 5.7 + 11),
+      r: 0.3 + hash(i * 9.2) * 0.9,
+      a: 0.12 + hash(i * 13.4) * 0.5,
+      seed: i * 2.7,
+    }));
+
     function resize() {
-      // Render at device resolution. This is what keeps it sharp on
-      // a retina display instead of soft and upscaled.
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const rect = canvas!.getBoundingClientRect();
 
@@ -115,150 +128,198 @@ export default function EarthVeil() {
       canvas!.height = Math.round(height * dpr);
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Oversized and pushed right, so the globe bleeds off the top
-      // and right edges and the type keeps the left third clear.
-      radius = Math.max(width, height) * 0.58;
+      // The whole sphere visible, sitting right of the wordmark.
+      radius = Math.min(width * 0.33, height * 0.46);
       cx = width * 0.68;
-      cy = height * 0.42;
+      cy = height * 0.47;
+    }
+
+    function project(lon: number, lat: number, spin: number) {
+      const latR = lat * DEG;
+      const lonR = (lon + spin) * DEG;
+      return {
+        x: Math.cos(latR) * Math.sin(lonR),
+        y: Math.sin(latR),
+        z: Math.cos(latR) * Math.cos(lonR),
+      };
     }
 
     function draw(time: number) {
       if (!running) return;
 
-      const spin = reduced ? 0 : ((time % ROTATION_PERIOD_MS) / ROTATION_PERIOD_MS) * 360;
+      const spin = reduced ? 0 : ((time % SPIN_PERIOD_MS) / SPIN_PERIOD_MS) * 360;
       const sun = subsolarPoint(new Date());
 
       ctx!.clearRect(0, 0, width, height);
 
-      // ── Atmosphere. A cold rim halo outside the disc. ──────────
-      const halo = ctx!.createRadialGradient(cx, cy, radius * 0.9, cx, cy, radius * 1.32);
-      halo.addColorStop(0, "rgba(86,128,168,0.22)");
-      halo.addColorStop(0.45, "rgba(52,80,112,0.1)");
-      halo.addColorStop(1, "rgba(7,6,5,0)");
-      ctx!.fillStyle = halo;
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius * 1.32, 0, Math.PI * 2);
-      ctx!.fill();
+      // ── Stars ──────────────────────────────────────────────────
+      ctx!.save();
+      for (const s of stars) {
+        const sxp = s.x * width;
+        const syp = s.y * height;
+        const d = Math.hypot(sxp - cx, syp - cy);
+        if (d < radius * 1.02) continue; // occluded by the planet
 
-      // ── Ocean body. Nearly black, just enough to read as a sphere.
-      const body = ctx!.createRadialGradient(
-        cx - radius * 0.3,
-        cy - radius * 0.3,
-        radius * 0.05,
-        cx,
-        cy,
-        radius,
-      );
-      body.addColorStop(0, "#0d1420");
-      body.addColorStop(0.55, "#080d15");
-      body.addColorStop(1, "#04060a");
-      ctx!.fillStyle = body;
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
-      ctx!.fill();
+        const tw = reduced ? 1 : 0.7 + 0.3 * Math.sin(time * 0.0008 + s.seed);
+        ctx!.fillStyle = `rgba(214,222,236,${s.a * tw})`;
+        ctx!.beginPath();
+        ctx!.arc(sxp, syp, s.r, 0, Math.PI * 2);
+        ctx!.fill();
+      }
+      ctx!.restore();
 
-      // Sun direction as a unit vector in the same space as the points.
+      // Sun direction in the rotated frame.
       const sunLatR = sun.lat * DEG;
       const sunLonR = (sun.lon + spin) * DEG;
       const sx = Math.cos(sunLatR) * Math.sin(sunLonR);
       const sy = Math.sin(sunLatR);
       const sz = Math.cos(sunLatR) * Math.cos(sunLonR);
 
-      // ── Project every point. ──────────────────────────────────
-      const visible: Pt[] = [];
+      // Screen-space direction of the sun, for the limb gradient.
+      const sunScreenLen = Math.hypot(sx, sy) || 1;
+      const sunNx = sx / sunScreenLen;
+      const sunNy = -sy / sunScreenLen;
 
-      for (const p of points) {
-        const latR = p.lat * DEG;
-        const lonR = (p.lon + spin) * DEG;
+      // ── Outer atmosphere ──────────────────────────────────────
+      const halo = ctx!.createRadialGradient(cx, cy, radius * 0.97, cx, cy, radius * 1.3);
+      halo.addColorStop(0, "rgba(96,140,186,0.3)");
+      halo.addColorStop(0.35, "rgba(58,92,132,0.13)");
+      halo.addColorStop(1, "rgba(7,6,5,0)");
+      ctx!.fillStyle = halo;
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius * 1.3, 0, Math.PI * 2);
+      ctx!.fill();
 
-        const x = Math.cos(latR) * Math.sin(lonR);
-        const y = Math.sin(latR);
-        const z = Math.cos(latR) * Math.cos(lonR);
+      // ── Ocean body ────────────────────────────────────────────
+      const body = ctx!.createRadialGradient(
+        cx - radius * 0.35, cy - radius * 0.35, radius * 0.04,
+        cx, cy, radius,
+      );
+      body.addColorStop(0, "#101d2e");
+      body.addColorStop(0.5, "#0a1320");
+      body.addColorStop(1, "#050810");
+      ctx!.fillStyle = body;
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx!.fill();
 
-        // Back-face cull: z <= 0 is the far side of the planet.
-        if (z <= 0.02) continue;
+      // ── Continents. Low contrast on purpose — they sit under the
+      //    lights the way they do in a real night-side photo. ─────
+      ctx!.save();
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx!.clip();
+      ctx!.fillStyle = "rgba(38,54,74,0.55)";
 
-        // Dot product with the sun vector gives how lit this point
-        // is. Negative means night, which is when its lights show.
-        const sunDot = x * sx + y * sy + z * sz;
-        const lit = Math.max(0, Math.min(1, -sunDot * 2.6));
-        if (lit <= 0.01) continue;
-
-        visible.push({ x, y, z, lit, i: p.i, seed: p.seed });
+      for (const ring of landmasses) {
+        let started = false;
+        ctx!.beginPath();
+        for (const [lon, lat] of ring) {
+          const p = project(lon, lat, spin);
+          if (p.z <= 0) {
+            started = false;
+            continue;
+          }
+          const px = cx + p.x * radius;
+          const py = cy - p.y * radius;
+          if (!started) {
+            ctx!.moveTo(px, py);
+            started = true;
+          } else {
+            ctx!.lineTo(px, py);
+          }
+        }
+        ctx!.closePath();
+        ctx!.fill();
       }
+      ctx!.restore();
 
-      // ── Daylight wash on the sunlit limb. ─────────────────────
-      const dayX = cx + sx * radius * 0.72;
-      const dayY = cy - sy * radius * 0.72;
-      if (sz > -0.4) {
+      // ── Daylight wash on the sunlit face ──────────────────────
+      const dayX = cx + sx * radius * 0.78;
+      const dayY = cy - sy * radius * 0.78;
+
+      if (sz > -0.55) {
         ctx!.save();
         ctx!.beginPath();
         ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
         ctx!.clip();
-        const day = ctx!.createRadialGradient(dayX, dayY, 0, dayX, dayY, radius * 1.15);
-        day.addColorStop(0, "rgba(120,146,178,0.3)");
-        day.addColorStop(0.5, "rgba(60,80,104,0.12)");
+        const day = ctx!.createRadialGradient(dayX, dayY, 0, dayX, dayY, radius * 1.25);
+        day.addColorStop(0, "rgba(138,172,208,0.42)");
+        day.addColorStop(0.4, "rgba(74,104,142,0.2)");
+        day.addColorStop(0.75, "rgba(30,44,62,0.06)");
         day.addColorStop(1, "rgba(7,6,5,0)");
         ctx!.fillStyle = day;
         ctx!.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
         ctx!.restore();
       }
 
-      // ── City lights. ──────────────────────────────────────────
+      // ── City lights ───────────────────────────────────────────
       ctx!.globalCompositeOperation = "lighter";
 
-      for (const p of visible) {
-        const px = cx + p.x * radius;
-        const py = cy - p.y * radius;
+      for (const p of points) {
+        const pr = project(p.lon, p.lat, spin);
+        if (pr.z <= 0.02) continue;
 
-        // Points near the limb are seen at a glancing angle, so they
-        // dim and compress. That curvature is most of what sells the
-        // sphere.
-        const limb = Math.pow(p.z, 0.65);
+        const sunDot = pr.x * sx + pr.y * sy + pr.z * sz;
+        const lit = Math.max(0, Math.min(1, -sunDot * 2.8));
+        if (lit <= 0.015) continue;
 
-        // Twinkle. Each light has its own phase from its seed, so
-        // the field shimmers instead of pulsing in unison.
-        const tw = reduced
-          ? 1
-          : 0.78 + 0.22 * Math.sin(time * 0.0011 + p.seed * 2.4);
+        const limb = Math.pow(pr.z, 0.6);
+        const tw = reduced ? 1 : 0.8 + 0.2 * Math.sin(time * 0.0013 + p.seed * 2.4);
+        const alpha = lit * limb * tw * (0.34 + p.i * 0.78);
+        if (alpha < 0.015) continue;
 
-        const alpha = p.lit * limb * tw * (0.3 + p.i * 0.7);
-        if (alpha < 0.012) continue;
+        const px = cx + pr.x * radius;
+        const py = cy - pr.y * radius;
+        const size = (radius * 0.018 + p.i * radius * 0.05) * limb;
 
-        const size = (0.9 + p.i * 3.1) * limb;
-
-        // Warm sodium-vapour amber — the same family as the page's
-        // bronze accent, which is why this sits in the palette
-        // instead of fighting it.
-        const glow = ctx!.createRadialGradient(px, py, 0, px, py, size * 4.2);
-        glow.addColorStop(0, `rgba(255,214,150,${alpha})`);
-        glow.addColorStop(0.3, `rgba(226,166,86,${alpha * 0.5})`);
-        glow.addColorStop(1, "rgba(182,135,63,0)");
-        ctx!.fillStyle = glow;
-        ctx!.beginPath();
-        ctx!.arc(px, py, size * 4.2, 0, Math.PI * 2);
-        ctx!.fill();
-
-        // Hot core, only on the brighter lights.
-        if (p.i > 0.45) {
-          ctx!.fillStyle = `rgba(255,238,206,${alpha * 0.85})`;
-          ctx!.beginPath();
-          ctx!.arc(px, py, size * 0.52, 0, Math.PI * 2);
-          ctx!.fill();
-        }
+        ctx!.globalAlpha = Math.min(1, alpha);
+        ctx!.drawImage(glow, px - size, py - size, size * 2, size * 2);
       }
+
+      ctx!.globalAlpha = 1;
+
+      // ── The hot limb. This is the signature of the reference:
+      //    a bright amber crescent where the atmosphere catches the
+      //    sun. Stroked as a ring, masked by a linear gradient along
+      //    the sun's screen direction so it only burns on that side.
+      const g0x = cx - sunNx * radius;
+      const g0y = cy - sunNy * radius;
+      const g1x = cx + sunNx * radius;
+      const g1y = cy + sunNy * radius;
+
+      const limbGrad = ctx!.createLinearGradient(g0x, g0y, g1x, g1y);
+      limbGrad.addColorStop(0, "rgba(255,168,64,0)");
+      limbGrad.addColorStop(0.42, "rgba(255,150,52,0.1)");
+      limbGrad.addColorStop(0.72, "rgba(255,176,78,0.72)");
+      limbGrad.addColorStop(0.9, "rgba(255,214,150,0.95)");
+      limbGrad.addColorStop(1, "rgba(255,236,198,1)");
+
+      ctx!.save();
+      ctx!.strokeStyle = limbGrad;
+      ctx!.lineWidth = Math.max(1.6, radius * 0.016);
+      ctx!.shadowColor = "rgba(255,160,60,0.85)";
+      ctx!.shadowBlur = radius * 0.1;
+      ctx!.beginPath();
+      ctx!.arc(cx, cy, radius * 0.995, 0, Math.PI * 2);
+      ctx!.stroke();
+      // Second, wider pass for the outer bloom.
+      ctx!.lineWidth = Math.max(1, radius * 0.006);
+      ctx!.shadowBlur = radius * 0.22;
+      ctx!.stroke();
+      ctx!.restore();
 
       ctx!.globalCompositeOperation = "source-over";
 
-      // ── Terminator haze: the warm band along the day/night line.
+      // ── Terminator haze along the day/night boundary ──────────
       ctx!.save();
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx!.clip();
-      const term = ctx!.createRadialGradient(dayX, dayY, radius * 0.55, dayX, dayY, radius * 1.1);
-      term.addColorStop(0, "rgba(198,136,74,0)");
-      term.addColorStop(0.62, "rgba(198,136,74,0.09)");
-      term.addColorStop(1, "rgba(198,136,74,0)");
+      const term = ctx!.createRadialGradient(dayX, dayY, radius * 0.5, dayX, dayY, radius * 1.15);
+      term.addColorStop(0, "rgba(214,138,66,0)");
+      term.addColorStop(0.6, "rgba(214,138,66,0.13)");
+      term.addColorStop(1, "rgba(214,138,66,0)");
       ctx!.fillStyle = term;
       ctx!.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);
       ctx!.restore();
@@ -272,8 +333,7 @@ export default function EarthVeil() {
     const onResize = () => resize();
     window.addEventListener("resize", onResize, { passive: true });
 
-    // Stop drawing when the tab is hidden. No reason to burn a
-    // visitor's battery rendering a planet nobody is looking at.
+    // Don't burn a visitor's battery rendering a planet nobody sees.
     const onVisibility = () => {
       if (document.hidden) {
         running = false;
