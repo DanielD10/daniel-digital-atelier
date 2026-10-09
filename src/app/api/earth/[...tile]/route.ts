@@ -1,67 +1,71 @@
 import { NextResponse } from "next/server";
 
 /**
- * GET /api/earth/{z}/{row}/{col}
+ * GET /api/earth/{z}/{row}/{col}   → proxied NASA GIBS tile
+ * GET /api/earth/probe             → which layers actually work
  *
- * Proxies NASA GIBS night-lights tiles.
+ * Proxying rather than fetching GIBS from the browser means CORS can
+ * never taint the texture, Vercel's CDN caches tiles for a year, and
+ * a GIBS layer rename degrades to a different NASA layer instead of
+ * a blank hero.
  *
- * Why proxy instead of hitting GIBS from the browser:
+ * The probe route exists because GIBS layer identifiers and tile
+ * matrix set names are easy to get wrong and fail silently. Opening
+ * it tells you exactly which combination is live rather than making
+ * you guess from a blank globe.
  *
- *   1. CORS. If GIBS ever stops sending permissive headers, a direct
- *      browser fetch taints the canvas and the texture silently dies.
- *      Same-origin can't break that way.
- *   2. Caching. Vercel's CDN caches these for a year, so a visitor
- *      pays for NASA's latency once globally, not once each.
- *   3. Layer drift. GIBS retires and renames layers. The probe below
- *      tries candidates in order and remembers the first that works,
- *      so a rename degrades to a different NASA layer instead of a
- *      blank hero.
- *
- * GIBS is public domain and needs no API key.
+ * GIBS is public domain, no API key.
  * Docs: https://nasa-gibs.github.io/gibs-api-docs/
  */
 
 export const runtime = "nodejs";
-export const revalidate = 86400;
 
-const GIBS = "https://gibs.earthdata.nasa.gov/wmts/epsg4326/best";
+type Candidate = {
+  layer: string;
+  set: string;
+  ext: string;
+  time: string;
+  epsg: string;
+};
 
-type Candidate = { layer: string; set: string; ext: string; time: string };
-
-/** Tried in order. First one that returns an image wins. */
+/**
+ * Tried in order; first that returns an image wins. Night layers
+ * first, then day-side Blue Marble — a working planet beats no
+ * planet if every night layer has moved.
+ */
 const CANDIDATES: Candidate[] = [
-  { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default" },
-  { layer: "VIIRS_CityLights_2012", set: "500m", ext: "jpg", time: "default" },
-  { layer: "VIIRS_SNPP_DayNightBand_ENCC", set: "500m", ext: "png", time: "default" },
-  // Day-side Blue Marble. Not the look we want, but a working planet
-  // beats no planet if every night layer has gone away.
-  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default" },
+  { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default", epsg: "epsg4326" },
+  { layer: "VIIRS_CityLights_2012", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
+  { layer: "VIIRS_CityLights_2012", set: "250m", ext: "jpg", time: "default", epsg: "epsg4326" },
+  { layer: "VIIRS_Black_Marble", set: "250m", ext: "png", time: "default", epsg: "epsg4326" },
+  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
+  { layer: "BlueMarble_ShadedRelief_Bathymetry", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
+  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
+  { layer: "MODIS_Terra_CorrectedReflectance_TrueColor", set: "250m", ext: "jpg", time: "default", epsg: "epsg4326" },
 ];
 
 /** Remembered for the life of the serverless instance. */
 let resolved: Candidate | null = null;
 
 function tileUrl(c: Candidate, z: string, row: string, col: string): string {
-  return `${GIBS}/${c.layer}/default/${c.time}/${c.set}/${z}/${row}/${col}.${c.ext}`;
+  return `https://gibs.earthdata.nasa.gov/wmts/${c.epsg}/best/${c.layer}/default/${c.time}/${c.set}/${z}/${row}/${col}.${c.ext}`;
 }
 
-async function fetchTile(
-  c: Candidate,
-  z: string,
-  row: string,
-  col: string,
-): Promise<Response | null> {
+async function tryTile(c: Candidate, z: string, row: string, col: string) {
   try {
     const res = await fetch(tileUrl(c, z, row, col), {
       headers: { Accept: "image/*" },
-      next: { revalidate: 86400 },
+      cache: "force-cache",
     });
-
     const type = res.headers.get("content-type") ?? "";
-    if (!res.ok || !type.startsWith("image/")) return null;
-    return res;
-  } catch {
-    return null;
+    return { res, ok: res.ok && type.startsWith("image/"), status: res.status, type };
+  } catch (error) {
+    return {
+      res: null,
+      ok: false,
+      status: 0,
+      type: error instanceof Error ? error.message : "fetch threw",
+    };
   }
 }
 
@@ -71,46 +75,70 @@ export async function GET(
 ) {
   const { tile } = await params;
 
+  // ── Diagnostics ───────────────────────────────────────────────
+  if (tile.length === 1 && tile[0] === "probe") {
+    const results = [];
+    for (const c of CANDIDATES) {
+      const r = await tryTile(c, "1", "0", "0");
+      results.push({
+        layer: c.layer,
+        set: c.set,
+        ext: c.ext,
+        epsg: c.epsg,
+        url: tileUrl(c, "1", "0", "0"),
+        ok: r.ok,
+        status: r.status,
+        contentType: r.type,
+      });
+    }
+    const working = results.filter((r) => r.ok);
+    return NextResponse.json(
+      {
+        workingCount: working.length,
+        firstWorking: working[0]?.layer ?? null,
+        results,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  // ── Tile ──────────────────────────────────────────────────────
   if (tile.length !== 3) {
     return NextResponse.json(
-      { error: "Expected /api/earth/{z}/{row}/{col}" },
+      { error: "Expected /api/earth/{z}/{row}/{col} or /api/earth/probe" },
       { status: 400 },
     );
   }
 
   const [z, row, col] = tile;
-
-  // Reject anything that isn't a plain integer before it reaches NASA.
   if (![z, row, col].every((v) => /^\d{1,2}$/.test(v))) {
     return NextResponse.json({ error: "Tile coordinates must be integers." }, { status: 400 });
   }
 
-  // Known-good layer first, then the rest.
   const order = resolved
-    ? [resolved, ...CANDIDATES.filter((c) => c.layer !== resolved!.layer)]
+    ? [resolved, ...CANDIDATES.filter((c) => c !== resolved)]
     : CANDIDATES;
 
   for (const candidate of order) {
-    const upstream = await fetchTile(candidate, z, row, col);
-    if (!upstream) continue;
+    const r = await tryTile(candidate, z, row, col);
+    if (!r.ok || !r.res) continue;
 
     resolved = candidate;
-    const body = await upstream.arrayBuffer();
+    const body = await r.res.arrayBuffer();
 
     return new NextResponse(body, {
       status: 200,
       headers: {
-        "Content-Type": upstream.headers.get("content-type") ?? "image/png",
-        // Immutable: a given tile of a static composite never changes.
+        "Content-Type": r.res.headers.get("content-type") ?? "image/png",
         "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
         "X-Earth-Layer": candidate.layer,
+        "X-Earth-Set": candidate.set,
       },
     });
   }
 
-  // Every candidate failed. The client keeps its procedural globe.
   return NextResponse.json(
-    { error: "No NASA imagery layer reachable." },
-    { status: 502, headers: { "Cache-Control": "public, max-age=60" } },
+    { error: "No NASA imagery layer reachable.", hint: "Open /api/earth/probe" },
+    { status: 502, headers: { "Cache-Control": "no-store" } },
   );
 }

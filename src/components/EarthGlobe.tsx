@@ -83,7 +83,17 @@ async function buildTexture(): Promise<THREE.Texture | null> {
 
   // A handful of missing tiles is survivable; a mostly-empty texture
   // would look worse than the procedural globe it replaces.
-  if (ok < COLS * ROWS * 0.7) return null;
+  if (ok < COLS * ROWS * 0.7) {
+    // Say so in the console rather than failing mutely — a blank
+    // globe with no explanation is the worst possible failure mode.
+    console.warn(
+      `[earth] texture aborted: ${ok}/${COLS * ROWS} tiles loaded. ` +
+        `Open /api/earth/probe to see which NASA layers are reachable.`,
+    );
+    return null;
+  }
+
+  console.info(`[earth] NASA texture built from ${ok}/${COLS * ROWS} tiles.`);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
