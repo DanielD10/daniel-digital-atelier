@@ -17,11 +17,25 @@ import * as THREE from "three";
  * equirectangular canvas. Zoom 2 is 2^(z+1) x 2^z tiles of 512px.
  */
 
-const TILE_Z = 2;
+/**
+ * Zoom levels to try, best first. GIBS EPSG:4326 lays out
+ * 2^(z+1) x 2^z tiles of 512px, so:
+ *   z=1 →  8 tiles → 2048x1024
+ *   z=0 →  2 tiles → 1024x512
+ *
+ * z=2 (32 tiles) was the original choice and it's why this failed:
+ * 32 concurrent requests, each a cold serverless invocation waiting
+ * on NASA, means enough timeouts to fall under the threshold and
+ * abort. 2048x1024 across a ~600px sphere is plenty of resolution,
+ * and 8 requests actually complete.
+ */
+const ZOOM_LEVELS = [1, 0];
 const TILE_PX = 512;
-const COLS = 2 ** (TILE_Z + 1); // 8
-const ROWS = 2 ** TILE_Z; //       4
+const BATCH = 4;
 const DEG = Math.PI / 180;
+
+const colsAt = (z: number) => 2 ** (z + 1);
+const rowsAt = (z: number) => 2 ** z;
 
 /** Sub-solar point: where the sun is directly overhead right now. */
 function sunDirection(now: Date): THREE.Vector3 {
@@ -43,63 +57,92 @@ function sunDirection(now: Date): THREE.Vector3 {
   ).normalize();
 }
 
-function loadTile(z: number, row: number, col: number): Promise<HTMLImageElement | null> {
+/** One tile, with a single retry. Cold NASA fetches are flaky once. */
+function loadTile(
+  z: number,
+  row: number,
+  col: number,
+  attempt = 0,
+): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
     const img = new Image();
     img.decoding = "async";
     img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
+    img.onerror = () => {
+      if (attempt < 1) {
+        // Second pass warms the CDN entry the first one populated.
+        setTimeout(() => resolve(loadTile(z, row, col, attempt + 1)), 450);
+      } else {
+        resolve(null);
+      }
+    };
     img.src = `/api/earth/${z}/${row}/${col}`;
   });
 }
 
-/** Stitches the tile grid into one equirectangular texture. */
-async function buildTexture(): Promise<THREE.Texture | null> {
+async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
+  const cols = colsAt(z);
+  const rows = rowsAt(z);
+
   const canvas = document.createElement("canvas");
-  canvas.width = COLS * TILE_PX;
-  canvas.height = ROWS * TILE_PX;
+  canvas.width = cols * TILE_PX;
+  canvas.height = rows * TILE_PX;
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
 
   ctx.fillStyle = "#01030a";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const jobs: Promise<void>[] = [];
+  const coords: Array<[number, number]> = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) coords.push([row, col]);
+  }
+
   let ok = 0;
 
-  for (let row = 0; row < ROWS; row++) {
-    for (let col = 0; col < COLS; col++) {
-      jobs.push(
-        loadTile(TILE_Z, row, col).then((img) => {
-          if (!img) return;
-          ctx.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
-          ok++;
-        }),
-      );
-    }
-  }
-
-  await Promise.all(jobs);
-
-  // A handful of missing tiles is survivable; a mostly-empty texture
-  // would look worse than the procedural globe it replaces.
-  if (ok < COLS * ROWS * 0.7) {
-    // Say so in the console rather than failing mutely — a blank
-    // globe with no explanation is the worst possible failure mode.
-    console.warn(
-      `[earth] texture aborted: ${ok}/${COLS * ROWS} tiles loaded. ` +
-        `Open /api/earth/probe to see which NASA layers are reachable.`,
+  // Batched rather than all-at-once. Firing every tile in parallel
+  // is what killed the first attempt — a wall of cold invocations
+  // all waiting on NASA at the same time.
+  for (let i = 0; i < coords.length; i += BATCH) {
+    const slice = coords.slice(i, i + BATCH);
+    await Promise.all(
+      slice.map(async ([row, col]) => {
+        const img = await loadTile(z, row, col);
+        if (!img) return;
+        ctx.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
+        ok++;
+      }),
     );
-    return null;
   }
 
-  console.info(`[earth] NASA texture built from ${ok}/${COLS * ROWS} tiles.`);
+  if (ok < cols * rows) {
+    console.warn(`[earth] zoom ${z}: ${ok}/${cols * rows} tiles.`);
+  }
+
+  // Every tile has to land. A single hole in an equirectangular map
+  // is a visible black gash across the planet, which is worse than
+  // dropping to a coarser zoom where all tiles made it.
+  if (ok < cols * rows) return null;
+
+  console.info(`[earth] NASA texture ready at zoom ${z} (${canvas.width}x${canvas.height}).`);
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
   texture.needsUpdate = true;
   return texture;
+}
+
+/** Tries each zoom in turn, coarsening rather than giving up. */
+async function buildTexture(): Promise<THREE.Texture | null> {
+  for (const z of ZOOM_LEVELS) {
+    const texture = await buildAtZoom(z);
+    if (texture) return texture;
+  }
+  console.warn(
+    "[earth] no zoom level completed. Open /api/earth/probe to see which NASA layers are reachable.",
+  );
+  return null;
 }
 
 export default function EarthGlobe() {

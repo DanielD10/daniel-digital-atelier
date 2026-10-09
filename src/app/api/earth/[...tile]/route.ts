@@ -34,14 +34,14 @@ type Candidate = {
  * planet if every night layer has moved.
  */
 const CANDIDATES: Candidate[] = [
+  // Confirmed live by the probe: 200, image/png.
   { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default", epsg: "epsg4326" },
   { layer: "VIIRS_CityLights_2012", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
-  { layer: "VIIRS_CityLights_2012", set: "250m", ext: "jpg", time: "default", epsg: "epsg4326" },
-  { layer: "VIIRS_Black_Marble", set: "250m", ext: "png", time: "default", epsg: "epsg4326" },
+  // Day-side fallbacks. Wrong mood, but a planet beats no planet.
   { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
   { layer: "BlueMarble_ShadedRelief_Bathymetry", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
-  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
-  { layer: "MODIS_Terra_CorrectedReflectance_TrueColor", set: "250m", ext: "jpg", time: "default", epsg: "epsg4326" },
+  // The 250m sets returned 400 for these layers — don't waste a
+  // round trip to NASA rediscovering that on every cold start.
 ];
 
 /** Remembered for the life of the serverless instance. */
