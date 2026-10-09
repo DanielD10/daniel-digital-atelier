@@ -177,7 +177,7 @@ export default function EarthGlobe() {
       0.1,
       2000,
     );
-    camera.position.set(0, 0, 3.05);
+    camera.position.set(0, 0, 5.8);
 
     // ── Starfield. Depth-sorted points the camera drifts through, so
     //    near stars stream past and far ones barely move. That
@@ -396,8 +396,16 @@ export default function EarthGlobe() {
       const t = elapsed;
 
       if (!reduced) {
-        // One turn every 90 seconds, starting from the Americas.
-        earth.rotation.y = baseRotY + (t / 90) * Math.PI * 2;
+        /**
+         * Sway, not spin.
+         *
+         * A full rotation looks alive for thirty seconds and then
+         * parks you over the Pacific. Most of the audience is in
+         * North America, so the planet breathes around that face
+         * instead: a slow sine of +/-14deg, one cycle every ~2
+         * minutes. Still visibly moving, never not the Americas.
+         */
+        earth.rotation.y = baseRotY + Math.sin(t * 0.052) * 14 * DEG;
 
         // Drift through the starfield. Stars that pass the camera
         // are recycled to the back of the volume.

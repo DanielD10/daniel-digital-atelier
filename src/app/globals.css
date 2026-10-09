@@ -155,7 +155,6 @@ html.lenis body {
    script in layout.tsx adds — and removes after 2.5s as a failsafe.
    Without JS, or if GSAP never loads, none of this applies and the
    page is simply a static document. */
-html.js .wordmark .line-inner { transform: translateY(118%); }
 html.js .manifesto .line-inner { transform: translateY(110%); }
 html.js [data-anim="fade"] { opacity: 0; }
 html.js [data-reveal] { opacity: 0; }
@@ -292,6 +291,18 @@ html.js .veil { opacity: 0; }
   pointer-events: none;
 }
 
+/*
+  Stacking, stated outright rather than left to document order.
+  .depth carries transform-style: preserve-3d, which creates its own
+  stacking context, so "it comes later in the DOM" stops being a
+  guarantee and the wordmark can end up painted behind the globe.
+*/
+.stage { isolation: isolate; }
+.stage::before { z-index: 0; }
+.depth { z-index: 2; }
+.hero-inner { z-index: 3; }
+.strip-wrap { z-index: 4; }
+
 .veil {
   position: absolute;
   inset: 0;
@@ -303,7 +314,7 @@ main,
 .mast,
 .rail {
   position: relative;
-  z-index: 2;
+  z-index: 3;
 }
 .mast { position: fixed; }
 .rail { position: fixed; }
@@ -450,6 +461,25 @@ main,
 /* The mask has to be slightly taller than the glyphs or descenders
    and the trademark get clipped mid-animation. */
 .wordmark .line { padding-bottom: 0.08em; margin-bottom: -0.08em; }
+
+/*
+  The headline's entrance is a CSS animation, not a GSAP tween, and
+  that is deliberate. GSAP hid it with an inline transform, and when
+  anything upstream threw, the name stayed invisible with no way for
+  a CSS failsafe to undo an inline style. A keyframe with fill-mode
+  "both" always reaches its end state — there is no code path where
+  this page renders without Daniel's name on it.
+*/
+.wordmark .line-inner {
+  animation: wordRise 1.5s cubic-bezier(0.16, 0.84, 0.24, 1) both;
+}
+.wordmark .line:nth-child(1) .line-inner { animation-delay: 0.25s; }
+.wordmark .line:nth-child(2) .line-inner { animation-delay: 0.34s; }
+
+@keyframes wordRise {
+  from { transform: translateY(118%); }
+  to   { transform: translateY(0); }
+}
 
 .wordmark sup {
   font-family: var(--f-micro);

@@ -35,7 +35,6 @@ export default function SiteMotion() {
     }
 
     // ── Start states, then hand control from CSS to GSAP. ─────────
-    gsap.set(".wordmark .line-inner", { yPercent: 118 });
     gsap.set(".manifesto .line-inner", { yPercent: 110 });
     gsap.set("[data-anim='fade']", { opacity: 0, y: 16 });
     gsap.set("[data-reveal]", { opacity: 0, y: 28 });
@@ -71,7 +70,6 @@ export default function SiteMotion() {
      * hides its own headline is worse than one with no animation.
      */
     const ANIMATED = [
-      ".wordmark .line-inner",
       ".manifesto .line-inner",
       "[data-anim='fade']",
       "[data-reveal]",
@@ -126,7 +124,6 @@ export default function SiteMotion() {
         .to(".veil", { opacity: 1, duration: 2.5, ease: "power2.out" }, 0)
         .to(".earth-canvas", { yPercent: 0, duration: 2.6, ease: "power2.out" }, 0)
         .to(".monogram", { opacity: 1, y: 0, duration: 1 }, 0.1)
-        .to(".wordmark .line-inner", { yPercent: 0, stagger: 0.09, duration: 1.5 }, 0.25)
         .to(".meridian", { scaleY: 1, duration: 1.6 }, 0.3)
         .to("[data-anim='fade']", { opacity: 1, y: 0, stagger: 0.07, duration: 1.1 }, 0.6)
         .to(".tile", { opacity: 1, yPercent: 0, stagger: 0.08, duration: 1.2 }, 0.85)
