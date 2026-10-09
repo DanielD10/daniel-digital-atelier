@@ -1,13 +1,35 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { validateContact, LIMITS, type FieldErrors } from "@/lib/contact-schema";
+import {
+  validateContact,
+  LIMITS,
+  type FieldErrors,
+  type ContactInput,
+} from "@/lib/contact-schema";
+import { site } from "@/lib/site";
 
 type Status =
   | { state: "idle" }
   | { state: "sending" }
   | { state: "sent" }
+  /**
+   * The API validated and accepted the message, but email delivery
+   * isn't configured on this deployment. Showing a plain "sent" here
+   * would be a lie — the visitor walks away expecting a reply that
+   * can never arrive. So we say what happened and hand them a route
+   * that works right now, pre-filled with what they typed.
+   */
+  | { state: "undelivered"; payload: ContactInput }
   | { state: "error"; message: string };
+
+function mailtoHref(payload: ContactInput): string {
+  const subject = `Project enquiry — ${payload.name}`;
+  const body = `${payload.message}\n\n— ${payload.name}\n${payload.email}`;
+  return `mailto:${site.email}?subject=${encodeURIComponent(
+    subject,
+  )}&body=${encodeURIComponent(body)}`;
+}
 
 export default function ContactForm() {
   const [status, setStatus] = useState<Status>({ state: "idle" });
@@ -19,8 +41,8 @@ export default function ContactForm() {
     const form = event.currentTarget;
     const data = Object.fromEntries(new FormData(form).entries());
 
-    // Validate on the client using the same rules the server uses,
-    // so the common case never costs a round trip.
+    // Validate on the client with the same rules the server uses, so
+    // the common case never costs a round trip.
     const check = validateContact(data);
     if (!check.ok) {
       setErrors(check.errors);
@@ -41,6 +63,7 @@ export default function ContactForm() {
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         errors?: FieldErrors;
+        delivered?: boolean;
       };
 
       if (response.status === 429) {
@@ -55,8 +78,16 @@ export default function ContactForm() {
         if (body.errors) setErrors(body.errors);
         setStatus({
           state: "error",
-          message: body.error ?? "That didn't send. Try again, or email me directly.",
+          message:
+            body.error ?? "That did not send. Try again, or email me directly.",
         });
+        return;
+      }
+
+      // Accepted but not actually delivered. Don't reset the form —
+      // they may still need the text they wrote.
+      if (body.delivered === false) {
+        setStatus({ state: "undelivered", payload: check.value });
         return;
       }
 
@@ -132,7 +163,13 @@ export default function ContactForm() {
       {/* Honeypot. Hidden from people, irresistible to bots. */}
       <div className="hp" aria-hidden="true">
         <label htmlFor="company">Company</label>
-        <input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" />
+        <input
+          id="company"
+          name="company"
+          type="text"
+          tabIndex={-1}
+          autoComplete="off"
+        />
       </div>
 
       <button className="submit" type="submit" disabled={sending}>
@@ -141,9 +178,25 @@ export default function ContactForm() {
 
       <p className="form-status" role="status" aria-live="polite">
         {status.state === "sent" ? (
-          <span data-tone="ok">Message sent. I&rsquo;ll get back to you within a day or two.</span>
+          <span data-tone="ok">
+            Message sent. I&rsquo;ll get back to you within a day or two.
+          </span>
         ) : null}
-        {status.state === "error" ? <span data-tone="error">{status.message}</span> : null}
+
+        {status.state === "undelivered" ? (
+          <span data-tone="warn">
+            Email delivery isn&rsquo;t switched on for this site yet, so this
+            won&rsquo;t reach an inbox.{" "}
+            <a className="status-link" href={mailtoHref(status.payload)}>
+              Send it to {site.email} instead
+            </a>{" "}
+            — the link carries everything you typed.
+          </span>
+        ) : null}
+
+        {status.state === "error" ? (
+          <span data-tone="error">{status.message}</span>
+        ) : null}
       </p>
     </form>
   );

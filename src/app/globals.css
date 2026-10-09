@@ -717,7 +717,9 @@ html.js .rail > * { opacity: 0; }
 
 .form-status { font-size: 14px; line-height: 1.6; padding: 16px 0 0; }
 .form-status [data-tone="ok"] { color: #9fc08a; }
+.form-status [data-tone="warn"] { color: #d6b36a; }
 .form-status [data-tone="error"] { color: #d98a74; }
+.status-link { border-bottom: 1px solid currentColor; }
 
 .submit {
   justify-self: start;
