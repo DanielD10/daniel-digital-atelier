@@ -298,7 +298,25 @@ html.js .veil { opacity: 0; }
   height: 100%;
   display: block;
   will-change: transform;
+  /* Fades out once the WebGL globe has its NASA texture. */
+  transition: opacity 1.4s ease;
 }
+
+/* WebGL layer. Sits above the procedural globe and stays fully
+   transparent until .is-ready, so a failed texture is invisible
+   rather than a black rectangle over the hero. */
+.globe-gl {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.8s ease;
+  pointer-events: none;
+}
+.globe-gl.is-ready { opacity: 1; }
+.globe-gl canvas { display: block; width: 100% !important; height: 100% !important; }
+
+/* Once the real globe is up, retire the stand-in underneath it. */
+.veil:has(.globe-gl.is-ready) .earth-canvas { opacity: 0; }
 
 /*
   Where your render goes. Set --hero-image on :root and this layer

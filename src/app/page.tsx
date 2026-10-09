@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
-import EarthVeil from "@/components/EarthVeil";
+import HeroBackdrop from "@/components/HeroBackdrop";
 import FeaturedWork from "@/components/FeaturedWork";
 import CaseTrack from "@/components/CaseTrack";
 import BottomRail from "@/components/BottomRail";
@@ -19,7 +19,7 @@ export default function Home() {
               at -300px, the type at 0, the plate at +90, and the
               foreground tendrils at +40 so they cross the letters. */}
           <div className="depth">
-          <EarthVeil />
+          <HeroBackdrop />
           <div className="meridian" aria-hidden="true" />
 
           <div className="hero-inner">

@@ -353,10 +353,5 @@ export default function EarthVeil() {
     };
   }, []);
 
-  return (
-    <div className="veil" aria-hidden="true">
-      <canvas ref={canvasRef} className="earth-canvas" />
-      <div className="hero-art" />
-    </div>
-  );
+  return <canvas ref={canvasRef} className="earth-canvas" aria-hidden="true" />;
 }
