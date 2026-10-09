@@ -4,29 +4,29 @@ import dynamic from "next/dynamic";
 import EarthVeil from "./EarthVeil";
 
 /**
- * Two globes, stacked.
+ * The space layer. Fixed to the viewport and sitting behind the
+ * whole document, not clipped inside the hero — so the starfield
+ * runs the full height of the page and you stay in space as you
+ * scroll rather than falling out of it at the first section break.
  *
- * Underneath: the procedural canvas globe. Draws instantly, no
- * network, no WebGL.
+ * Two globes, stacked. Underneath, the procedural canvas one: draws
+ * instantly, no network, no WebGL. On top, the WebGL globe carrying
+ * NASA's imagery, which renders nothing until its texture genuinely
+ * loads and then fades the stand-in out beneath it.
  *
- * On top: the WebGL globe carrying NASA's imagery. It renders
- * nothing until its texture has actually loaded, and when it does,
- * .is-ready fades the procedural one out beneath it.
- *
- * So the hero is never blank. No WebGL, no network, retired NASA
- * layer, slow connection — you still get a planet, it's just the
- * hand-drawn one. three.js is loaded with ssr:false because it
- * touches window and document at import time.
+ * So the hero is never blank. No WebGL, dead CDN, retired NASA
+ * layer, slow connection — you still get a planet.
  */
 
 const EarthGlobe = dynamic(() => import("./EarthGlobe"), { ssr: false });
 
 export default function HeroBackdrop() {
   return (
-    <div className="veil" aria-hidden="true">
-      <EarthVeil />
-      <EarthGlobe />
-      <div className="hero-art" />
+    <div className="space-layer" aria-hidden="true">
+      <div className="veil">
+        <EarthVeil />
+        <EarthGlobe />
+      </div>
     </div>
   );
 }

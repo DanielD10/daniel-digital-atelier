@@ -253,7 +253,6 @@ html.js .veil { opacity: 0; }
   display: grid;
   grid-template-rows: 1fr auto;
   padding-bottom: var(--rail);
-  overflow: hidden;
 
   /* Real perspective, not parallax. With a perspective origin and
      preserve-3d below, layers at different translateZ foreshorten
@@ -281,12 +280,45 @@ html.js .veil { opacity: 0; }
     plate at  +90 → 1310/1400 = 0.936
     fore  at  +40 → 1360/1400 = 0.971
 */
+/*
+  Fixed behind the entire document. The starfield is the environment
+  the whole page sits in, not a decoration on the first screen — if
+  it stops at the hero you fall out of space at the first scroll.
+*/
+.space-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
 .veil {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  z-index: 0;
-  transform: translateZ(-300px) scale(1.214);
+}
+
+/* Everything in the document sits above the space layer. */
+main,
+.mast,
+.rail {
+  position: relative;
+  z-index: 2;
+}
+.mast { position: fixed; }
+.rail { position: fixed; }
+
+/* Interior sections need their own backdrop or the globe shows
+   through the case studies. Kept slightly translucent so the stars
+   stay faintly visible behind the content. */
+.manifesto,
+.cases,
+.decade,
+.closer {
+  position: relative;
+  background: rgba(7, 6, 5, 0.86);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 /* The globe canvas renders at devicePixelRatio internally, so it is
    sharp on retina. It is never scaled by CSS or GSAP — resampling a
@@ -353,10 +385,16 @@ html.js .veil { opacity: 0; }
   vignette is gone entirely: the planet has its own edge, and
   darkening around it just fought the atmosphere halo.
 */
-.veil::after {
+/*
+  Keeps the left third clean for the wordmark. Lives on .stage rather
+  than on the fixed space layer, so it ends with the hero instead of
+  shading the left edge of every section below it.
+*/
+.stage::before {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   pointer-events: none;
   background: linear-gradient(
     90deg,

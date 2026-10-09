@@ -308,8 +308,27 @@ export default function EarthGlobe() {
     });
 
     const earth = new THREE.Mesh(new THREE.SphereGeometry(1, 96, 96), earthMat);
-    // Axial tilt, so it doesn't spin like a desk globe.
-    earth.rotation.z = -23.44 * DEG;
+
+    /**
+     * Orientation.
+     *
+     * With an equirectangular map on a three.js sphere, rotation.y
+     * of -PI/2 puts longitude 0 facing the camera. To face longitude
+     * L you want -PI/2 - L, so -100 (central North America) lands
+     * the Americas front and centre at load.
+     *
+     * The previous build set rotation.z to the real 23.44 axial
+     * tilt, which reads as the planet lying over on its side. Real,
+     * but wrong for a composition. The tilt now goes on X instead,
+     * which lifts the northern hemisphere toward the viewer — same
+     * "not a desk globe" feel, correct horizon.
+     */
+    const BASE_LON = -100;
+    const baseRotY = -Math.PI / 2 - BASE_LON * DEG;
+    earth.rotation.order = "YXZ"; // spin first, then tilt the result
+    earth.rotation.x = 0.3; // ~17deg, northern hemisphere favoured
+    earth.rotation.y = baseRotY;
+    earth.rotation.z = 0;
     scene.add(earth);
 
     // ── Atmosphere: a slightly larger backface sphere with a fresnel
@@ -377,8 +396,8 @@ export default function EarthGlobe() {
       const t = elapsed;
 
       if (!reduced) {
-        // One turn every 90 seconds.
-        earth.rotation.y = (t / 90) * Math.PI * 2;
+        // One turn every 90 seconds, starting from the Americas.
+        earth.rotation.y = baseRotY + (t / 90) * Math.PI * 2;
 
         // Drift through the starfield. Stars that pass the camera
         // are recycled to the back of the volume.
@@ -397,7 +416,9 @@ export default function EarthGlobe() {
       // Sun direction, counter-rotated into the mesh's frame so the
       // terminator stays fixed to the real world while Earth turns.
       const sun = sunDirection(new Date());
-      const spun = sun.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -earth.rotation.y);
+      const spun = sun
+        .clone()
+        .applyAxisAngle(new THREE.Vector3(0, 1, 0), -(earth.rotation.y - baseRotY));
       uniforms.uSun.value.copy(spun);
 
       renderer.render(scene, camera);

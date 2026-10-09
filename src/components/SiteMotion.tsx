@@ -56,6 +56,42 @@ export default function SiteMotion() {
 
     root.classList.remove("js");
 
+    /**
+     * Watchdog.
+     *
+     * The gsap.set() calls above hide the wordmark by writing an
+     * inline transform. The html.js CSS failsafe cannot undo that —
+     * an inline style outlives a class removal. So if anything below
+     * throws before the intro timeline runs, the name stays
+     * invisible forever and the page just looks broken, with nothing
+     * in the console to say why.
+     *
+     * That is exactly what happened. This clears every start state
+     * if the intro hasn't reported completion in time. A site that
+     * hides its own headline is worse than one with no animation.
+     */
+    const ANIMATED = [
+      ".wordmark .line-inner",
+      ".manifesto .line-inner",
+      "[data-anim='fade']",
+      "[data-reveal]",
+      ".tile",
+      ".rail > *",
+      ".veil",
+      ".meridian",
+      ".monogram",
+      ".earth-canvas",
+    ].join(", ");
+
+    let introDone = false;
+    const revealEverything = () => {
+      if (introDone) return;
+      introDone = true;
+      gsap.set(ANIMATED, { clearProps: "all" });
+    };
+
+    const watchdog = window.setTimeout(revealEverything, 5000);
+
     const lenis = new Lenis({
       duration: 1.1,
       // Exponential ease-out: heavy at the start, long glide at the
@@ -75,7 +111,13 @@ export default function SiteMotion() {
 
     const ctx = gsap.context(() => {
       // ── 1. Entrance. One orchestrated sequence. ─────────────────
-      const intro = gsap.timeline({ defaults: { ease: "expo.out", duration: 1.4 } });
+      const intro = gsap.timeline({
+        defaults: { ease: "expo.out", duration: 1.4 },
+        onComplete: () => {
+          introDone = true;
+          window.clearTimeout(watchdog);
+        },
+      });
 
       intro
         // The planet resolves out of black over two and a half
@@ -221,6 +263,7 @@ export default function SiteMotion() {
     document.fonts?.ready.then(() => ScrollTrigger.refresh());
 
     return () => {
+      window.clearTimeout(watchdog);
       if (onPointer) window.removeEventListener("pointermove", onPointer);
       ctx.revert();
       gsap.ticker.remove(tick);

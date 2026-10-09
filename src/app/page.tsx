@@ -12,14 +12,15 @@ export default function Home() {
     <>
       <Masthead />
 
+      <HeroBackdrop />
+
       <main id="main">
         {/* ── Screen one. Matches the approved mockup exactly. ───── */}
         <section className="stage">
-          {/* Everything in here shares one 3D context. The veil sits
-              at -300px, the type at 0, the plate at +90, and the
-              foreground tendrils at +40 so they cross the letters. */}
+          {/* The type and plate share one 3D context. The space layer
+              lives outside it, fixed to the viewport, so the stars
+              span the whole page instead of being clipped here. */}
           <div className="depth">
-          <HeroBackdrop />
           <div className="meridian" aria-hidden="true" />
 
           <div className="hero-inner">
