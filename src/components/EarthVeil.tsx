@@ -128,9 +128,18 @@ export default function EarthVeil() {
       canvas!.height = Math.round(height * dpr);
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // The whole sphere visible, sitting right of the wordmark.
-      radius = Math.min(width * 0.33, height * 0.46);
-      cx = width * 0.68;
+      /**
+       * Matched to the WebGL globe, not chosen independently.
+       *
+       * That one sits at camera z=5.8 with a 38deg fov, so a unit
+       * sphere subtends 2*atan(1/5.8) = 19.6deg of a 38deg frame —
+       * about 0.516 of the viewport height, centred near 70%/47%.
+       *
+       * When these two disagreed you saw a giant drawn globe snap
+       * down to a small rendered one the moment the texture landed.
+       */
+      radius = height * 0.258;
+      cx = width * 0.70;
       cy = height * 0.47;
     }
 

@@ -334,13 +334,29 @@ main,
 /* The globe canvas renders at devicePixelRatio internally, so it is
    sharp on retina. It is never scaled by CSS or GSAP — resampling a
    bitmap would throw away exactly the resolution we rendered for. */
+/*
+  The drawn globe is a fallback, so it waits before showing itself.
+  The NASA texture normally lands inside a couple of seconds, and
+  .is-ready removes this element outright — so in the common case
+  the stand-in is never seen at all. It only appears if the real one
+  genuinely isn't coming: no WebGL, no network, dead layer.
+
+  Previously it painted immediately at a different size, which is
+  why the page opened on a giant globe that then snapped small.
+*/
 .earth-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
+  opacity: 0;
+  animation: fallbackIn 0.8s ease 2s forwards;
   will-change: transform;
+}
+
+@keyframes fallbackIn {
+  to { opacity: 1; }
 }
 
 /* WebGL layer. Sits above the procedural globe and stays fully
