@@ -29,9 +29,9 @@ import * as THREE from "three";
  * abort. 2048x1024 across a ~600px sphere is plenty of resolution,
  * and 8 requests actually complete.
  */
-const ZOOM_LEVELS = [1, 0];
+const ZOOM_LEVELS = [2, 1, 0];
 const TILE_PX = 512;
-const BATCH = 4;
+const BATCH = 6;
 const DEG = Math.PI / 180;
 
 const colsAt = (z: number) => 2 ** (z + 1);
@@ -129,6 +129,16 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
+  /**
+   * No mipmaps. Black Marble is near-black with pinpoint highlights,
+   * and each mip level averages a city light together with the dark
+   * ocean around it — so the lights fade out exactly when the globe
+   * is small, which is always. Linear filtering on the full-res
+   * texture keeps them.
+   */
+  texture.generateMipmaps = false;
+  texture.minFilter = THREE.LinearFilter;
+  texture.magFilter = THREE.LinearFilter;
   texture.needsUpdate = true;
   return texture;
 }
@@ -252,6 +262,7 @@ export default function EarthGlobe() {
       uTex: { value: null as THREE.Texture | null },
       uSun: { value: new THREE.Vector3(1, 0, 0) },
       uHasTex: { value: 0 },
+      uTime: { value: 0 },
     };
 
     const earthMat = new THREE.ShaderMaterial({
@@ -270,37 +281,73 @@ export default function EarthGlobe() {
         uniform sampler2D uTex;
         uniform vec3 uSun;
         uniform float uHasTex;
+        uniform float uTime;
         varying vec2 vUv;
         varying vec3 vNormal;
+
+        // Cheap stable hash. Same uv always gives the same value, so
+        // each patch of the planet twinkles on its own clock instead
+        // of the whole hemisphere pulsing together.
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
 
         void main() {
           if (uHasTex < 0.5) discard;
 
           vec3 tex = texture2D(uTex, vUv).rgb;
+          float lum = dot(tex, vec3(0.299, 0.587, 0.114));
           float sun = dot(normalize(vNormal), normalize(uSun));
 
           // Night mask: 1 on the dark side, 0 in full daylight, with
           // a soft band across the terminator.
-          float night = smoothstep(0.22, -0.18, sun);
+          float night = smoothstep(0.18, -0.20, sun);
 
-          // City lights, warmed toward sodium amber so the globe
-          // sits in the page's bronze palette.
-          float lum = dot(tex, vec3(0.299, 0.587, 0.114));
-          vec3 lights = tex * vec3(1.32, 0.98, 0.62) * 1.45;
+          // ── Twinkle ──────────────────────────────────────────────
+          // Two hashes at different scales: one for the city, one
+          // finer for variation inside it. Rates differ per patch so
+          // nothing beats in unison.
+          float h1 = hash(floor(vUv * 420.0));
+          float h2 = hash(floor(vUv * 1600.0) + 7.3);
+          float rate = 1.1 + h1 * 3.4;
+          float tw = 0.60
+                   + 0.40 * sin(uTime * rate + h1 * 62.8)
+                   + 0.18 * sin(uTime * (rate * 2.7) + h2 * 41.3);
+
+          // ── Lights ───────────────────────────────────────────────
+          // The texture alone is too dim once it's this small on
+          // screen, so brightness is pushed hard and a separate bloom
+          // term is added wherever there's any light at all. That
+          // second term is what makes a city read as a glow rather
+          // than a grey pixel.
+          vec3 sodium = vec3(1.0, 0.74, 0.38);
+          float core  = smoothstep(0.015, 0.30, lum);
+          float halo  = smoothstep(0.004, 0.14, lum);
+
+          vec3 lights = tex * sodium * 3.4          // the imagery, lifted
+                      + sodium * core * 2.6         // hot core
+                      + vec3(0.9,0.55,0.24) * halo * 0.9; // surrounding glow
+
+          lights *= 0.72 + 0.52 * tw;
+
+          // Night ground stays very dark so the lights carry.
+          vec3 nightBase = mix(vec3(0.015,0.028,0.05),
+                               vec3(0.04,0.06,0.09), lum);
 
           // Day side: the same imagery read as cool lit ocean/land.
-          vec3 day = mix(vec3(0.05,0.09,0.15), vec3(0.42,0.54,0.70), lum * 1.6)
+          vec3 day = mix(vec3(0.06,0.10,0.17), vec3(0.40,0.52,0.68), lum * 1.5)
                      * max(sun, 0.0);
 
-          vec3 col = day * (1.0 - night) + lights * night;
+          vec3 col = day * (1.0 - night) + (nightBase + lights) * night;
 
           // Warm rim along the terminator.
           float band = smoothstep(0.34, 0.0, abs(sun)) * 0.5;
           col += vec3(0.95, 0.55, 0.22) * band * 0.4;
 
           // Limb darkening so the sphere's edge reads as curvature.
+          // Gentler than before — it was dimming the lights too.
           float facing = abs(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)));
-          col *= 0.55 + 0.45 * pow(facing, 0.4);
+          col *= 0.72 + 0.28 * pow(facing, 0.4);
 
           gl_FragColor = vec4(col, 1.0);
         }
@@ -426,7 +473,18 @@ export default function EarthGlobe() {
         pos.needsUpdate = true;
       }
 
-      starMat.uniforms.uTime.value = t;
+      /**
+       * Wrapped, not raw. GLSL mediump floats lose precision as the
+       * value grows, so after a long session sin(uTime * rate) goes
+       * blocky and the twinkle starts stepping. 1000s is far longer
+       * than any twinkle period, so wrapping is invisible.
+       *
+       * Frozen entirely under reduced motion — the lights stay lit,
+       * they just stop flickering.
+       */
+      const shaderTime = reduced ? 0 : t % 1000;
+      starMat.uniforms.uTime.value = shaderTime;
+      uniforms.uTime.value = shaderTime;
 
       // Sun direction, counter-rotated into the mesh's frame so the
       // terminator stays fixed to the real world while Earth turns.
