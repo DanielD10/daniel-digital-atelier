@@ -41,13 +41,16 @@ export default function SiteMotion() {
     gsap.set("[data-reveal]", { opacity: 0, y: 28 });
     gsap.set(".tile", { opacity: 0, yPercent: 22 });
     gsap.set(".rail > *", { opacity: 0, y: 10 });
-    // CSS owns the translateZ/scale on .veil, .veil-fore and .plate —
-    // those establish the depth planes. GSAP must never write to
-    // those elements' transforms or it flattens the 3D stage. So all
-    // veil motion targets the inner <svg> instead.
+    // CSS owns the translateZ/scale on .veil and .plate — those
+    // establish the depth planes. GSAP must never write to those
+    // elements' transforms or it flattens the 3D stage. So globe
+    // motion targets the inner canvas instead.
+    //
+    // And it never scales the canvas: scaling a bitmap resamples it,
+    // which is exactly the softness we rendered at devicePixelRatio
+    // to avoid. Opacity and translation only.
     gsap.set(".veil", { opacity: 0 });
-    gsap.set(".veil svg", { scale: 1.08 });
-    gsap.set(".veil-fore", { opacity: 0 });
+    gsap.set(".earth-canvas", { yPercent: 3 });
     gsap.set(".meridian", { scaleY: 0, transformOrigin: "top" });
     gsap.set(".monogram", { opacity: 0, y: -14 });
 
@@ -75,11 +78,11 @@ export default function SiteMotion() {
       const intro = gsap.timeline({ defaults: { ease: "expo.out", duration: 1.4 } });
 
       intro
-        .to(".veil", { opacity: 1, duration: 2.2, ease: "power2.out" }, 0)
-        .to(".veil svg", { scale: 1, duration: 2.4, ease: "power2.out" }, 0)
-        // Tendrils arrive after the name, so you register the type
-        // first and the smoke crossing it second.
-        .to(".veil-fore", { opacity: 0.62, duration: 2, ease: "power2.out" }, 1.1)
+        // The planet resolves out of black over two and a half
+        // seconds. This is the one moment on the page; nothing else
+        // competes with it.
+        .to(".veil", { opacity: 1, duration: 2.5, ease: "power2.out" }, 0)
+        .to(".earth-canvas", { yPercent: 0, duration: 2.6, ease: "power2.out" }, 0)
         .to(".monogram", { opacity: 1, y: 0, duration: 1 }, 0.1)
         .to(".wordmark .line-inner", { yPercent: 0, stagger: 0.09, duration: 1.5 }, 0.25)
         .to(".meridian", { scaleY: 1, duration: 1.6 }, 0.3)
@@ -95,9 +98,8 @@ export default function SiteMotion() {
         scrollTrigger: { trigger: ".stage", start: "top top", end: "bottom top", scrub: true },
       });
 
-      gsap.to(".veil svg", {
-        yPercent: 10,
-        scale: 1.06,
+      gsap.to(".earth-canvas", {
+        yPercent: 9,
         ease: "none",
         scrollTrigger: { trigger: ".stage", start: "top top", end: "bottom top", scrub: true },
       });

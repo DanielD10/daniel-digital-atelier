@@ -162,7 +162,6 @@ html.js [data-reveal] { opacity: 0; }
 html.js .tile { opacity: 0; }
 html.js .rail > * { opacity: 0; }
 html.js .veil { opacity: 0; }
-html.js .veil-fore { opacity: 0; }
 
 /* ─────────────────── masthead ─────────────────── */
 .mast {
@@ -289,20 +288,17 @@ html.js .veil-fore { opacity: 0; }
   z-index: 0;
   transform: translateZ(-300px) scale(1.214);
 }
-.veil svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-/* Foreground tendrils sit in front of the type in 3D space, so the
-   browser paints them over the letterforms without any z-index. */
-.veil-fore {
+/* The globe canvas renders at devicePixelRatio internally, so it is
+   sharp on retina. It is never scaled by CSS or GSAP — resampling a
+   bitmap would throw away exactly the resolution we rendered for. */
+.earth-canvas {
   position: absolute;
   inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transform: translateZ(40px) scale(0.971);
-  mix-blend-mode: screen;
-  opacity: 0.62;
+  width: 100%;
+  height: 100%;
+  display: block;
+  will-change: transform;
 }
-.veil-fore svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 /*
   Where your render goes. Set --hero-image on :root and this layer
@@ -332,13 +328,25 @@ html.js .veil-fore { opacity: 0; }
   image-rendering: auto;
 }
 
+/*
+  Keeps the left third clean for the wordmark while letting the globe
+  stay legible on the right. Lighter than the marble version was —
+  city lights are small and the old falloff buried them. The corner
+  vignette is gone entirely: the planet has its own edge, and
+  darkening around it just fought the atmosphere halo.
+*/
 .veil::after {
   content: "";
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(90deg, var(--ink) 8%, rgba(7, 6, 5, 0.86) 26%, rgba(7, 6, 5, 0.18) 52%, rgba(7, 6, 5, 0.5) 100%),
-    radial-gradient(120% 90% at 62% 40%, transparent 35%, rgba(7, 6, 5, 0.9) 100%);
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    var(--ink) 6%,
+    rgba(7, 6, 5, 0.88) 22%,
+    rgba(7, 6, 5, 0.34) 40%,
+    rgba(7, 6, 5, 0) 58%
+  );
 }
 
 .meridian {
@@ -864,7 +872,6 @@ html.js .veil-fore { opacity: 0; }
   .stage { perspective: none; }
   .depth { transform: none !important; }
   .veil { transform: none; }
-  .veil-fore { transform: none; opacity: 0.45; }
   .plate { transform: none; }
   .grain { opacity: 0.03; animation: none; }
 }
@@ -920,7 +927,7 @@ html.js .veil-fore { opacity: 0; }
   /* Flatten the 3D stage so nothing sits at an odd angle. */
   .stage { perspective: none; }
   .depth { transform: none !important; }
-  .veil, .veil-fore, .plate { transform: none !important; }
+  .veil, .plate { transform: none !important; }
   *,
   *::before,
   *::after {
