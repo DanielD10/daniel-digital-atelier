@@ -76,6 +76,37 @@ html.lenis body {
   overflow: hidden;
 }
 
+/* ═══════════════ FILM GRAIN ═══════════════
+   A fixed noise layer over the whole site at very low opacity. On a
+   near-black page, flat areas band into visible steps on 8-bit
+   panels; grain dithers those away and reads as film rather than as
+   a gradient. The SVG is inline as a data URI, so it costs one
+   decode and no network request. */
+.grain {
+  position: fixed;
+  inset: -50%;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.042;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23g)'/></svg>");
+  background-size: 220px 220px;
+  will-change: transform;
+  animation: grainShift 7s steps(6) infinite;
+}
+
+/* Static grain reads as a dirty screen. Moving grain reads as film.
+   Steps, not a smooth tween — real grain jumps per frame. */
+@keyframes grainShift {
+  0%   { transform: translate3d(0, 0, 0); }
+  17%  { transform: translate3d(-3%, 2%, 0); }
+  34%  { transform: translate3d(2%, -4%, 0); }
+  51%  { transform: translate3d(-2%, 3%, 0); }
+  68%  { transform: translate3d(3%, 1%, 0); }
+  85%  { transform: translate3d(-1%, -2%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
 .skip {
   position: absolute;
   left: -9999px;
@@ -130,6 +161,8 @@ html.js [data-anim="fade"] { opacity: 0; }
 html.js [data-reveal] { opacity: 0; }
 html.js .tile { opacity: 0; }
 html.js .rail > * { opacity: 0; }
+html.js .veil { opacity: 0; }
+html.js .veil-fore { opacity: 0; }
 
 /* ─────────────────── masthead ─────────────────── */
 .mast {
@@ -222,11 +255,69 @@ html.js .rail > * { opacity: 0; }
   grid-template-rows: 1fr auto;
   padding-bottom: var(--rail);
   overflow: hidden;
+
+  /* Real perspective, not parallax. With a perspective origin and
+     preserve-3d below, layers at different translateZ foreshorten
+     correctly when the stage rotates — near things sweep, far things
+     barely move, and the geometry is actually right. */
+  perspective: 1400px;
+  perspective-origin: 60% 42%;
 }
 
-.veil { position: absolute; inset: 0; overflow: hidden; z-index: 0; will-change: transform; }
+/* The 3D context. Everything inside occupies a depth plane. */
+.depth {
+  position: relative;
+  grid-row: 1;
+  display: grid;
+  align-content: center;
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+/*
+  Each plane is scaled to cancel the size change that translateZ
+  causes, so the composition looks identical at rest and only moves
+  differently. Factor is (perspective + depth) / perspective.
+    veil  at -300 → 1700/1400 = 1.214
+    plate at  +90 → 1310/1400 = 0.936
+    fore  at  +40 → 1360/1400 = 0.971
+*/
+.veil {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: 0;
+  transform: translateZ(-300px) scale(1.214);
+}
 .veil svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
+/* Foreground tendrils sit in front of the type in 3D space, so the
+   browser paints them over the letterforms without any z-index. */
+.veil-fore {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translateZ(40px) scale(0.971);
+  mix-blend-mode: screen;
+  opacity: 0.62;
+}
+.veil-fore svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/*
+  Where your render goes. Set --hero-image on :root and this layer
+  paints over the procedural marble.
+
+    --hero-image: image-set(
+      url('/images/hero/hero-sculpture.avif') type('image/avif'),
+      url('/images/hero/hero-sculpture.webp') type('image/webp')
+    );
+
+  image-set lets the browser pick AVIF where supported and fall back
+  to WebP, and serves the 2x file on retina without a media query.
+  Export at 2400px wide minimum — the layer is up to 1180 CSS px, so
+  that is the 2x asset.
+*/
 .hero-art {
   position: absolute;
   top: 0;
@@ -236,6 +327,9 @@ html.js .rail > * { opacity: 0; }
   background-image: var(--hero-image);
   background-size: cover;
   background-position: 52% 42%;
+  /* Stops the browser softening the image when it scales it down,
+     which is what makes a high-res export look low-res. */
+  image-rendering: auto;
 }
 
 .veil::after {
@@ -257,7 +351,13 @@ html.js .rail > * { opacity: 0; }
   background: linear-gradient(180deg, transparent, rgba(182, 135, 63, 0.55) 12%, rgba(182, 135, 63, 0.25) 70%, transparent);
 }
 
-.hero-inner { position: relative; z-index: 2; display: grid; align-content: center; }
+.hero-inner {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  align-content: center;
+  transform: translateZ(0);
+}
 
 .hero {
   display: grid;
@@ -328,6 +428,7 @@ html.js .rail > * { opacity: 0; }
   background: linear-gradient(200deg, #2a2b2f, #0b0d10 62%, #04050a);
   overflow: hidden;
   z-index: 2;
+  transform: translateZ(90px) scale(0.936);
   will-change: transform;
 }
 .plate::after {
@@ -756,6 +857,18 @@ html.js .rail > * { opacity: 0; }
   .flank-r, .cue, .plate { display: none; }
 }
 
+/* No pointer to drive it, and compositing three stacked filter
+   layers in a 3D context is the most expensive thing on the page.
+   Touch devices get the flat composition. */
+@media (pointer: coarse), (max-width: 1100px) {
+  .stage { perspective: none; }
+  .depth { transform: none !important; }
+  .veil { transform: none; }
+  .veil-fore { transform: none; opacity: 0.45; }
+  .plate { transform: none; }
+  .grain { opacity: 0.03; animation: none; }
+}
+
 @media (max-width: 760px) {
   :root { --strip: 190px; --rail: 64px; }
   .mast { padding-top: 18px; }
@@ -802,6 +915,12 @@ html.js .rail > * { opacity: 0; }
   .line-inner { transform: none !important; }
   .cue .tail { animation: none; transform: none; opacity: 0.8; }
   .case-track { transform: none !important; overflow-x: auto; }
+  /* Grain stays — it's texture, not motion — but stops moving. */
+  .grain { animation: none; }
+  /* Flatten the 3D stage so nothing sits at an odd angle. */
+  .stage { perspective: none; }
+  .depth { transform: none !important; }
+  .veil, .veil-fore, .plate { transform: none !important; }
   *,
   *::before,
   *::after {

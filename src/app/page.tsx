@@ -15,6 +15,10 @@ export default function Home() {
       <main id="main">
         {/* ── Screen one. Matches the approved mockup exactly. ───── */}
         <section className="stage">
+          {/* Everything in here shares one 3D context. The veil sits
+              at -300px, the type at 0, the plate at +90, and the
+              foreground tendrils at +40 so they cross the letters. */}
+          <div className="depth">
           <HeroVeil />
           <div className="meridian" aria-hidden="true" />
 
@@ -102,6 +106,7 @@ export default function Home() {
               <span className="ring">Scroll</span>
               <span className="tail" />
             </div>
+          </div>
           </div>
 
           <div className="strip-wrap">

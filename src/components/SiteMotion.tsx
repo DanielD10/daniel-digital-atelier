@@ -41,7 +41,13 @@ export default function SiteMotion() {
     gsap.set("[data-reveal]", { opacity: 0, y: 28 });
     gsap.set(".tile", { opacity: 0, yPercent: 22 });
     gsap.set(".rail > *", { opacity: 0, y: 10 });
-    gsap.set(".veil", { opacity: 0, scale: 1.08 });
+    // CSS owns the translateZ/scale on .veil, .veil-fore and .plate —
+    // those establish the depth planes. GSAP must never write to
+    // those elements' transforms or it flattens the 3D stage. So all
+    // veil motion targets the inner <svg> instead.
+    gsap.set(".veil", { opacity: 0 });
+    gsap.set(".veil svg", { scale: 1.08 });
+    gsap.set(".veil-fore", { opacity: 0 });
     gsap.set(".meridian", { scaleY: 0, transformOrigin: "top" });
     gsap.set(".monogram", { opacity: 0, y: -14 });
 
@@ -69,7 +75,11 @@ export default function SiteMotion() {
       const intro = gsap.timeline({ defaults: { ease: "expo.out", duration: 1.4 } });
 
       intro
-        .to(".veil", { opacity: 1, scale: 1, duration: 2.2, ease: "power2.out" }, 0)
+        .to(".veil", { opacity: 1, duration: 2.2, ease: "power2.out" }, 0)
+        .to(".veil svg", { scale: 1, duration: 2.4, ease: "power2.out" }, 0)
+        // Tendrils arrive after the name, so you register the type
+        // first and the smoke crossing it second.
+        .to(".veil-fore", { opacity: 0.62, duration: 2, ease: "power2.out" }, 1.1)
         .to(".monogram", { opacity: 1, y: 0, duration: 1 }, 0.1)
         .to(".wordmark .line-inner", { yPercent: 0, stagger: 0.09, duration: 1.5 }, 0.25)
         .to(".meridian", { scaleY: 1, duration: 1.6 }, 0.3)
@@ -85,8 +95,9 @@ export default function SiteMotion() {
         scrollTrigger: { trigger: ".stage", start: "top top", end: "bottom top", scrub: true },
       });
 
-      gsap.to(".veil", {
+      gsap.to(".veil svg", {
         yPercent: 10,
+        scale: 1.06,
         ease: "none",
         scrollTrigger: { trigger: ".stage", start: "top top", end: "bottom top", scrub: true },
       });
@@ -176,18 +187,28 @@ export default function SiteMotion() {
         scrollTrigger: { start: 0, end: "max", scrub: 0.3 },
       });
 
-      // ── 8. Pointer parallax on the hero. A few pixels only. ─────
-      if (finePointer) {
-        const veil = gsap.quickTo(".veil", "x", { duration: 1.2, ease: "power3.out" });
-        const veilY = gsap.quickTo(".veil", "y", { duration: 1.2, ease: "power3.out" });
-        const mark = gsap.quickTo(".wordmark", "x", { duration: 1.4, ease: "power3.out" });
+      // ── 8. Pointer perspective.
+      //
+      // This rotates the whole 3D stage rather than sliding layers.
+      // Because .depth is preserve-3d and its children sit at
+      // different translateZ, one rotation produces correct
+      // foreshortening on every plane at once — the far veil barely
+      // shifts, the near plate sweeps. Sliding layers at different
+      // speeds approximates this; rotating the space *is* it.
+      //
+      // Angles stay under 2.5deg. Past that it stops reading as depth
+      // and starts reading as a gimmick.
+      const stage = document.querySelector(".depth");
+
+      if (finePointer && stage && window.innerWidth > 1100) {
+        const rotY = gsap.quickTo(stage, "rotationY", { duration: 1.3, ease: "power3.out" });
+        const rotX = gsap.quickTo(stage, "rotationX", { duration: 1.3, ease: "power3.out" });
 
         onPointer = (event: PointerEvent) => {
           const x = event.clientX / window.innerWidth - 0.5;
           const y = event.clientY / window.innerHeight - 0.5;
-          veil(x * -26);
-          veilY(y * -18);
-          mark(x * 9);
+          rotY(x * 2.4);
+          rotX(y * -1.7);
         };
 
         window.addEventListener("pointermove", onPointer, { passive: true });

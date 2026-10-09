@@ -104,6 +104,7 @@ export default function RootLayout({
           Skip to content
         </a>
         {children}
+        <div className="grain" aria-hidden="true" />
       </body>
     </html>
   );
