@@ -14,17 +14,26 @@ export default function CaseTrack() {
     <section className="cases" aria-label="Case studies">
       <div className="case-track">
         <div className="case-intro case-panel">
-          <p className="micro">03 — Selected work</p>
-          <h2 className="case-intro-type">
-            Four
-            <br />
-            projects.
-          </h2>
-          <p className="case-intro-body">
-            Each labelled for what it is. Concept work says concept,
-            client work says client. Keep scrolling — it moves sideways
-            from here.
-          </p>
+          {/* A bronze wash sits behind this panel only, so the run
+              opens on something lit rather than another dark card. */}
+          <span className="case-intro-glow" aria-hidden="true" />
+
+          <div className="case-intro-inner">
+            <p className="micro case-intro-label">03 — Selected work</p>
+            <h2 className="case-intro-type">
+              Four
+              <br />
+              projects.
+            </h2>
+            <p className="case-intro-body">
+              Each labelled for what it is. Concept work says concept,
+              client work says client.
+            </p>
+            <p className="case-intro-cue">
+              Keep scrolling <span aria-hidden="true">&#8594;</span> it moves
+              sideways from here
+            </p>
+          </div>
         </div>
 
         {projects.map((project, i) => (

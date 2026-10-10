@@ -171,26 +171,87 @@ export default function SiteMotion() {
           },
         });
 
-        // Art lags its frame. Cheap depth, large effect.
         gsap.utils.toArray<HTMLElement>(".case-panel").forEach((panel) => {
-          const art = panel.querySelector(".case-art");
-          if (!art) return;
-
-          gsap.fromTo(
-            art,
-            { xPercent: -6 },
-            {
-              xPercent: 6,
-              ease: "none",
-              scrollTrigger: {
-                trigger: panel,
-                containerAnimation: horizontal,
-                start: "left right",
-                end: "right left",
-                scrub: true,
-              },
+          /**
+           * Each panel rises as it reaches the middle of the screen
+           * and settles back as it leaves. Scrubbed against the
+           * horizontal tween, not the page, so the peak lands
+           * exactly when the panel is centred.
+           *
+           * This is what stops the run reading as one flat texture
+           * sliding past: at any moment one panel is clearly the
+           * subject and the others have receded.
+           */
+          const focus = gsap.timeline({
+            scrollTrigger: {
+              trigger: panel,
+              containerAnimation: horizontal,
+              start: "left right",
+              end: "right left",
+              scrub: true,
             },
-          );
+          });
+
+          focus
+            .fromTo(
+              panel,
+              { scale: 0.9, opacity: 0.4, filter: "brightness(0.55)" },
+              {
+                scale: 1,
+                opacity: 1,
+                filter: "brightness(1)",
+                ease: "power2.out",
+                duration: 0.5,
+              },
+            )
+            .to(panel, {
+              scale: 0.9,
+              opacity: 0.4,
+              filter: "brightness(0.55)",
+              ease: "power2.in",
+              duration: 0.5,
+            });
+
+          // Art lags its frame. Cheap depth, large effect.
+          const art = panel.querySelector(".case-art");
+          if (art) {
+            gsap.fromTo(
+              art,
+              { xPercent: -6 },
+              {
+                xPercent: 6,
+                ease: "none",
+                scrollTrigger: {
+                  trigger: panel,
+                  containerAnimation: horizontal,
+                  start: "left right",
+                  end: "right left",
+                  scrub: true,
+                },
+              },
+            );
+          }
+
+          // The copy inside travels a little further than its panel,
+          // so text arrives after the frame it sits in.
+          const copy = panel.querySelector(".case-body, .case-intro-inner");
+          if (copy) {
+            gsap.fromTo(
+              copy,
+              { y: 46 },
+              {
+                y: -46,
+                ease: "none",
+                scrollTrigger: {
+                  trigger: panel,
+                  containerAnimation: horizontal,
+                  start: "left right",
+                  end: "right left",
+                  scrub: true,
+                },
+              },
+            );
+          }
         });
       }
 

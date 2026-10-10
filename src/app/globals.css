@@ -821,6 +821,8 @@ main { position: relative; z-index: 3; }
 .case-panel {
   position: relative;
   flex: 0 0 auto;
+  transform-origin: center center;
+  will-change: transform, opacity, filter;
   width: min(74vw, 980px);
   border-right: 1px solid rgba(74, 69, 62, 0.4);
   overflow: hidden;
@@ -829,21 +831,93 @@ main { position: relative; z-index: 3; }
 }
 
 .case-intro {
-  width: min(52vw, 620px);
+  width: min(56vw, 680px);
   display: grid;
   align-content: center;
   padding: var(--gut);
-  gap: 24px;
+  position: relative;
+  /* Lit, not flat. The run opens on the one panel that glows. */
+  background:
+    radial-gradient(90% 70% at 16% 42%, rgba(182, 135, 63, 0.14), transparent 68%),
+    linear-gradient(118deg, #15110c 0%, #0b0908 56%, #060505 100%);
 }
+
+/* Bronze bloom behind the type. Animated so the panel breathes
+   instead of sitting there as a static gradient. */
+.case-intro-glow {
+  position: absolute;
+  left: -8%;
+  top: 14%;
+  width: 70%;
+  height: 72%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(201, 150, 70, 0.3), transparent 66%);
+  filter: blur(42px);
+  pointer-events: none;
+  animation: introBreathe 9s ease-in-out infinite alternate;
+}
+
+@keyframes introBreathe {
+  from { opacity: 0.55; transform: scale(0.94); }
+  to   { opacity: 1;    transform: scale(1.06); }
+}
+
+.case-intro-inner {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 22px;
+  will-change: transform;
+}
+
+.case-intro-label {
+  color: var(--bronze) !important;
+  margin-bottom: 4px !important;
+}
+
 .case-intro-type {
   font-family: var(--f-display);
-  font-weight: 400;
-  font-size: clamp(44px, 6vw, 92px);
-  line-height: 0.9;
+  font-weight: 500;
+  font-size: clamp(52px, 7.4vw, 118px);
+  line-height: 0.86;
+  letter-spacing: -0.022em;
   margin: 0;
-  color: #f3efe7;
+  color: #fdfaf4;
+  text-shadow: 0 0 70px rgba(201, 150, 70, 0.3);
 }
-.case-intro-body { max-width: 34ch; line-height: 1.7; color: #b8b2a8; font-size: 15px; margin: 0; }
+
+.case-intro-body {
+  max-width: 32ch;
+  line-height: 1.7;
+  color: #d3cdc3;
+  font-size: 16px;
+  margin: 0;
+}
+
+/* The one instruction on the page. Earns an underline that keeps
+   travelling, because a static hint about movement is a dead note. */
+.case-intro-cue {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  justify-self: start;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  margin: 10px 0 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(182, 135, 63, 0.45);
+}
+.case-intro-cue span {
+  animation: cueSlide 1.9s ease-in-out infinite;
+  color: var(--bronze);
+}
+
+@keyframes cueSlide {
+  0%, 100% { transform: translateX(0); opacity: 0.6; }
+  50%      { transform: translateX(7px); opacity: 1; }
+}
 
 .case-art {
   position: absolute;
@@ -1361,6 +1435,11 @@ main { position: relative; z-index: 3; }
   .case-track { transform: none !important; overflow-x: auto; }
   /* Grain stays — it's texture, not motion — but stops moving. */
   .grain { animation: none; }
+  .case-intro-glow { animation: none; opacity: 0.85; transform: none; }
+  .case-intro-cue span { animation: none; opacity: 1; transform: none; }
+  /* The focus scrub is skipped in JS, so panels must not be left
+     sitting at their dimmed start state. */
+  .case-panel { opacity: 1 !important; transform: none !important; filter: none !important; }
 
   /* The tile swell becomes a brightness change. With transitions
      clamped to ~0ms a 7.5% scale jump is a flinch, not an effect,
