@@ -1686,7 +1686,19 @@ main { position: relative; z-index: 3; }
 }
 .os-mark { color: var(--neon, #ff2f86); font-size: 11px; }
 .os-menu strong { font-weight: 500; letter-spacing: 0.14em; }
-.os-menu-item { opacity: 0.5; }
+.os-menu-item {
+  opacity: 0.6;
+  background: none;
+  border: 0;
+  padding: 3px 2px;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+.os-menu-item:hover,
+.os-menu-item:focus-visible { opacity: 1; outline: none; }
 .os-menu-right {
   margin-left: auto;
   display: flex;
@@ -1697,17 +1709,40 @@ main { position: relative; z-index: 3; }
   font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  opacity: 0.45;
+  opacity: 0.55;
+  background: none;
   border: 1px solid rgba(255, 255, 255, 0.16);
   border-radius: 2px;
   padding: 2px 7px;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.os-chip:hover,
+.os-chip:focus-visible {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.4);
+  outline: none;
 }
 .os-chip.is-on {
   opacity: 1;
   color: #7df0c0;
   border-color: rgba(125, 240, 192, 0.5);
 }
-.os-clock { font-variant-numeric: tabular-nums; letter-spacing: 0.1em; }
+.os-clock {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.1em;
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+.os-clock:hover { color: #fff; }
 
 /* ── Desktop ────────────────────────────────────────────────── */
 .os-desk {

@@ -14,7 +14,10 @@ import { useSyncExternalStore } from "react";
  */
 
 const SRC = "/audio/ambient.mp3";
-const FADE_MS = 1200;
+/** Slow in, quick out. Waiting over a second for silence after
+ *  pressing pause reads as the button not having worked. */
+const FADE_IN_MS = 1100;
+const FADE_OUT_MS = 380;
 const STEP_MS = 40;
 
 export type AmbientState = {
@@ -67,20 +70,37 @@ function stopFade() {
   }
 }
 
-function fadeTo(el: HTMLAudioElement, to: number, onDone?: () => void) {
+/**
+ * Every play or pause takes the next token.
+ *
+ * A fade owns a callback that runs up to a second later, and the
+ * fade-out's callback is `el.pause()`. Press pause then play again
+ * before it lands and that stale callback pauses the playback you
+ * just started — the button appears to work, then the music dies a
+ * beat later for no visible reason. The token means a fade can
+ * only finish the job it was started for.
+ */
+let token = 0;
+
+function fadeTo(el: HTMLAudioElement, to: number, ms: number, onDone?: () => void) {
   stopFade();
 
+  const mine = ++token;
   const from = el.volume;
-  const steps = Math.max(1, Math.round(FADE_MS / STEP_MS));
+  const steps = Math.max(1, Math.round(ms / STEP_MS));
   let step = 0;
 
   fade = window.setInterval(() => {
+    if (mine !== token) {
+      stopFade();
+      return;
+    }
     step += 1;
     const t = Math.min(1, step / steps);
     el.volume = Math.max(0, Math.min(1, from + (to - from) * t));
     if (t >= 1) {
       stopFade();
-      onDone?.();
+      if (mine === token) onDone?.();
     }
   }, STEP_MS);
 }
@@ -91,7 +111,7 @@ export async function playAmbient(): Promise<void> {
 
   try {
     await el.play();
-    fadeTo(el, state.volume);
+    fadeTo(el, state.volume, FADE_IN_MS);
     set({ playing: true });
   } catch {
     // Autoplay refusal or a missing file. The site works in
@@ -108,7 +128,7 @@ export function pauseAmbient(): void {
   set({ playing: false });
   const el = audio;
   if (!el) return;
-  fadeTo(el, 0, () => el.pause());
+  fadeTo(el, 0, FADE_OUT_MS, () => el.pause());
 }
 
 export function toggleAmbient(): void {

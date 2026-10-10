@@ -9,6 +9,7 @@ import {
   pauseAmbient,
   playAmbient,
   setAmbientVolume,
+  toggleAmbient,
   useAmbient,
 } from "@/lib/ambient";
 import type { Phase, Season } from "@/lib/atelier-time";
@@ -1037,22 +1038,49 @@ export default function AtelierOS({
           <BootScreen instant={reduced} onDone={() => setBooted(true)} />
         ) : (
           <>
-            {/* ── Menu bar ─────────────────────────────────── */}
+            {/**
+             * Menu bar.
+             *
+             * Everything in here that looks pressable is pressable.
+             * There were decorative File and View labels and two
+             * chips styled exactly like buttons that did nothing,
+             * and people quite reasonably clicked them and
+             * concluded the machine was broken. A control that
+             * looks live and is not is worse than no control.
+             */}
             <div className="os-menu">
               <span className="os-mark" aria-hidden="true">
                 ◆
               </span>
               <strong>Atelier</strong>
-              <span className="os-menu-item">File</span>
-              <span className="os-menu-item">View</span>
-              <span className="os-menu-item">Light</span>
+
+              <button type="button" className="os-menu-item" onClick={() => onPhase()}>
+                Light
+              </button>
+              <button type="button" className="os-menu-item" onClick={() => onSeason()}>
+                Season
+              </button>
 
               <span className="os-menu-right">
-                <span className={playing ? "os-chip is-on" : "os-chip"}>
+                <button
+                  type="button"
+                  className={playing ? "os-chip is-on" : "os-chip"}
+                  onClick={toggleAmbient}
+                  aria-pressed={playing}
+                >
                   {playing ? "♪ on" : "♪ off"}
-                </span>
-                <span className="os-chip">{season}</span>
-                <span className="os-clock">{clock}</span>
+                </button>
+                <button type="button" className="os-chip" onClick={() => onSeason()}>
+                  {season}
+                </button>
+                <button
+                  type="button"
+                  className="os-clock"
+                  onClick={() => onPhase()}
+                  title="Change the light"
+                >
+                  {clock}
+                </button>
               </span>
             </div>
 
