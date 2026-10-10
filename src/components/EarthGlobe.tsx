@@ -24,10 +24,19 @@ import * as THREE from "three";
  *   2. SPECULAR MAP — oceans glint, land does not. Without it the
  *                     whole surface is one material, which is
  *                     exactly what a printed map is.
- *   3. CLOUDS       — their own layer, their own drift, casting
- *                     shadow on the ground below.
- *   4. NIGHT LIGHTS — cities on the dark side.
- *   5. DAY ALBEDO   — the surface itself.
+ *   3. NIGHT LIGHTS — cities on the dark side.
+ *   4. DAY ALBEDO   — the surface itself.
+ *
+ * There was a cloud layer. It is gone, and it is not coming back
+ * in this form. A cloud map is a near-binary mask — hard white on
+ * hard black — which is the worst possible input for a lossy
+ * codec: WebP spent its bits on the edges and still laid down
+ * 16-pixel blocks along every one of them. Stretched over a
+ * sphere and then multiplied by the shader, those blocks read as
+ * giant black squares marching across the planet. Nothing in the
+ * shader could fix an artefact baked into the texture, and the
+ * globe without weather looks like a globe; the globe with that
+ * looked broken.
  *
  * Textures are NASA-derived, from the three.js examples set.
  */
@@ -39,7 +48,6 @@ const MAPS = {
   night: "/images/earth/night.webp",
   spec: "/images/earth/spec.webp",
   normal: "/images/earth/normal.webp",
-  clouds: "/images/earth/clouds.webp",
 } as const;
 
 /** Sub-solar point: the lat/lon where the sun is directly overhead. */
@@ -76,7 +84,7 @@ function loadTexture(
         // colour — converting those would bend the values.
         tex.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         tex.anisotropy = 8;
-        tex.wrapS = THREE.RepeatWrapping; // clouds scroll in u
+        tex.wrapS = THREE.RepeatWrapping; // the map wraps at the date line
         tex.wrapT = THREE.ClampToEdgeWrapping;
         resolve(tex);
       },
@@ -178,7 +186,7 @@ export default function EarthGlobe() {
           vDir = length(radial) > 0.0001 ? normalize(radial) : vec2(0.0, 1.0);
 
           float near = 1.0 - smoothstep(0.0, 200.0, d);
-          vStretch = 1.0 + uWarp * (1.6 + near * 5.4);
+          vStretch = 1.0 + uWarp * (0.9 + near * 2.6);
 
           // Square sprite, so it must grow by the full stretch or
           // the streak clips at its own edge. Clamped because
@@ -235,13 +243,10 @@ export default function EarthGlobe() {
       uNight: { value: blank as THREE.Texture },
       uSpec: { value: blank as THREE.Texture },
       uNormal: { value: blank as THREE.Texture },
-      uClouds: { value: blank as THREE.Texture },
       uHasDay: { value: 0 },
       uHasSpec: { value: 0 },
       uHasNormal: { value: 0 },
-      uHasClouds: { value: 0 },
       uSun: { value: new THREE.Vector3(1, 0, 0) },
-      uCloudShift: { value: 0 },
     };
 
     const earthMat = new THREE.ShaderMaterial({
@@ -280,13 +285,10 @@ export default function EarthGlobe() {
         uniform sampler2D uNight;
         uniform sampler2D uSpec;
         uniform sampler2D uNormal;
-        uniform sampler2D uClouds;
         uniform float uHasDay;
         uniform float uHasSpec;
         uniform float uHasNormal;
-        uniform float uHasClouds;
         uniform vec3  uSun;
-        uniform float uCloudShift;
 
         varying vec2 vUv;
         varying vec3 vN;
@@ -349,25 +351,7 @@ export default function EarthGlobe() {
           vec3 sodium = lights * vec3(1.25, 0.95, 0.58) * 2.6
                       + vec3(1.0, 0.76, 0.4) * smoothstep(0.02, 0.32, lum) * 1.1;
 
-          // ── Clouds ─────────────────────────────────────────
-          // Scrolled in u on their own clock, so weather moves
-          // independently of the planet underneath it.
-          vec2 cuv = vec2(fract(vUv.x + uCloudShift), vUv.y);
-          float cloud = texture2D(uClouds, cuv).r * uHasClouds;
-
-          // Shadow: sample the cloud layer offset toward the sun
-          // and darken the ground under it. Without this the cloud
-          // floats with nothing holding it down.
-          vec2 soff = vec2(L.x, L.y) * 0.006;
-          float shade = texture2D(uClouds, fract(cuv + soff)).r * uHasClouds;
-
-          vec3 ground = lit * (1.0 - shade * 0.5) * (1.0 - night)
-                      + sodium * night * (1.0 - cloud * 0.72);
-
-          vec3 cloudCol = mix(vec3(0.05, 0.07, 0.11), vec3(0.98, 0.98, 1.0),
-                              pow(max(0.0, (ndl + 0.4) / 1.4), 1.4));
-
-          vec3 col = mix(ground, cloudCol, cloud * 0.85);
+          vec3 col = lit * (1.0 - night) + sodium * night;
 
           // ── Limb ───────────────────────────────────────────
           // Steep falloff at the edge. This and the relief are what
@@ -454,8 +438,7 @@ export default function EarthGlobe() {
       return Promise.all([
         loadTexture(loader, MAPS.spec, false),
         loadTexture(loader, MAPS.normal, false),
-        loadTexture(loader, MAPS.clouds, true),
-      ]).then(([spec, normal, clouds]) => {
+      ]).then(([spec, normal]) => {
         if (disposed) return;
         if (spec) {
           uniforms.uSpec.value = spec;
@@ -465,10 +448,6 @@ export default function EarthGlobe() {
           uniforms.uNormal.value = normal;
           uniforms.uHasNormal.value = 1;
         }
-        if (clouds) {
-          uniforms.uClouds.value = clouds;
-          uniforms.uHasClouds.value = 1;
-        }
       });
     });
 
@@ -476,7 +455,11 @@ export default function EarthGlobe() {
     let warp = 0;
     let warpTarget = 0;
     const BASE_SPEED = 14;
-    const WARP_SPEED = 460;
+    // Slower than it was. At 460 the field read as a jump to
+    // lightspeed, which is a different effect to drifting forward
+    // through stars — this is the latter, and the streaks want to
+    // stay short enough that each one still reads as a star.
+    const WARP_SPEED = 165;
     const BASE_FOV = 38;
 
     let scrollEased = 0;
@@ -529,7 +512,7 @@ export default function EarthGlobe() {
 
         // Widening the lens as the stars accelerate: the planet
         // holds its size while space opens around it.
-        const fov = BASE_FOV + w * 24;
+        const fov = BASE_FOV + w * 13;
         if (Math.abs(camera.fov - fov) > 0.01) {
           camera.fov = fov;
           camera.updateProjectionMatrix();
@@ -540,7 +523,6 @@ export default function EarthGlobe() {
         earth.rotation.y = lonToRotY(LON_TOP + (LON_END - LON_TOP) * scrollEased + drift);
 
         // Weather drifts slowly, independent of the planet's spin.
-        uniforms.uCloudShift.value = (t * 0.0022) % 1;
       }
 
       starMat.uniforms.uTime.value = reduced ? 0 : t % 1000;
@@ -616,7 +598,6 @@ export default function EarthGlobe() {
       uniforms.uNight.value?.dispose();
       uniforms.uSpec.value?.dispose();
       uniforms.uNormal.value?.dispose();
-      uniforms.uClouds.value?.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) {
         mount.removeChild(renderer.domElement);

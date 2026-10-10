@@ -36,6 +36,9 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* clip rather than hidden: hidden on the root turns it into a
+     scroll container and breaks position: sticky underneath it. */
+  overflow-x: clip;
 }
 
 body {
@@ -84,7 +87,12 @@ html.lenis body {
    decode and no network request. */
 .grain {
   position: fixed;
-  inset: -50%;
+  /* Just enough slack for the 4% jitter below, and not a pixel
+     more. At -50% this was a fixed layer twice the width of the
+     viewport, and a fixed element is not contained by the body's
+     overflow — so on a phone the whole page panned sideways under
+     your finger and the text slid with it. */
+  inset: -6%;
   z-index: 100;
   pointer-events: none;
   opacity: 0.042;
