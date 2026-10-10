@@ -220,11 +220,13 @@ export default function EarthGlobe() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 } },
       vertexShader: `
         attribute float aSize;
+        uniform float uWarp;
         varying float vFade;
         varying float vSeed;
+        varying float vWarp;
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
           // Fade in from the far plane and out as they pass the
@@ -232,7 +234,11 @@ export default function EarthGlobe() {
           float d = -mv.z;
           vFade = smoothstep(0.0, 60.0, d) * (1.0 - smoothstep(260.0, 420.0, d));
           vSeed = aSize;
-          gl_PointSize = aSize * (160.0 / max(d, 1.0));
+          vWarp = uWarp;
+          // Stars swell as they rush past. Near ones grow more than
+          // far ones, which is what sells the acceleration.
+          float near = 1.0 - smoothstep(0.0, 180.0, d);
+          gl_PointSize = aSize * (160.0 / max(d, 1.0)) * (1.0 + uWarp * (0.5 + near * 1.9));
           gl_Position = projectionMatrix * mv;
         }
       `,
@@ -240,14 +246,27 @@ export default function EarthGlobe() {
         uniform float uTime;
         varying float vFade;
         varying float vSeed;
+        varying float vWarp;
         void main() {
           vec2 c = gl_PointCoord - 0.5;
+
+          /**
+           * Under warp the sprite stretches along its travel axis.
+           * Squashing the sample coordinate is what turns a round
+           * star into a streak — real hyperspace is motion blur, and
+           * this is the cheapest honest version of it: no extra
+           * geometry, no second pass.
+           */
+          c.y /= (1.0 + vWarp * 2.6);
+
           float r = length(c);
           if (r > 0.5) discard;
           float core = smoothstep(0.5, 0.0, r);
-          float tw = 0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0);
+          // Twinkle flattens out at speed — things moving that fast
+          // read as solid light, not flicker.
+          float tw = mix(0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0), 1.0, vWarp);
           vec3 tint = mix(vec3(0.72,0.80,1.0), vec3(1.0,0.93,0.82), fract(vSeed * 7.3));
-          gl_FragColor = vec4(tint, core * core * vFade * tw);
+          gl_FragColor = vec4(tint, core * core * vFade * tw * (1.0 + vWarp * 0.5));
         }
       `,
     });
@@ -449,6 +468,20 @@ export default function EarthGlobe() {
     const clock = new THREE.Clock();
     let elapsed = 0;
 
+    /**
+     * Hold-to-warp.
+     *
+     * warp eases toward warpTarget rather than snapping, because the
+     * acceleration is the whole effect — an instant jump to full
+     * speed reads as a glitch. Asymmetric on purpose: winding up
+     * takes longer than settling back, the way a real throttle does.
+     */
+    let warp = 0;
+    let warpTarget = 0;
+    const BASE_SPEED = 14;
+    const WARP_SPEED = 210;
+    const BASE_FOV = 38;
+
     function animate() {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
@@ -479,16 +512,38 @@ export default function EarthGlobe() {
          */
         earth.rotation.y = baseRotY + (t / 420) * Math.PI * 2;
 
+        // Ease toward the warp target. Frame-rate independent, so a
+        // 144Hz monitor and a 60Hz one wind up at the same rate.
+        const k = warpTarget > warp ? 2.4 : 4.2;
+        warp += (warpTarget - warp) * Math.min(1, k * dt);
+        if (warp < 0.0004) warp = 0;
+
+        // Eased curve, not linear — most of the speed arrives in the
+        // back half of the press so the build is felt.
+        const w = warp * warp * (3 - 2 * warp);
+
         // Drift through the starfield. Stars that pass the camera
         // are recycled to the back of the volume.
         const pos = starGeo.attributes.position as THREE.BufferAttribute;
         const arr = pos.array as Float32Array;
-        const speed = 14 * dt;
+        const speed = (BASE_SPEED + WARP_SPEED * w) * dt;
         for (let i = 2; i < arr.length; i += 3) {
           arr[i] += speed;
           if (arr[i] > 2) arr[i] = -420;
         }
         pos.needsUpdate = true;
+
+        starMat.uniforms.uWarp.value = w;
+
+        // Widening the lens as the stars accelerate is the Vertigo
+        // trick: the planet stays the same size while space opens up
+        // around it, so the viewer feels pulled forward rather than
+        // watching something move.
+        const fov = BASE_FOV + w * 15;
+        if (Math.abs(camera.fov - fov) > 0.01) {
+          camera.fov = fov;
+          camera.updateProjectionMatrix();
+        }
       }
 
       /**
@@ -529,8 +584,39 @@ export default function EarthGlobe() {
       setReady(true);
     });
 
+    /**
+     * Hold anywhere to accelerate.
+     *
+     * Listened on window rather than the canvas, because the space
+     * layer is pointer-events:none — it has to be, or it would eat
+     * every click on the page. The trade is that we must ignore
+     * presses that belong to something else: links, buttons, form
+     * fields, and any text the visitor is selecting.
+     */
+    const INTERACTIVE = "a, button, input, textarea, select, label, [role='button']";
+
+    const onDown = (event: PointerEvent) => {
+      if (reduced) return;
+      if (event.button !== 0 && event.pointerType === "mouse") return;
+      const target = event.target as Element | null;
+      if (target?.closest?.(INTERACTIVE)) return;
+      warpTarget = 1;
+    };
+
+    const onUp = () => {
+      warpTarget = 0;
+    };
+
+    window.addEventListener("pointerdown", onDown, { passive: true });
+    window.addEventListener("pointerup", onUp, { passive: true });
+    // pointercancel fires when a touch turns into a scroll, which is
+    // the common case on a phone — without it the warp would stick on.
+    window.addEventListener("pointercancel", onUp, { passive: true });
+    window.addEventListener("blur", onUp);
+
     const onVisibility = () => {
       if (document.hidden) {
+        warpTarget = 0;
         cancelAnimationFrame(frame);
       } else {
         frame = requestAnimationFrame(animate);
@@ -542,6 +628,10 @@ export default function EarthGlobe() {
       disposed = true;
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("blur", onUp);
       document.removeEventListener("visibilitychange", onVisibility);
       starGeo.dispose();
       starMat.dispose();
