@@ -41,8 +41,9 @@ const ZOOM_LEVELS = [2, 1, 0];
  *
  * Bumping this is how a layer change actually reaches people.
  * v2: VIIRS_Black_Marble (daily, swath gaps) -> VIIRS_CityLights_2012.
+ * v3: split into night + day sets; URLs gained a /night|/day segment.
  */
-const TEXTURE_VERSION = 2;
+const TEXTURE_VERSION = 3;
 const TILE_PX = 512;
 const BATCH = 6;
 const DEG = Math.PI / 180;
@@ -72,6 +73,7 @@ function sunDirection(now: Date): THREE.Vector3 {
 
 /** One tile, with a single retry. Cold NASA fetches are flaky once. */
 function loadTile(
+  kind: "night" | "day",
   z: number,
   row: number,
   col: number,
@@ -84,16 +86,19 @@ function loadTile(
     img.onerror = () => {
       if (attempt < 1) {
         // Second pass warms the CDN entry the first one populated.
-        setTimeout(() => resolve(loadTile(z, row, col, attempt + 1)), 450);
+        setTimeout(() => resolve(loadTile(kind, z, row, col, attempt + 1)), 450);
       } else {
         resolve(null);
       }
     };
-    img.src = `/api/earth/${z}/${row}/${col}?v=${TEXTURE_VERSION}`;
+    img.src = `/api/earth/${kind}/${z}/${row}/${col}?v=${TEXTURE_VERSION}`;
   });
 }
 
-async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
+async function buildAtZoom(
+  kind: "night" | "day",
+  z: number,
+): Promise<THREE.Texture | null> {
   const cols = colsAt(z);
   const rows = rowsAt(z);
 
@@ -120,7 +125,7 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
     const slice = coords.slice(i, i + BATCH);
     await Promise.all(
       slice.map(async ([row, col]) => {
-        const img = await loadTile(z, row, col);
+        const img = await loadTile(kind, z, row, col);
         if (!img) return;
         ctx.drawImage(img, col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX);
         ok++;
@@ -129,7 +134,7 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
   }
 
   if (ok < cols * rows) {
-    console.warn(`[earth] zoom ${z}: ${ok}/${cols * rows} tiles.`);
+    console.warn(`[earth] ${kind} zoom ${z}: ${ok}/${cols * rows} tiles.`);
   }
 
   // Every tile has to land. A single hole in an equirectangular map
@@ -137,7 +142,9 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
   // dropping to a coarser zoom where all tiles made it.
   if (ok < cols * rows) return null;
 
-  console.info(`[earth] NASA texture ready: zoom ${z}, ${canvas.width}x${canvas.height}, ${ok} tiles. Full globe — every continent is on the sphere.`);
+  console.info(
+    `[earth] ${kind} texture ready: zoom ${z}, ${canvas.width}x${canvas.height}, ${ok} tiles.`,
+  );
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -157,13 +164,13 @@ async function buildAtZoom(z: number): Promise<THREE.Texture | null> {
 }
 
 /** Tries each zoom in turn, coarsening rather than giving up. */
-async function buildTexture(): Promise<THREE.Texture | null> {
+async function buildTexture(kind: "night" | "day"): Promise<THREE.Texture | null> {
   for (const z of ZOOM_LEVELS) {
-    const texture = await buildAtZoom(z);
+    const texture = await buildAtZoom(kind, z);
     if (texture) return texture;
   }
   console.warn(
-    "[earth] no zoom level completed. Open /api/earth/probe to see which NASA layers are reachable.",
+    `[earth] ${kind}: no zoom level completed. Open /api/earth/probe to see which NASA layers are reachable.`,
   );
   return null;
 }
@@ -298,20 +305,6 @@ export default function EarthGlobe() {
         varying vec2  vDir;
         varying float vStretch;
 
-        /**
-         * Spectral class, roughly. Real starfields are mostly white
-         * and blue-white with a scattering of yellow, red and violet,
-         * so the common colours stay common — a field of evenly
-         * mixed rainbow dots reads as confetti, not space.
-         */
-        vec3 starColour(float k) {
-          if (k < 0.30) return vec3(1.00, 0.99, 0.97); // white
-          if (k < 0.52) return vec3(0.52, 0.71, 1.00); // blue
-          if (k < 0.70) return vec3(1.00, 0.86, 0.42); // yellow
-          if (k < 0.86) return vec3(1.00, 0.38, 0.34); // red
-          return                 vec3(0.76, 0.42, 1.00); // violet
-        }
-
         void main() {
           // gl_PointCoord is y-down; flip into the y-up frame vDir
           // was computed in, or every streak points the wrong way in
@@ -332,19 +325,12 @@ export default function EarthGlobe() {
           // reads as a solid line of light, not a flicker.
           float tw = mix(0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0), 1.0, vWarp);
 
-          /**
-           * Colour arrives with the acceleration. At rest the field
-           * is the natural cool/warm mix you would actually see;
-           * under warp each star saturates to its own spectral
-           * colour and the sky goes wild.
-           */
-          vec3 calm = mix(vec3(0.72, 0.80, 1.0), vec3(1.0, 0.93, 0.82), fract(vSeed * 7.3));
-          vec3 wild = starColour(fract(vSeed * 13.73));
-          vec3 tint = mix(calm, wild, smoothstep(0.08, 0.75, vWarp));
+          // White, as it was. The natural cool/warm scatter stays —
+          // it is what keeps a white starfield from looking printed.
+          vec3 tint = mix(vec3(0.72, 0.80, 1.0), vec3(1.0, 0.93, 0.82), fract(vSeed * 7.3));
 
-          // Hot white core on the brightest streaks, so the colour
-          // sits in the halo rather than flattening the whole shape.
-          tint = mix(tint, vec3(1.0), smoothstep(0.75, 1.0, core) * vWarp * 0.65);
+          // Streaks run brighter and whiter at speed.
+          tint = mix(tint, vec3(1.0), vWarp * 0.5);
 
           float alpha = core * core * vFade * tw * (1.0 + vWarp * 0.9);
           gl_FragColor = vec4(tint, alpha);
@@ -358,8 +344,18 @@ export default function EarthGlobe() {
     // ── Earth. Shader handles the terminator: the night texture is
     //    the city lights, the day side is the same texture lifted
     //    cool and bright, and a warm band sits on the boundary. ───
+    const blankTex = new THREE.DataTexture(
+      new Uint8Array([0, 0, 0, 255]),
+      1,
+      1,
+      THREE.RGBAFormat,
+    );
+    blankTex.needsUpdate = true;
+
     const uniforms = {
-      uTex: { value: null as THREE.Texture | null },
+      uTex: { value: blankTex as THREE.Texture | null },
+      uDay: { value: blankTex as THREE.Texture | null },
+      uHasDay: { value: 0 },
       uSun: { value: new THREE.Vector3(1, 0, 0) },
       uHasTex: { value: 0 },
       uTime: { value: 0 },
@@ -371,25 +367,84 @@ export default function EarthGlobe() {
       vertexShader: `
         varying vec2 vUv;
         varying vec3 vNormal;
+        varying vec3 vObj;
         void main() {
           vUv = uv;
           vNormal = normalize(mat3(modelMatrix) * normal);
+          // Object-space direction. Clouds are sampled from this
+          // rather than from uv, so the noise is spherical and has
+          // no seam at the dateline and no pinch at the poles.
+          vObj = normalize(position);
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
         uniform sampler2D uTex;
+        uniform sampler2D uDay;
         uniform vec3 uSun;
         uniform float uHasTex;
+        uniform float uHasDay;
         uniform float uTime;
         varying vec2 vUv;
         varying vec3 vNormal;
+        varying vec3 vObj;
 
         // Cheap stable hash. Same uv always gives the same value, so
         // each patch of the planet twinkles on its own clock instead
         // of the whole hemisphere pulsing together.
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+        }
+
+        /**
+         * 3D value noise, sampled on the sphere's own direction
+         * vector.
+         *
+         * Sampling in 3D rather than from uv is the whole trick: a
+         * 2D noise field on an equirectangular map tears at the
+         * dateline and bunches into a knot at both poles. In 3D
+         * there is no seam to tear and no pole to bunch at, because
+         * the field simply exists everywhere the sphere does.
+         */
+        /**
+         * Hash with no transcendentals.
+         *
+         * The obvious fract(sin(dot(...))) costs a sin per corner,
+         * and the noise below needs eight corners per octave. At
+         * four octaves over a sphere this size that is tens of
+         * millions of sin() calls a frame, which is fine on a
+         * discrete GPU and a slideshow on an integrated one. This
+         * version is pure multiply-and-fract.
+         */
+        float h3(vec3 p) {
+          p = fract(p * 0.3183099 + 0.1);
+          p *= 17.0;
+          return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+        }
+
+        float vnoise(vec3 p) {
+          vec3 i = floor(p);
+          vec3 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          return mix(
+            mix(mix(h3(i + vec3(0,0,0)), h3(i + vec3(1,0,0)), f.x),
+                mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
+            mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x),
+                mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y),
+            f.z);
+        }
+
+        // Four octaves. Enough for weather-shaped structure; a
+        // fifth buys detail smaller than a pixel at this size.
+        float fbm(vec3 p) {
+          float v = 0.0;
+          float a = 0.5;
+          for (int i = 0; i < 4; i++) {
+            v += a * vnoise(p);
+            p *= 2.07;   // not exactly 2, or the octaves align into bands
+            a *= 0.5;
+          }
+          return v;
         }
 
         void main() {
@@ -466,9 +521,27 @@ export default function EarthGlobe() {
                          + vec3(0.30, 0.42, 0.60) * spec * 0.22
                          + vec3(0.14, 0.24, 0.42) * rim * 0.16;
 
-          // Day side: the same imagery read as cool lit ocean/land.
-          vec3 day = mix(vec3(0.05,0.08,0.14), vec3(0.26,0.35,0.48), lum * 1.4)
-                     * max(sun, 0.0);
+          /**
+           * Day side: the real surface.
+           *
+           * This used to be a blue-grey wash derived from how
+           * bright the city lights were — so the lit half of the
+           * planet had no ocean, no coastline and no terrain, which
+           * is most of why it read as a flat map rather than a
+           * world. Blue Marble is the actual daytime surface.
+           *
+           * Falls back to the old derived wash if the day tiles
+           * never arrive, so a half-loaded globe still looks like
+           * something.
+           */
+          vec3 surface = texture2D(uDay, vUv).rgb;
+          vec3 derived = mix(vec3(0.05,0.08,0.14), vec3(0.26,0.35,0.48), lum * 1.4);
+          vec3 albedo = mix(derived, surface, uHasDay);
+
+          // Lambert with a little wrap, so the terminator softens
+          // instead of cutting a hard line across the sphere.
+          float diff = max(0.0, (sun + 0.18) / 1.18);
+          vec3 day = albedo * pow(diff, 1.25) * 1.18;
 
           /**
            * Lights everywhere, not just on the night side.
@@ -512,7 +585,57 @@ export default function EarthGlobe() {
           float facing = abs(dot(N, vec3(0.0, 0.0, 1.0)));
           ground *= 0.38 + 0.62 * pow(facing, 0.55);
 
-          vec3 col = ground + lights * lightMask * (0.6 + 0.4 * pow(facing, 0.25));
+          /**
+           * Weather.
+           *
+           * This is the part that stops it reading as a map glued
+           * to a ball. A photograph of Earth is never just terrain
+           * — it is terrain seen through moving cloud, and cloud is
+           * what gives the surface somewhere to sit behind.
+           *
+           * Two bands at different scales and drift rates: broad
+           * frontal systems, and finer structure moving faster on
+           * top. They are sampled in 3D off the sphere's own
+           * direction, so there is no seam and no polar pinch, and
+           * they drift independently of the planet's rotation the
+           * way real weather does.
+           */
+          vec3 cdir = normalize(vObj);
+          float drift = uTime * 0.0042;
+
+          float broad = fbm(cdir * 2.6 + vec3(drift, drift * 0.22, -drift * 0.4));
+          // A single extra octave rather than a second full fbm —
+          // the detail reads the same and it costs a third as much.
+          float fine  = vnoise(cdir * 9.1 + vec3(-drift * 2.1, drift * 0.6, drift * 1.3));
+
+          // Shaped hard: most of the sphere stays clear, and what
+          // is left reads as distinct systems rather than haze.
+          float cloud = smoothstep(0.50, 0.80, broad * 0.72 + fine * 0.34);
+
+          // Thin the band near the poles, where the projection has
+          // the least real estate and cloud would otherwise smear.
+          cloud *= 1.0 - 0.45 * pow(abs(cdir.y), 3.0);
+
+          // Lit by the same sun as everything else, with a wrapped
+          // falloff so the terminator runs through the cloud tops
+          // instead of cutting them off.
+          float cloudLit = pow(max(0.0, (sun + 0.45) / 1.45), 1.6);
+          vec3 cloudCol = mix(
+            vec3(0.07, 0.10, 0.16),           // unlit, barely there
+            vec3(0.95, 0.96, 0.99),           // full daylight
+            cloudLit
+          );
+          // Warm the cloud tops where they cross the terminator.
+          cloudCol += vec3(0.55, 0.26, 0.08) * band * 0.9;
+
+          // Cloud sits in front of the city lights, so it occludes
+          // them. Without this the lights punch through the weather
+          // and the layering collapses.
+          float occl = 1.0 - cloud * 0.78;
+
+          vec3 col = ground * (1.0 - cloud * 0.72)
+                   + cloudCol * cloud
+                   + lights * lightMask * occl * (0.6 + 0.4 * pow(facing, 0.25));
 
           gl_FragColor = vec4(col, 1.0);
         }
@@ -741,12 +864,29 @@ export default function EarthGlobe() {
 
     // Texture arrives whenever it arrives. Until then the mesh
     // discards every fragment and the procedural globe shows through.
-    buildTexture().then((texture) => {
-      if (disposed) return;
-      if (!texture) return; // keep the fallback
-      uniforms.uTex.value = texture;
+    /**
+     * Night first, then day.
+     *
+     * Sequential rather than parallel: each set is 32 tile requests
+     * and firing 64 cold serverless invocations at NASA at once is
+     * exactly what made the first version time out and fall back.
+     *
+     * The globe shows as soon as night is up — the day map arriving
+     * a second later just fills in the lit half, so a slow
+     * connection degrades to the night-lights globe instead of
+     * nothing.
+     */
+    buildTexture("night").then((night) => {
+      if (disposed || !night) return;
+      uniforms.uTex.value = night;
       uniforms.uHasTex.value = 1;
       setReady(true);
+
+      return buildTexture("day").then((day) => {
+        if (disposed || !day) return;
+        uniforms.uDay.value = day;
+        uniforms.uHasDay.value = 1;
+      });
     });
 
     /**
@@ -805,6 +945,8 @@ export default function EarthGlobe() {
       earth.geometry.dispose();
       atmosphere.geometry.dispose();
       uniforms.uTex.value?.dispose();
+      uniforms.uDay.value?.dispose();
+      blankTex.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) {
         mount.removeChild(renderer.domElement);

@@ -46,18 +46,35 @@ type Candidate = {
  * "Earth at Night" mosaic, every pixel filled, no time dimension to
  * get wrong. For a backdrop that is what we want.
  */
-const CANDIDATES: Candidate[] = [
+/**
+ * Two texture sets, because a planet needs both halves.
+ *
+ * Deriving a day side from night-lights brightness — which is what
+ * this did before — gives you a blue-grey wash with no coastlines,
+ * no ocean, no terrain. That is the single biggest reason the globe
+ * read as a flat map rather than a world.
+ *
+ * Blue Marble is the real daytime surface: ocean, land cover,
+ * bathymetry. Both sets are NASA, both public domain, both already
+ * confirmed reachable.
+ */
+const NIGHT_CANDIDATES: Candidate[] = [
   { layer: "VIIRS_CityLights_2012", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
   { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default", epsg: "epsg4326" },
-  // Day-side fallbacks. Wrong mood, but a planet beats no planet.
-  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
-  { layer: "BlueMarble_ShadedRelief_Bathymetry", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
-  // The 250m sets returned 400 for these layers — don't waste a
-  // round trip to NASA rediscovering that on every cold start.
 ];
 
-/** Remembered for the life of the serverless instance. */
-let resolved: Candidate | null = null;
+const DAY_CANDIDATES: Candidate[] = [
+  { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
+  { layer: "BlueMarble_ShadedRelief_Bathymetry", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
+];
+
+const SETS: Record<string, Candidate[]> = {
+  night: NIGHT_CANDIDATES,
+  day: DAY_CANDIDATES,
+};
+
+/** Remembered per set, for the life of the serverless instance. */
+const resolved: Record<string, Candidate | null> = { night: null, day: null };
 
 function tileUrl(c: Candidate, z: string, row: string, col: string): string {
   return `https://gibs.earthdata.nasa.gov/wmts/${c.epsg}/best/${c.layer}/default/${c.time}/${c.set}/${z}/${row}/${col}.${c.ext}`;
@@ -90,7 +107,7 @@ export async function GET(
   // ── Diagnostics ───────────────────────────────────────────────
   if (tile.length === 1 && tile[0] === "probe") {
     const results = [];
-    for (const c of CANDIDATES) {
+    for (const c of [...NIGHT_CANDIDATES, ...DAY_CANDIDATES]) {
       const r = await tryTile(c, "1", "0", "0");
       results.push({
         layer: c.layer,
@@ -115,27 +132,37 @@ export async function GET(
   }
 
   // ── Tile ──────────────────────────────────────────────────────
-  if (tile.length !== 3) {
+  if (tile.length !== 4) {
     return NextResponse.json(
-      { error: "Expected /api/earth/{z}/{row}/{col} or /api/earth/probe" },
+      {
+        error:
+          "Expected /api/earth/{night|day}/{z}/{row}/{col} or /api/earth/probe",
+      },
       { status: 400 },
     );
   }
 
-  const [z, row, col] = tile;
+  const [kind, z, row, col] = tile;
+
+  const candidates = SETS[kind];
+  if (!candidates) {
+    return NextResponse.json({ error: "Set must be 'night' or 'day'." }, { status: 400 });
+  }
+
   if (![z, row, col].every((v) => /^\d{1,2}$/.test(v))) {
     return NextResponse.json({ error: "Tile coordinates must be integers." }, { status: 400 });
   }
 
-  const order = resolved
-    ? [resolved, ...CANDIDATES.filter((c) => c !== resolved)]
-    : CANDIDATES;
+  const known = resolved[kind];
+  const order = known
+    ? [known, ...candidates.filter((c) => c !== known)]
+    : candidates;
 
   for (const candidate of order) {
     const r = await tryTile(candidate, z, row, col);
     if (!r.ok || !r.res) continue;
 
-    resolved = candidate;
+    resolved[kind] = candidate;
     const body = await r.res.arrayBuffer();
 
     return new NextResponse(body, {
