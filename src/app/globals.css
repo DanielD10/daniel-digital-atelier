@@ -1305,6 +1305,289 @@ main { position: relative; z-index: 3; }
   .row-go { display: none; }
 }
 
+/* ═══════════════ THE LAB ROOM ═══════════════
+   Every light level in here is a CSS custom property set from the
+   component. Sixteen states (four times of day x four seasons)
+   from one stylesheet, because none of the colours are written
+   down twice. */
+.atelier {
+  margin: 0 0 clamp(40px, 6vw, 72px);
+}
+
+.atelier-stage {
+  position: relative;
+  border: 1px solid rgba(74, 69, 62, 0.5);
+  background: #08070a;
+  overflow: hidden;
+  /* The room is drawn at 1200x760 and scales as one piece. */
+  aspect-ratio: 1200 / 760;
+}
+
+.room {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Phase changes are a lighting change, so they fade rather than
+   cut — the room should feel like the sun moved, not like a slide
+   advanced. Long, because light does not snap. */
+.room rect,
+.room polygon,
+.room circle,
+.room path,
+.room ellipse,
+.room line {
+  transition: fill 1.1s ease, opacity 1.1s ease, stroke 1.1s ease;
+}
+
+.room-dim { opacity: var(--room-dim); }
+
+/* ── Window ─────────────────────────────────────────────── */
+.orb { transition: cy 1.4s ease, r 1.1s ease, fill 1.1s ease; }
+
+.win-stars circle { animation: winTwinkle 4s ease-in-out infinite alternate; }
+.win-stars circle:nth-child(3n) { animation-delay: 1.3s; }
+.win-stars circle:nth-child(3n + 1) { animation-delay: 2.6s; }
+
+@keyframes winTwinkle {
+  from { opacity: 0.25; }
+  to   { opacity: 0.85; }
+}
+
+.city-lights rect { animation: cityFlicker 7s steps(1) infinite; }
+.city-lights rect:nth-child(5n) { animation-delay: 2s; }
+.city-lights rect:nth-child(7n) { animation-delay: 4.5s; }
+
+@keyframes cityFlicker {
+  0%, 92%  { opacity: inherit; }
+  93%, 96% { opacity: 0.12; }
+}
+
+.flake {
+  animation-name: snowFall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes snowFall {
+  from { transform: translateY(0) translateX(0); opacity: 0; }
+  10%  { opacity: 0.9; }
+  90%  { opacity: 0.9; }
+  to   { transform: translateY(330px) translateX(26px); opacity: 0; }
+}
+
+/* ── Lamp. Only earns its keep once the room is dark. ───── */
+.lamp { opacity: var(--lamp); transition: opacity 1.2s ease; }
+.lamp-pool {
+  opacity: 0.16;
+  filter: blur(14px);
+}
+
+/* ── iMac ───────────────────────────────────────────────── */
+.imac { cursor: pointer; }
+.imac:focus { outline: none; }
+.imac:focus-visible .imac-screen {
+  stroke: var(--bronze);
+  stroke-width: 3;
+}
+
+.imac-screen { transition: fill 0.7s ease; }
+
+.imac:hover .imac-screen,
+.imac:focus-visible .imac-screen {
+  filter: brightness(1.3);
+}
+
+.imac-hint {
+  font-family: var(--f-micro);
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  fill: #5d6b7a;
+  animation: hintPulse 2.8s ease-in-out infinite;
+}
+
+@keyframes hintPulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.95; }
+}
+
+/* The screen glow spills into the room once it is on. */
+.imac.is-awake .imac-screen { filter: brightness(1.12); }
+
+/* ── The UI that appears on the screen ──────────────────── */
+.screen-ui {
+  position: absolute;
+  /* Matched to the screen rect in the SVG: x 442..748, y 262..444
+     of a 1200x760 canvas. */
+  left: 36.83%;
+  top: 34.47%;
+  width: 25.5%;
+  height: 23.95%;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(170deg, #0f1620, #0a0f16);
+  border-radius: 2px;
+  overflow: hidden;
+  animation: screenOn 0.5s ease both;
+  /* Everything inside scales with the room, so the screen content
+     stays in proportion at any viewport width. */
+  container-type: inline-size;
+}
+
+@keyframes screenOn {
+  from { opacity: 0; filter: brightness(2.4); }
+  to   { opacity: 1; filter: brightness(1); }
+}
+
+.screen-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  flex: none;
+}
+.screen-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #4a5a6b;
+  flex: none;
+}
+.screen-path {
+  margin-left: 6px;
+  font-size: 7cqw;
+  font-size: clamp(6px, 2.6cqw, 11px);
+  letter-spacing: 0.06em;
+  color: #6b7f93;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  padding: clamp(6px, 3cqw, 16px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(2px, 1cqw, 6px);
+}
+
+.screen-idx {
+  font-size: clamp(5px, 2.2cqw, 9px);
+  letter-spacing: 0.2em;
+  color: #6b7f93;
+}
+
+.screen-name {
+  font-family: var(--f-display);
+  font-weight: 500;
+  font-size: clamp(13px, 8cqw, 40px);
+  line-height: 1;
+  margin: 0;
+  color: #eaf2fa;
+}
+.screen-name b {
+  font-family: var(--f-micro);
+  font-weight: 400;
+  font-size: 0.5em;
+}
+
+.screen-kind {
+  font-size: clamp(5px, 2.4cqw, 10px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #93a9bd;
+  margin: 0;
+}
+
+.screen-sum {
+  font-size: clamp(6px, 3cqw, 13px);
+  line-height: 1.5;
+  color: #b9cadb;
+  margin: 0;
+  /* Two lines at most — the rest is on the project page. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.screen-actions {
+  display: flex;
+  align-items: center;
+  gap: clamp(4px, 2cqw, 10px);
+  margin-top: clamp(3px, 2cqw, 10px);
+}
+.screen-actions button,
+.screen-actions a {
+  font-family: var(--f-micro);
+  font-size: clamp(6px, 2.6cqw, 11px);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #cfe0ef;
+  border: 1px solid rgba(190, 215, 235, 0.35);
+  border-radius: 999px;
+  padding: clamp(2px, 1.2cqw, 6px) clamp(5px, 3cqw, 14px);
+  background: none;
+  cursor: pointer;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+.screen-actions button:hover,
+.screen-actions a:hover {
+  background: #cfe0ef;
+  color: #0b1118;
+}
+
+/* ── Controls under the room ────────────────────────────── */
+.atelier-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 18px 2px 0;
+}
+
+.atelier-ctl { display: flex; gap: 10px; }
+
+.lab-note { max-width: 46ch; margin-top: 4px; }
+
+.atelier-ctl button {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  border: 1px solid var(--bone-faint);
+  border-radius: 999px;
+  padding: 9px 18px;
+  transition: color 0.4s ease, border-color 0.4s ease;
+}
+.atelier-ctl button:hover:not(:disabled) {
+  color: var(--bone);
+  border-color: var(--bone);
+}
+.atelier-ctl button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .atelier-bar { flex-direction: column; align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imac-hint,
+  .win-stars circle,
+  .city-lights rect,
+  .flake { animation: none; }
+  .flake { opacity: 0.7; }
+  .screen-ui { animation: none; }
+}
+
 /* ═══════════════ FORM ═══════════════ */
 .form { display: grid; gap: 28px; max-width: 540px; }
 .field { display: grid; gap: 8px; }

@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
+import AtelierRoom from "@/components/AtelierRoom";
 
 export const metadata: Metadata = {
   title: "Lab",
   description:
-    "Creative coding, AI experiments and unfinished things — the sketchbook behind the portfolio.",
+    "The studio itself — a corner room that tracks the real time of day and season. Wake the iMac to see the work.",
   alternates: { canonical: "/lab" },
 };
 
@@ -15,23 +16,21 @@ export default function Lab() {
       <Masthead />
       <main className="page" id="main">
         <Link className="back" href="/">
-          ← Home
+          Home
         </Link>
 
         <h1>The lab</h1>
 
         <p className="lede">
-          Experiments, half-finished ideas, and the things that turn into
-          projects later.
+          The room, as it is right now. Wake the iMac.
         </p>
 
-        <div className="prose">
-          <p>
-            Nothing here yet. This is the right home for the WebGL and generative
-            pieces once they exist — they belong in a sketchbook, not bolted onto
-            the homepage where they cost every visitor a slower load.
-          </p>
-        </div>
+        <AtelierRoom />
+
+        <p className="micro lab-note">
+          The light tracks your actual clock and the season. Change either
+          yourself if you&rsquo;d rather see it another way.
+        </p>
       </main>
     </>
   );
