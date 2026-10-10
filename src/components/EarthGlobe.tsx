@@ -430,9 +430,41 @@ export default function EarthGlobe() {
 
           lights *= 0.72 + 0.52 * tw;
 
-          // Night ground stays very dark so the lights carry.
-          vec3 nightBase = mix(vec3(0.015,0.028,0.05),
-                               vec3(0.04,0.06,0.09), lum);
+          /**
+           * Night ground.
+           *
+           * Flat dark navy everywhere was the mistake: over open
+           * ocean there is no texture detail and no lights, so the
+           * planet lost all its shading and read as a cut-out disc.
+           * A sphere needs a gradient even where there is nothing
+           * on it.
+           *
+           * Three terms do that. A soft diffuse falloff from the
+           * sun (earthshine — the night side is never truly black
+           * from orbit), an ocean sheen that catches the sun at a
+           * glancing angle, and a cool rim toward the limb.
+           */
+          vec3 N = normalize(vNormal);
+
+          // Wrapped diffuse: carries light around past the
+          // terminator instead of cutting hard at 90 degrees.
+          float wrap = max(0.0, (sun + 0.62) / 1.62);
+          float earthshine = pow(wrap, 2.2) * 0.085;
+
+          // Specular glint off water. Land has texture detail, so
+          // the sheen is masked where the imagery is bright.
+          vec3 H = normalize(normalize(uSun) + vec3(0.0, 0.0, 1.0));
+          float spec = pow(max(dot(N, H), 0.0), 26.0) * (1.0 - smoothstep(0.02, 0.16, lum));
+
+          // Cool edge, so the silhouette never meets space flat.
+          float facingN = abs(dot(N, vec3(0.0, 0.0, 1.0)));
+          float rim = pow(1.0 - facingN, 3.0);
+
+          vec3 nightBase = mix(vec3(0.010,0.020,0.038),
+                               vec3(0.036,0.055,0.085), lum)
+                         + vec3(0.16, 0.26, 0.42) * earthshine
+                         + vec3(0.30, 0.42, 0.60) * spec * 0.22
+                         + vec3(0.14, 0.24, 0.42) * rim * 0.16;
 
           // Day side: the same imagery read as cool lit ocean/land.
           vec3 day = mix(vec3(0.05,0.08,0.14), vec3(0.26,0.35,0.48), lum * 1.4)
@@ -456,16 +488,31 @@ export default function EarthGlobe() {
            */
           float lightMask = mix(0.42, 1.0, night);
 
-          vec3 col = day * (1.0 - night) + nightBase * night + lights * lightMask;
+          // Ground and lights are shaded separately, because they
+          // want opposite things from the limb.
+          vec3 ground = day * (1.0 - night) + nightBase * night;
 
           // Warm rim along the terminator.
           float band = smoothstep(0.34, 0.0, abs(sun)) * 0.5;
-          col += vec3(0.95, 0.55, 0.22) * band * 0.4;
+          ground += vec3(0.95, 0.55, 0.22) * band * 0.4;
 
-          // Limb darkening so the sphere's edge reads as curvature.
-          // Gentler than before — it was dimming the lights too.
-          float facing = abs(dot(normalize(vNormal), vec3(0.0, 0.0, 1.0)));
-          col *= 0.72 + 0.28 * pow(facing, 0.4);
+          /**
+           * Limb darkening, hard on the ground.
+           *
+           * This is what makes a sphere look like a sphere. Last
+           * time I flattened the curve because it was dimming the
+           * cities at the edges — and flattening it is exactly what
+           * made the planet read as a cut-out disc.
+           *
+           * The fix is to shade the two separately: the ground
+           * falls off steeply, the lights keep almost all their
+           * brightness to the edge, which is also how a real night
+           * side behaves.
+           */
+          float facing = abs(dot(N, vec3(0.0, 0.0, 1.0)));
+          ground *= 0.38 + 0.62 * pow(facing, 0.55);
+
+          vec3 col = ground + lights * lightMask * (0.6 + 0.4 * pow(facing, 0.25));
 
           gl_FragColor = vec4(col, 1.0);
         }
@@ -488,8 +535,31 @@ export default function EarthGlobe() {
      * which lifts the northern hemisphere toward the viewer — same
      * "not a desk globe" feel, correct horizon.
      */
-    const BASE_LON = -100;
-    const baseRotY = -Math.PI / 2 - BASE_LON * DEG;
+    /**
+     * Longitude facing the camera, driven by scroll position.
+     *
+     * A continuous spin always eventually parks you over the
+     * Pacific — a third of the planet that is nothing but water and
+     * reads as a blank disc. There is no rotation speed that avoids
+     * it; you can only avoid the longitudes.
+     *
+     * So the globe no longer spins on a clock. Scroll position maps
+     * to longitude across a 145-degree arc that skips the Pacific
+     * entirely: the hero opens over the Americas, and by the closer
+     * you are looking at Europe and Africa. Local roots to global
+     * vision, which is the line in the hero anyway.
+     */
+    const LON_TOP = -100; // Americas
+    const LON_END = 45; // Europe / Africa
+    const baseRotY = -Math.PI / 2 - LON_TOP * DEG;
+    const lonToRotY = (lon: number) => -Math.PI / 2 - lon * DEG;
+
+    let scrollEased = 0;
+    const readScrollProgress = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      if (max <= 0) return 0;
+      return Math.min(1, Math.max(0, window.scrollY / max));
+    };
     earth.rotation.order = "YXZ"; // spin first, then tilt the result
     earth.rotation.x = 0.42; // ~24deg, looking down on the top of North America
     earth.rotation.y = baseRotY;
@@ -593,7 +663,19 @@ export default function EarthGlobe() {
          * seven minutes it's still visibly moving but stays on the
          * Americas for most of any real visit.
          */
-        earth.rotation.y = baseRotY + (t / 420) * Math.PI * 2;
+        // Ease toward the scroll target so a flung scroll doesn't
+        // snap the planet round.
+        const prog = readScrollProgress();
+        scrollEased += (prog - scrollEased) * Math.min(1, 2.6 * dt);
+
+        // A slow bounded drift on top, so it still breathes when
+        // nobody is scrolling. Bounded, so it can never wander onto
+        // the empty face.
+        const drift = Math.sin(t * 0.055) * 7;
+
+        earth.rotation.y = lonToRotY(
+          LON_TOP + (LON_END - LON_TOP) * scrollEased + drift,
+        );
 
         // Ease toward the warp target. Frame-rate independent, so a
         // 144Hz monitor and a 60Hz one wind up at the same rate.
