@@ -324,12 +324,23 @@ main { position: relative; z-index: 3; }
    stay faintly visible behind the content. */
 .manifesto,
 .cases,
-.decade,
-.closer {
+.decade {
   position: relative;
   background: rgba(7, 6, 5, 0.86);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+}
+
+/*
+  The closer is the exception — no backdrop at all. The page opened
+  in space and it ends in space, with the planet and the starfield
+  behind the type. Everything above it earns a scrim because it is
+  reading material; this is a single line and a button, so it can
+  carry the background instead of hiding it.
+*/
+.closer {
+  position: relative;
+  background: none;
 }
 /* The globe canvas renders at devicePixelRatio internally, so it is
    sharp on retina. It is never scaled by CSS or GSAP — resampling a
@@ -906,6 +917,18 @@ main { position: relative; z-index: 3; }
   letter-spacing: -0.015em;
   margin: 0 0 56px;
   color: #f6f2ea;
+  /* No backdrop here, so the type carries its own legibility. Two
+     soft shadows rather than a box: enough to hold the letterforms
+     if the planet's bright limb drifts behind them, invisible
+     against empty space. */
+  text-shadow:
+    0 2px 40px rgba(5, 4, 4, 0.9),
+    0 0 90px rgba(5, 4, 4, 0.7);
+}
+
+.closer-foot,
+.closer-actions .cta {
+  text-shadow: 0 2px 24px rgba(5, 4, 4, 0.85);
 }
 .closer-actions { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 48px; }
 .closer-foot { color: var(--bone-dim); }
@@ -1049,6 +1072,164 @@ main { position: relative; z-index: 3; }
   padding-bottom: 4px;
 }
 .back:hover { color: var(--bone); }
+
+/* ═══════════════ SELECTED WORK ROWS ═══════════════
+   A list, not a grid of cards. Each row is a band that lights up on
+   hover: the project's own art washes in from the right, the name
+   steps to a genuinely heavier weight, the arrow travels in, and
+   the row indents.
+
+   Only the indent moves anything, and it moves the row's contents
+   rather than the row itself — so a hovered row never changes the
+   height of the list or shoves the next one under the cursor. */
+.rowset {
+  display: grid;
+  gap: 0;
+  border-bottom: 1px solid rgba(74, 69, 62, 0.45);
+}
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 28px;
+  align-items: start;
+  padding: 34px 28px 34px 4px;
+  border-top: 1px solid rgba(74, 69, 62, 0.45);
+  isolation: isolate;
+  /* Keeps the art inside the band while it slides in. */
+  overflow: hidden;
+  transition: padding-left 0.55s cubic-bezier(0.18, 0.84, 0.26, 1);
+}
+
+/* The project's gradient, held back at rest. Masked so it fades out
+   before it reaches the text on the left. */
+.row-art {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  transform: translateX(28px);
+  -webkit-mask-image: linear-gradient(90deg, transparent 8%, #000 78%);
+  mask-image: linear-gradient(90deg, transparent 8%, #000 78%);
+  transition:
+    opacity 0.6s ease,
+    transform 0.7s cubic-bezier(0.18, 0.84, 0.26, 1);
+}
+
+.row-body { min-width: 0; }
+
+.row-idx {
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  color: var(--bone-dim);
+  padding-top: 0.6em;
+  transition: color 0.45s ease;
+}
+
+.row-name {
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(28px, 4.2vw, 54px);
+  line-height: 1;
+  letter-spacing: -0.01em;
+  margin: 0 0 10px;
+  color: #f3efe7;
+  transition: font-weight 0.4s ease, color 0.4s ease;
+}
+.row-name b {
+  font-weight: inherit;
+  font-family: var(--f-micro);
+  font-size: 0.52em;
+  letter-spacing: 0.01em;
+}
+
+.row-kind {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c5bfb4;
+  margin: 0 0 14px;
+  transition: color 0.45s ease;
+}
+
+.row-summary {
+  max-width: 52ch;
+  line-height: 1.7;
+  color: #cfc9bf;
+  font-size: 16px;
+  margin: 0 0 16px;
+  transition: color 0.45s ease;
+}
+
+.row-tags {
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #8e877b;
+  margin: 0;
+  transition: color 0.45s ease;
+}
+
+.row-go {
+  align-self: center;
+  font-size: 20px;
+  color: var(--bone-faint);
+  opacity: 0;
+  transform: translateX(-14px);
+  transition:
+    opacity 0.5s ease,
+    transform 0.6s cubic-bezier(0.18, 0.84, 0.26, 1),
+    color 0.5s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  /* The rest of the list recedes, same as the homepage tiles. The
+     contrast is what makes one row feel picked out. */
+  .rowset:hover .row:not(:hover) { opacity: 0.38; }
+  .rowset .row { transition: opacity 0.45s ease, padding-left 0.55s cubic-bezier(0.18, 0.84, 0.26, 1); }
+
+  .row:hover,
+  .row:focus-visible {
+    padding-left: 26px;
+  }
+
+  .row:hover .row-art,
+  .row:focus-visible .row-art {
+    opacity: 0.5;
+    transform: translateX(0);
+  }
+
+  .row:hover .row-name,
+  .row:focus-visible .row-name {
+    font-weight: 600;
+    color: #fffaf1;
+  }
+
+  .row:hover .row-idx,
+  .row:focus-visible .row-idx { color: var(--bronze); }
+
+  .row:hover .row-kind,
+  .row:focus-visible .row-kind { color: #efe9df; }
+
+  .row:hover .row-summary,
+  .row:focus-visible .row-summary { color: #e4ded4; }
+
+  .row:hover .row-tags,
+  .row:focus-visible .row-tags { color: #bdb6aa; }
+
+  .row:hover .row-go,
+  .row:focus-visible .row-go {
+    opacity: 1;
+    transform: translateX(0);
+    color: var(--bronze);
+  }
+}
+
+@media (max-width: 760px) {
+  .row { grid-template-columns: auto 1fr; padding-right: 0; }
+  .row-go { display: none; }
+}
 
 /* ═══════════════ FORM ═══════════════ */
 .form { display: grid; gap: 28px; max-width: 540px; }

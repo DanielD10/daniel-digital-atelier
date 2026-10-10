@@ -19,7 +19,7 @@ export default function BottomRail() {
       </span>
 
       <span className="micro rail-say">
-        Let&rsquo;s build something unforgettable.
+        Let&rsquo;s step into the future together.
       </span>
 
       <Link className="cta" href="/contact">

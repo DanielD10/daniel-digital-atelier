@@ -21,11 +21,11 @@ export default function Contact() {
         </Link>
 
         <h1>
-          Let&rsquo;s build
+          Let&rsquo;s step
           <br />
-          something
+          into the future
           <br />
-          unforgettable.
+          together.
         </h1>
 
         <p className="lede">

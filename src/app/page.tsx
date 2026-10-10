@@ -172,11 +172,11 @@ export default function Home() {
         {/* ── Close ───────────────────────────────────────────────── */}
         <section className="closer">
           <h2 className="closer-type" data-reveal>
-            Let&rsquo;s build
+            Let&rsquo;s step
             <br />
-            something
+            into the future
             <br />
-            unforgettable.
+            together.
           </h2>
           <div className="closer-actions" data-reveal>
             <Link className="cta" href="/contact">

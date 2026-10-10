@@ -16,47 +16,37 @@ export default function WorkIndex() {
       <Masthead />
       <main className="page" id="main">
         <Link className="back" href="/">
-          ← Home
+          Home
         </Link>
 
         <h1>Selected work</h1>
         <p className="lede">
-          Four projects. Each one labelled for what it actually is — concept work
-          is concept work, client work says so.
+          Four projects. Each labelled for what it is — concept work says
+          concept, client work says client.
         </p>
 
-        <div style={{ display: "grid", gap: "4px" }}>
+        <div className="rowset">
           {projects.map((project, i) => (
-            <Link
-              key={project.slug}
-              href={`/work/${project.slug}`}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "auto 1fr",
-                gap: "28px",
-                alignItems: "baseline",
-                padding: "28px 0",
-                borderTop: "1px solid rgba(74,69,62,.45)",
-              }}
-            >
-              <span className="micro">{String(i + 1).padStart(2, "0")}</span>
-              <div>
-                <h2 style={{ marginBottom: "8px" }}>
+            <Link className="row" key={project.slug} href={`/work/${project.slug}`}>
+              {/* The art is the hover reveal: invisible at rest, washing in
+                  from the right so the row lights up rather than lifts. */}
+              <span className={`row-art ${project.artClass}`} aria-hidden="true" />
+
+              <span className="row-idx">{String(i + 1).padStart(2, "0")}</span>
+
+              <div className="row-body">
+                <h2 className="row-name">
                   {project.name}
-                  {project.nameTail ? (
-                    <span style={{ fontFamily: "var(--f-micro)", fontSize: "0.7em" }}>
-                      {project.nameTail}
-                    </span>
-                  ) : null}
+                  {project.nameTail ? <b>{project.nameTail}</b> : null}
                 </h2>
-                <p className="tile-kind">{project.kind}</p>
-                <p className="prose" style={{ margin: "10px 0 0", maxWidth: "52ch" }}>
-                  {project.summary}
-                </p>
-                <p className="tile-tags" style={{ marginTop: "14px" }}>
-                  {project.tags.join(" / ")}
-                </p>
+                <p className="row-kind">{project.kind}</p>
+                <p className="row-summary">{project.summary}</p>
+                <p className="row-tags">{project.tags.join(" / ")}</p>
               </div>
+
+              <span className="row-go" aria-hidden="true">
+                &#8594;
+              </span>
             </Link>
           ))}
         </div>
