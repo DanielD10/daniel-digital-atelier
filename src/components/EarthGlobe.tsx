@@ -30,6 +30,19 @@ import * as THREE from "three";
  * and 8 requests actually complete.
  */
 const ZOOM_LEVELS = [2, 1, 0];
+
+/**
+ * Cache-buster for the tile proxy.
+ *
+ * Tiles are served with "immutable, max-age=31536000", so Vercel's
+ * CDN holds them for a year under their path alone. Swapping the
+ * upstream NASA layer therefore changes nothing for anyone who has
+ * already loaded the page — they keep getting the old bytes.
+ *
+ * Bumping this is how a layer change actually reaches people.
+ * v2: VIIRS_Black_Marble (daily, swath gaps) -> VIIRS_CityLights_2012.
+ */
+const TEXTURE_VERSION = 2;
 const TILE_PX = 512;
 const BATCH = 6;
 const DEG = Math.PI / 180;
@@ -76,7 +89,7 @@ function loadTile(
         resolve(null);
       }
     };
-    img.src = `/api/earth/${z}/${row}/${col}`;
+    img.src = `/api/earth/${z}/${row}/${col}?v=${TEXTURE_VERSION}`;
   });
 }
 

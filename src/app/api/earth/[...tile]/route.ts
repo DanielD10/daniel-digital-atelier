@@ -33,10 +33,22 @@ type Candidate = {
  * first, then day-side Blue Marble — a working planet beats no
  * planet if every night layer has moved.
  */
+/**
+ * Order matters, and the first two are not interchangeable.
+ *
+ * VIIRS_Black_Marble is a DAILY product. Asking for "default" gives
+ * you the most recent day, which is a handful of orbital swaths —
+ * diagonal bands of data with nothing between them, and no coverage
+ * at all over the winter pole. That is what put a grey stripe across
+ * the globe and left Antarctica missing.
+ *
+ * VIIRS_CityLights_2012 is the static global composite — the famous
+ * "Earth at Night" mosaic, every pixel filled, no time dimension to
+ * get wrong. For a backdrop that is what we want.
+ */
 const CANDIDATES: Candidate[] = [
-  // Confirmed live by the probe: 200, image/png.
-  { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default", epsg: "epsg4326" },
   { layer: "VIIRS_CityLights_2012", set: "500m", ext: "jpg", time: "default", epsg: "epsg4326" },
+  { layer: "VIIRS_Black_Marble", set: "500m", ext: "png", time: "default", epsg: "epsg4326" },
   // Day-side fallbacks. Wrong mood, but a planet beats no planet.
   { layer: "BlueMarble_NextGeneration", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
   { layer: "BlueMarble_ShadedRelief_Bathymetry", set: "500m", ext: "jpeg", time: "default", epsg: "epsg4326" },
