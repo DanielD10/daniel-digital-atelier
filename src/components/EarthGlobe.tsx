@@ -63,11 +63,28 @@ function sunDirection(now: Date): THREE.Vector3 {
   const latR = lat * DEG;
   const lonR = lon * DEG;
 
-  // Earth-fixed frame — the frame the texture itself is laid out in.
+  /**
+   * Earth-fixed frame — and it has to be *this* frame, the one
+   * three.js actually lays the texture out in, not a sensible
+   * one.
+   *
+   * SphereGeometry puts u=0 on -X and walks anticlockwise, so on
+   * an equirectangular map longitude -180 lands on -X, -90 on +Z
+   * and 0 on +X. Working that back out:
+   *
+   *   x =  cos(lat) * cos(lon)
+   *   z = -cos(lat) * sin(lon)
+   *
+   * The obvious spherical-coordinate version transposes sin and
+   * cos, which is a 90-degree error — and a 90-degree error in
+   * the sun is the difference between late afternoon in Texas and
+   * the middle of the night there. It shipped, and it looked
+   * plausible enough that only the clock caught it.
+   */
   return new THREE.Vector3(
-    Math.cos(latR) * Math.sin(lonR),
-    Math.sin(latR),
     Math.cos(latR) * Math.cos(lonR),
+    Math.sin(latR),
+    -Math.cos(latR) * Math.sin(lonR),
   ).normalize();
 }
 
@@ -333,20 +350,36 @@ export default function EarthGlobe() {
            */
           vec3 H = normalize(L + vView);
           float water = mix(0.0, texture2D(uSpec, vUv).r, uHasSpec);
-          float gloss = pow(max(dot(N, H), 0.0), 58.0) * water * 1.5;
+          // Tighter and dimmer than it was. Too broad and the sun
+          // on the ocean stops reading as a reflection and starts
+          // reading as a lens flare sitting on top of the planet.
+          float gloss = pow(max(dot(N, H), 0.0), 150.0) * water * 0.62;
           lit += vec3(0.85, 0.92, 1.0) * gloss * step(0.0, ndl);
 
           // ── Cities ─────────────────────────────────────────
           /**
            * The source composite carries a dim blue-grey wash over
-           * the entire globe — atmosphere in the original plate.
-           * Boosted for the night side that wash becomes a purple
-           * haze sitting on the oceans, which reads as fog on a
-           * lens rather than a dark planet. So the floor comes off
-           * before the lights are amplified: only what is actually
-           * brighter than the wash survives.
+           * the whole globe — atmosphere in the original plate —
+           * and boosted for the night side it becomes haze sitting
+           * on the oceans. So the floor comes off before the
+           * lights are amplified.
+           *
+           * The floor is a ramp, not a subtraction, and that is
+           * the entire point. A hard max(x - k, 0) is a cliff:
+           * every value sitting near k gets sorted into black or
+           * not-black, so any noise in the texture around that
+           * level is quantised into hard-edged regions. Lossy
+           * compression puts exactly that kind of noise in exactly
+           * that range, in 16-pixel blocks, and the cliff turned
+           * them into black squares the size of continents
+           * marching across the planet. smoothstep crosses the
+           * same threshold over a range instead of at a point, so
+           * there is no edge for an artefact to hide behind.
            */
-          vec3 lights = max(texture2D(uNight, vUv).rgb - vec3(0.15, 0.14, 0.23), 0.0) * 1.9;
+          vec3 raw = texture2D(uNight, vUv).rgb;
+          float energy = dot(raw, vec3(0.299, 0.587, 0.114));
+          float keep = smoothstep(0.10, 0.30, energy);
+          vec3 lights = raw * keep * 2.1;
           float lum = dot(lights, vec3(0.299, 0.587, 0.114));
           vec3 sodium = lights * vec3(1.25, 0.95, 0.58) * 2.6
                       + vec3(1.0, 0.76, 0.4) * smoothstep(0.02, 0.32, lum) * 1.1;

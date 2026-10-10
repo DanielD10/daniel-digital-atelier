@@ -226,8 +226,10 @@ html.js .veil { opacity: 0; }
   color: #d4cfc7;
 }
 
-.bars { display: flex; align-items: flex-end; gap: 2px; height: 9px; }
-.bars i { width: 2px; height: 3px; background: currentColor; display: block; }
+.sound { cursor: pointer; background: none; border: 0; font-family: var(--f-micro); transition: color 0.3s ease; }
+.sound[aria-pressed="true"] { color: var(--bronze, #c8a06a); }
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 11px; }
+.bars i { width: 2.5px; height: 3px; background: currentColor; display: block; }
 
 .sound[aria-pressed="true"] .bars i {
   animation: eq 0.9s ease-in-out infinite alternate;

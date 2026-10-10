@@ -26,7 +26,10 @@ export default function SoundToggle() {
       title={available ? undefined : "Ambient track not loaded"}
       data-playing={playing ? "true" : "false"}
     >
-      Sound
+      {/* The state has to be on the label. Three two-pixel bars is
+          not feedback — people clicked it and could not tell
+          whether anything had happened. */}
+      {playing ? "Sound on" : "Sound"}
       <span className="bars" aria-hidden="true">
         <i />
         <i />

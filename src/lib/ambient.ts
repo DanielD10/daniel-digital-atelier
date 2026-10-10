@@ -24,7 +24,9 @@ export type AmbientState = {
   volume: number;
 };
 
-const INITIAL: AmbientState = { playing: false, available: true, volume: 0.22 };
+// 0.22 was inaudible over anything. If someone deliberately turns
+// sound on, they should be in no doubt that it worked.
+const INITIAL: AmbientState = { playing: false, available: true, volume: 0.46 };
 
 let state: AmbientState = INITIAL;
 let audio: HTMLAudioElement | null = null;
@@ -92,9 +94,13 @@ export async function playAmbient(): Promise<void> {
     fadeTo(el, state.volume);
     set({ playing: true });
   } catch {
-    // Autoplay refusal or a missing file. The site works in silence;
-    // an error toast here would be noise about something optional.
-    set({ available: false, playing: false });
+    // Autoplay refusal or a missing file. The site works in
+    // silence, so this stays quiet — but it does NOT latch
+    // `available` off. A refusal is usually about this particular
+    // gesture, and permanently disabling the button over one of
+    // them leaves someone staring at a dead control they can
+    // never retry.
+    set({ playing: false });
   }
 }
 
