@@ -220,26 +220,61 @@ export default function EarthGlobe() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 } },
+      uniforms: {
+        uTime: { value: 0 },
+        uWarp: { value: 0 },
+        uAspect: { value: 1 },
+      },
       vertexShader: `
         attribute float aSize;
         uniform float uWarp;
+        uniform float uAspect;
         varying float vFade;
         varying float vSeed;
         varying float vWarp;
+        varying vec2  vDir;
+        varying float vStretch;
+
         void main() {
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
+
           // Fade in from the far plane and out as they pass the
           // camera, so recycling a star is never a visible pop.
           float d = -mv.z;
           vFade = smoothstep(0.0, 60.0, d) * (1.0 - smoothstep(260.0, 420.0, d));
           vSeed = aSize;
           vWarp = uWarp;
-          // Stars swell as they rush past. Near ones grow more than
-          // far ones, which is what sells the acceleration.
-          float near = 1.0 - smoothstep(0.0, 180.0, d);
-          gl_PointSize = aSize * (160.0 / max(d, 1.0)) * (1.0 + uWarp * (0.5 + near * 1.9));
-          gl_Position = projectionMatrix * mv;
+
+          vec4 clip = projectionMatrix * mv;
+
+          /**
+           * Travel direction in screen space.
+           *
+           * Stars move straight at the camera, so on screen they
+           * stream radially outward from the vanishing point. The
+           * streak has to lie along that radius — the previous
+           * version stretched every sprite vertically regardless of
+           * where it sat, which looked like falling rain rather than
+           * hyperspace. Aspect correction keeps the angle true on a
+           * wide monitor.
+           */
+          vec2 ndc = clip.xy / max(clip.w, 0.0001);
+          vec2 radial = ndc * vec2(uAspect, 1.0);
+          vDir = length(radial) > 0.0001 ? normalize(radial) : vec2(0.0, 1.0);
+
+          // Near stars streak further than far ones. That difference
+          // is the parallax that sells the speed.
+          float near = 1.0 - smoothstep(0.0, 200.0, d);
+          vStretch = 1.0 + uWarp * (1.6 + near * 5.4);
+
+          // The sprite is square, so it has to grow by the full
+          // stretch or the streak gets clipped at its own edge.
+          // Clamped: drivers cap point size at their own limit and
+          // clip the sprite silently when you exceed it, which
+          // truncates the streak mid-flight. Better to pick the
+          // ceiling ourselves than discover each GPU's.
+          gl_PointSize = min(aSize * (160.0 / max(d, 1.0)) * vStretch, 480.0);
+          gl_Position = clip;
         }
       `,
       fragmentShader: `
@@ -247,26 +282,59 @@ export default function EarthGlobe() {
         varying float vFade;
         varying float vSeed;
         varying float vWarp;
+        varying vec2  vDir;
+        varying float vStretch;
+
+        /**
+         * Spectral class, roughly. Real starfields are mostly white
+         * and blue-white with a scattering of yellow, red and violet,
+         * so the common colours stay common — a field of evenly
+         * mixed rainbow dots reads as confetti, not space.
+         */
+        vec3 starColour(float k) {
+          if (k < 0.30) return vec3(1.00, 0.99, 0.97); // white
+          if (k < 0.52) return vec3(0.52, 0.71, 1.00); // blue
+          if (k < 0.70) return vec3(1.00, 0.86, 0.42); // yellow
+          if (k < 0.86) return vec3(1.00, 0.38, 0.34); // red
+          return                 vec3(0.76, 0.42, 1.00); // violet
+        }
+
         void main() {
-          vec2 c = gl_PointCoord - 0.5;
+          // gl_PointCoord is y-down; flip into the y-up frame vDir
+          // was computed in, or every streak points the wrong way in
+          // the top half of the screen.
+          vec2 p = vec2(gl_PointCoord.x - 0.5, 0.5 - gl_PointCoord.y);
+
+          // Rotate into the streak's own frame, then compress along
+          // it — compressing the sample is what elongates the shape.
+          float along  = dot(p, vDir) / vStretch;
+          float across = p.x * vDir.y - p.y * vDir.x;
+
+          float r = length(vec2(along, across));
+          if (r > 0.5) discard;
+
+          float core = smoothstep(0.5, 0.0, r);
+
+          // Twinkle flattens at speed — something moving that fast
+          // reads as a solid line of light, not a flicker.
+          float tw = mix(0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0), 1.0, vWarp);
 
           /**
-           * Under warp the sprite stretches along its travel axis.
-           * Squashing the sample coordinate is what turns a round
-           * star into a streak — real hyperspace is motion blur, and
-           * this is the cheapest honest version of it: no extra
-           * geometry, no second pass.
+           * Colour arrives with the acceleration. At rest the field
+           * is the natural cool/warm mix you would actually see;
+           * under warp each star saturates to its own spectral
+           * colour and the sky goes wild.
            */
-          c.y /= (1.0 + vWarp * 2.6);
+          vec3 calm = mix(vec3(0.72, 0.80, 1.0), vec3(1.0, 0.93, 0.82), fract(vSeed * 7.3));
+          vec3 wild = starColour(fract(vSeed * 13.73));
+          vec3 tint = mix(calm, wild, smoothstep(0.08, 0.75, vWarp));
 
-          float r = length(c);
-          if (r > 0.5) discard;
-          float core = smoothstep(0.5, 0.0, r);
-          // Twinkle flattens out at speed — things moving that fast
-          // read as solid light, not flicker.
-          float tw = mix(0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0), 1.0, vWarp);
-          vec3 tint = mix(vec3(0.72,0.80,1.0), vec3(1.0,0.93,0.82), fract(vSeed * 7.3));
-          gl_FragColor = vec4(tint, core * core * vFade * tw * (1.0 + vWarp * 0.5));
+          // Hot white core on the brightest streaks, so the colour
+          // sits in the halo rather than flattening the whole shape.
+          tint = mix(tint, vec3(1.0), smoothstep(0.75, 1.0, core) * vWarp * 0.65);
+
+          float alpha = core * core * vFade * tw * (1.0 + vWarp * 0.9);
+          gl_FragColor = vec4(tint, alpha);
         }
       `,
     });
@@ -463,6 +531,8 @@ export default function EarthGlobe() {
       // camera rather than the mesh, so the starfield stays centred.
       camera.setViewOffset(w, h, -w * 0.19, 0, w, h);
       camera.updateProjectionMatrix();
+
+      starMat.uniforms.uAspect.value = w / Math.max(h, 1);
     }
 
     const clock = new THREE.Clock();
@@ -479,7 +549,7 @@ export default function EarthGlobe() {
     let warp = 0;
     let warpTarget = 0;
     const BASE_SPEED = 14;
-    const WARP_SPEED = 210;
+    const WARP_SPEED = 460;
     const BASE_FOV = 38;
 
     function animate() {
@@ -539,7 +609,7 @@ export default function EarthGlobe() {
         // trick: the planet stays the same size while space opens up
         // around it, so the viewer feels pulled forward rather than
         // watching something move.
-        const fov = BASE_FOV + w * 15;
+        const fov = BASE_FOV + w * 24;
         if (Math.abs(camera.fov - fov) > 0.01) {
           camera.fov = fov;
           camera.updateProjectionMatrix();
