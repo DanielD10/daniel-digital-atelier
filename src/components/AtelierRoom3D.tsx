@@ -261,7 +261,12 @@ export default function AtelierRoom3D() {
     const composer = new EffectComposer(renderer);
     composer.setSize(w(), h());
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(w(), h()), 0.62, 0.72, 0.74);
+    // Strength, radius, threshold. The threshold is the important
+    // one: low and every lit window in the city qualifies, and the
+    // bloom stacks until the room is a single yellow smear. High,
+    // and only the things that are genuinely sources — the bulb,
+    // the neon, the screen — bleed at all.
+    const bloom = new UnrealBloomPass(new THREE.Vector2(w(), h()), 0.34, 0.62, 0.92);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
 

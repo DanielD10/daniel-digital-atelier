@@ -138,10 +138,16 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
    * show a window every three metres or so; the repeat below is
    * set from the building's actual size to land near that.
    */
-  const COLS = 3;
-  const ROWS = 5;
-  const CW = 26;
-  const CH = 26;
+  // Eight by eleven, not three by five. At three across, one
+  // repeat of this texture over a seven-metre facade gives
+  // windows well over two metres wide, and a tower with six
+  // enormous panes on it does not read as a building — it reads
+  // as a lit wall. Window size is the only thing in a skyline
+  // that communicates scale.
+  const COLS = 8;
+  const ROWS = 11;
+  const CW = 16;
+  const CH = 16;
   const w = COLS * CW;
   const h = ROWS * CH;
 
@@ -441,9 +447,24 @@ export function buildRoom(): Built {
   );
   const offPanel = new THREE.Mesh(keep(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H)), offMat);
   offPanel.position.set(0, screenY, screenZ);
-  offPanel.name = "monitor";
   root.add(offPanel);
-  targets.push(offPanel);
+
+  /**
+   * A hit box rather than the panel itself.
+   *
+   * The glass is a plane a few millimetres thick seen at an
+   * angle, and expecting anyone to land a click on it is the kind
+   * of thing that tests fine and then frustrates every real
+   * visitor. Anywhere on the monitor wakes it.
+   */
+  const monitorHit = new THREE.Mesh(
+    box(SCREEN_W + 0.1, SCREEN_H + 0.2, 0.14),
+    keep(new THREE.MeshBasicMaterial({ visible: false })),
+  );
+  monitorHit.position.set(0, screenY - 0.015, screenZ - 0.04);
+  monitorHit.name = "monitor";
+  root.add(monitorHit);
+  targets.push(monitorHit);
 
   /* ── Desk things ───────────────────────────────────────── */
   // Keyboard, on a slight angle because nobody squares theirs up.
@@ -588,8 +609,11 @@ export function buildRoom(): Built {
     caster.position.set(Math.cos(a) * 0.25, 0.025, Math.sin(a) * 0.25);
     chair.add(caster);
   }
-  chair.position.set(-0.05, 0, deskZ + 0.92);
-  chair.rotation.y = 0.22;
+  // Pushed right and turned away. Dead centre it sat between the
+  // camera and the monitor, so the first thing anyone saw of the
+  // room was the back of a chair.
+  chair.position.set(0.62, 0, deskZ + 1.02);
+  chair.rotation.y = 0.55;
   root.add(chair);
 
   /* ── Shelf on the left wall ────────────────────────────── */
@@ -1059,9 +1083,17 @@ export function buildRoom(): Built {
   const tvOffMat = keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.12, metalness: 0.8 }));
   const tvPanel = new THREE.Mesh(keep(new THREE.PlaneGeometry(TV_W, TV_H)), tvOffMat);
   tvPanel.position.set(tvX, tvY, tvZ + 0.212);
-  tvPanel.name = "tv";
   root.add(tvPanel);
-  targets.push(tvPanel);
+
+  // Same reasoning as the monitor: the whole set is the switch.
+  const tvHit = new THREE.Mesh(
+    box(TV_W + 0.3, TV_H + 0.18, 0.4),
+    keep(new THREE.MeshBasicMaterial({ visible: false })),
+  );
+  tvHit.position.set(tvX + 0.05, tvY, tvZ + 0.06);
+  tvHit.name = "tv";
+  root.add(tvHit);
+  targets.push(tvHit);
 
   const tvGlowMat = keep(
     new THREE.MeshBasicMaterial({ color: 0x89c8ff, transparent: true, opacity: 0 }),
@@ -1153,7 +1185,16 @@ export function buildRoom(): Built {
     // a skyline with no sky above it is a wall.
     const hgt = 4 + rC() * rC() * 24;
     const x = (rC() - 0.5) * 86;
-    const z = -14 - rC() * 56;
+    /**
+     * Far enough back to be a skyline.
+     *
+     * At fourteen metres a thirty-metre tower is eight metres
+     * behind the glass and taller than the window, so all you see
+     * through the frame is a patch of one facade — and a patch of
+     * facade is not a city, it is a lit wall. Distance is what
+     * turns these boxes into a view.
+     */
+    const z = -26 - rC() * 62;
 
     const map = f.map.clone();
     const emi = f.emissive.clone();
@@ -1162,7 +1203,7 @@ export function buildRoom(): Built {
     // Roughly one window per three metres, which is what a real
     // facade does and what stops the skyline reading as noise.
     const ru = Math.max(1, Math.round(w / 9));
-    const rv = Math.max(1, Math.round(hgt / 15));
+    const rv = Math.max(1, Math.round(hgt / 26));
     map.repeat.set(ru, rv);
     emi.repeat.set(ru, rv);
     disposables.push(map, emi);
@@ -1171,9 +1212,16 @@ export function buildRoom(): Built {
       map,
       emissiveMap: emi,
       emissive: 0xffffff,
-      emissiveIntensity: 1,
+      // Lit windows feed the bloom pass, and bloom compounds: at
+      // full strength sixty-four towers of them washed the entire
+      // room yellow and ate the furniture.
+      emissiveIntensity: 0.5,
       roughness: 0.86,
-      color: 0x565068,
+      // Nearly black. A night skyline is silhouette plus lit
+      // windows; give the concrete any real colour and the
+      // ambient picks it up and the towers turn into lilac
+      // slabs with lights painted on them.
+      color: 0x17141f,
     });
     disposables.push(mat);
 
@@ -1435,7 +1483,10 @@ export function buildRoom(): Built {
     return p;
   }
 
-  const dust = points(260, 0.016, 0xfff0d8, 0.5);
+  // Sparse and faint. Additively blended points at half opacity
+  // scattered through the whole room do not read as dust in a
+  // sunbeam, they read as stars stuck to the furniture.
+  const dust = points(80, 0.013, 0xfff0d8, 0.16);
   const rD = rand(307);
   {
     const a = dust.geometry.attributes.position.array as Float32Array;

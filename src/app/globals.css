@@ -1599,11 +1599,21 @@ main { position: relative; z-index: 3; }
   overflow: hidden;
 }
 
+/**
+ * The !important is load-bearing, not laziness.
+ *
+ * CSS3DRenderer writes `pointer-events: auto` as an inline style
+ * onto every element it manages, on every frame. A class rule
+ * cannot outrank an inline style, so without this the sleeping
+ * monitor sat on top of the canvas and ate every click aimed at
+ * the room behind it — including the one that wakes it up. Only
+ * the parts that genuinely need the pointer take it back.
+ */
 .os3d {
   position: relative;
   overflow: hidden;
   background: #07060f;
-  pointer-events: none;
+  pointer-events: none !important;
 }
 .os3d .os-host { pointer-events: auto; }
 /* In 3D the monitor sets the scale, so the desktop renders at its
@@ -1615,7 +1625,7 @@ main { position: relative; z-index: 3; }
   position: relative;
   overflow: hidden;
   background: #05070a;
-  pointer-events: none;
+  pointer-events: none !important;
   font-family: var(--f-micro);
   color: #e8e4f2;
 }
