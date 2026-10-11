@@ -2693,3 +2693,97 @@ main { position: relative; z-index: 3; }
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ═══════════════ THE LAB, IN 3D ═══════════════
+   Two renderers stacked over one camera: WebGL draws the room,
+   CSS3D draws the two screens as real DOM in the same
+   perspective. The CSS layer sits on top and is click-through
+   everywhere except those screens, so the raycaster underneath
+   still gets the rest of the room. */
+.room3d-stage {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  border: 1px solid rgba(74, 69, 62, 0.5);
+  background: #06050d;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.room3d-host {
+  position: absolute;
+  inset: 0;
+}
+.room3d-host.is-pointing { cursor: pointer; }
+
+.room3d-gl {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* Above the canvas, and transparent to the pointer — only the
+   screens themselves take clicks. */
+.room3d-css {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.room3d-css > div { pointer-events: none; }
+
+.room3d-screen {
+  position: relative;
+  overflow: hidden;
+  background: #07060f;
+  pointer-events: auto;
+  /* CSS3DRenderer owns `transform` on this element. Nothing here
+     may set it, or the screen detaches from the monitor. */
+}
+.room3d-screen .os { transform: none !important; width: 100%; height: 100%; }
+
+.room3d-tv { background: #05070a; }
+.room3d-tv iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.room3d-boot,
+.room3d-tip {
+  position: absolute;
+  z-index: 4;
+  margin: 0;
+  font-family: var(--f-micro);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  pointer-events: none;
+}
+.room3d-boot { inset: 0; display: grid; place-items: center; }
+.room3d-tip {
+  left: 18px;
+  bottom: 16px;
+  padding: 7px 12px;
+  color: #efe9df;
+  background: rgba(10, 8, 18, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+  backdrop-filter: blur(6px);
+  animation: tipIn 220ms ease both;
+}
+@keyframes tipIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 760px) {
+  .room3d-stage { aspect-ratio: 4 / 5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room3d-tip { animation: none; }
+}

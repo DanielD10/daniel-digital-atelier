@@ -145,22 +145,46 @@ const BOOT = [
 function BootScreen({ onDone, instant }: { onDone: () => void; instant: boolean }) {
   const [line, setLine] = useState(instant ? BOOT.length : 0);
 
+  /**
+   * Two things here are load-bearing, and the machine would not
+   * boot without either.
+   *
+   * The callback goes in a ref because the call site passes a
+   * fresh arrow on every render. With it in the dependency array,
+   * any re-render of the desktop tore this effect down and built
+   * it again.
+   *
+   * And progress is measured from a start time rather than
+   * counted inside the interval. A counter lives in the closure,
+   * so every one of those restarts silently rewound the boot to
+   * zero — the interval was cleared before its first tick, over
+   * and over, and the screen sat on an empty prompt forever while
+   * the click that opened it looked like the thing that was
+   * broken. Elapsed time cannot be rewound.
+   */
+  const done = useRef(onDone);
+  done.current = onDone;
+
+  const startedAt = useRef(0);
+  if (startedAt.current === 0) startedAt.current = Date.now();
+
   useEffect(() => {
     if (instant) {
-      onDone();
+      done.current();
       return;
     }
-    let n = 0;
+    let fired = false;
     const id = window.setInterval(() => {
-      n += 1;
+      const n = Math.min(BOOT.length, Math.floor((Date.now() - startedAt.current) / 190));
       setLine(n);
-      if (n >= BOOT.length) {
+      if (n >= BOOT.length && !fired) {
+        fired = true;
         window.clearInterval(id);
-        window.setTimeout(onDone, 420);
+        window.setTimeout(() => done.current(), 420);
       }
-    }, 190);
+    }, 80);
     return () => window.clearInterval(id);
-  }, [instant, onDone]);
+  }, [instant]);
 
   return (
     <div className="os-boot">

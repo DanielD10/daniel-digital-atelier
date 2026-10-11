@@ -1,4 +1,13 @@
 import * as THREE from "three";
+import {
+  buildCat,
+  buildClock,
+  buildDecor,
+  buildPlant,
+  buildSteam,
+  type DecorSet,
+  type Life,
+} from "./atelier-life";
 
 /**
  * The room, as geometry.
@@ -11,14 +20,15 @@ import * as THREE from "three";
  * and materials with honest roughness. A plain box lit properly
  * reads as a desk; a detailed model lit flatly reads as a toy.
  *
- * Pure three.js. No React in this file, so the scene can be built,
- * measured and torn down without a render cycle in the way.
+ * The things that move live in atelier-life. This file builds the
+ * room they live in and hands back every handle the driver needs
+ * to light it, point at it and animate it.
+ *
+ * Pure three.js. No React, so the scene can be built, measured and
+ * torn down without a render cycle in the way.
  */
 
-/* ── Procedural textures ───────────────────────────────────────
-   Drawn once into a canvas at module level and shared. Each is a
-   few kilobytes of ImageData rather than a network request, and
-   the grain is what stops the surfaces reading as plastic. */
+/* ── Procedural textures ───────────────────────────────────── */
 
 function canvas(w: number, h: number) {
   const c = document.createElement("canvas");
@@ -65,7 +75,6 @@ function woodTexture(): THREE.Texture {
     g.bezierCurveTo(x + len * 0.3, y + (r() - 0.5) * 7, x + len * 0.7, y + (r() - 0.5) * 7, x + len, y);
     g.stroke();
   }
-  // A few knots.
   for (let i = 0; i < 5; i++) {
     const x = r() * 512;
     const y = r() * 512;
@@ -104,8 +113,6 @@ function rugTexture(): THREE.Texture {
     g.fillStyle = `rgba(255,255,255,${r() * 0.05})`;
     g.fillRect(r() * 256, r() * 256, 2, 1);
   }
-  // Border and a simple woven band — enough pattern to read as a
-  // rug rather than a painted rectangle.
   g.strokeStyle = "rgba(255,120,180,0.30)";
   g.lineWidth = 7;
   g.strokeRect(16, 16, 224, 224);
@@ -120,32 +127,13 @@ function rugTexture(): THREE.Texture {
 }
 
 /**
- * A tower facade: dark concrete with lit windows.
- *
- * Used as both the colour map and the emissive map, so the lit
- * cells glow and feed the bloom pass while the concrete stays
- * dark. One texture, varied per building by UV repeat, which is
- * what keeps a skyline from looking stamped.
+ * A tower facade: dark concrete with lit windows, used as both the
+ * colour map and the emissive map so the lit cells glow into the
+ * bloom pass while the concrete stays dark.
  */
 function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissive: THREE.Texture } {
-  /**
-   * Few, large cells.
-   *
-   * The first version used a 10x16 grid and then repeated it once
-   * per metre of building, which put several hundred rows of
-   * windows on a thirty-metre tower. At that density a facade
-   * stops being a building and becomes a QR code. Real towers
-   * show a window every three metres or so; the repeat below is
-   * set from the building's actual size to land near that.
-   */
-  // Eight by eleven, not three by five. At three across, one
-  // repeat of this texture over a seven-metre facade gives
-  // windows well over two metres wide, and a tower with six
-  // enormous panes on it does not read as a building — it reads
-  // as a lit wall. Window size is the only thing in a skyline
-  // that communicates scale.
-  const COLS = 8;
-  const ROWS = 11;
+  const COLS = 10;
+  const ROWS = 16;
   const CW = 16;
   const CH = 16;
   const w = COLS * CW;
@@ -162,22 +150,18 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
 
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
-      const on = r() < lit;
       const px = x * CW + 4;
       const py = y * CH + 4;
-      const w2 = CW - 9;
-      const h2 = CH - 11;
-      if (on) {
-        // Warm sodium, with a few cold fluorescent offices.
+      if (r() < lit) {
         const cold = r() < 0.22;
         const col = cold ? "#cfe4ff" : `rgb(255,${190 + r() * 50},${110 + r() * 70})`;
         base.g.fillStyle = col;
-        base.g.fillRect(px, py, w2, h2);
+        base.g.fillRect(px, py, CW - 8, CH - 8);
         glow.g.fillStyle = col;
-        glow.g.fillRect(px, py, w2, h2);
+        glow.g.fillRect(px, py, CW - 8, CH - 8);
       } else {
-        base.g.fillStyle = `rgba(38,34,60,${0.3 + r() * 0.35})`;
-        base.g.fillRect(px, py, w2, h2);
+        base.g.fillStyle = `rgba(40,36,64,${0.25 + r() * 0.3})`;
+        base.g.fillRect(px, py, CW - 8, CH - 8);
       }
     }
   }
@@ -185,16 +169,22 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
   return { map: finish(base.c, 1), emissive: finish(glow.c, 1) };
 }
 
-/* ── Materials ─────────────────────────────────────────────── */
+/* ── Shape of the room ─────────────────────────────────────── */
+
+const ROOM = { w: 6, h: 3, d: 5, backZ: -2.6, leftX: -3, rightX: 3 };
+const WIN = { x0: -1.7, x1: 1.9, y0: 1.05, y1: 2.45 };
+const DESK_Y = 0.76;
+const DESK_Z = ROOM.backZ + 0.52;
 
 export type Built = {
   root: THREE.Group;
-  /** Where the CSS3D desktop goes, in world space. */
   screen: { position: THREE.Vector3; width: number; height: number };
-  /** Where the CSS3D television picture goes. */
   tv: { position: THREE.Vector3; width: number; height: number };
-  /** Hit targets for pointer interaction, by name. */
+  /** Every mesh the raycaster tests, each with a .name. */
   targets: THREE.Object3D[];
+  /** Objects with their own idle and reaction behaviour. */
+  life: Life[];
+  decor: DecorSet;
   lamps: {
     sun: THREE.DirectionalLight;
     windowFill: THREE.RectAreaLight;
@@ -204,94 +194,64 @@ export type Built = {
     tv: THREE.PointLight;
     ambient: THREE.HemisphereLight;
   };
-  sky: THREE.Mesh;
-  skyMat: THREE.ShaderMaterial;
-  ships: THREE.Group;
-  rift: THREE.Mesh;
-  riftMat: THREE.ShaderMaterial;
-  cat: {
-    group: THREE.Group;
-    head: THREE.Object3D;
-    ears: THREE.Object3D[];
-    eyes: THREE.Object3D[];
-    lids: THREE.Mesh[];
-    blush: THREE.Mesh[];
-    tail: THREE.Object3D;
-    body: THREE.Mesh;
-  };
-  clock: { hour: THREE.Object3D; minute: THREE.Object3D };
-  seasonal: {
-    group: THREE.Group;
-    tree: THREE.Group;
-    baubles: THREE.Mesh[];
-    star: THREE.Mesh;
-    light: THREE.PointLight;
-  };
-  particles: { dust: THREE.Points; steam: THREE.Points; snow: THREE.Points };
-  /** Everything that sways when the room breathes. */
-  plants: THREE.Object3D[];
-  /** Shared leaf materials — the season recolours these two. */
-  leafMats: THREE.MeshStandardMaterial[];
   props: {
-    bulb: THREE.Mesh;
-    record: THREE.Mesh;
+    skyMat: THREE.ShaderMaterial;
+    ships: THREE.Group;
+    riftMat: THREE.ShaderMaterial;
+    rift: THREE.Mesh;
     chair: THREE.Group;
-    tvStatic: THREE.Mesh;
-    tvStaticMat: THREE.ShaderMaterial;
+    vinyl: THREE.Mesh;
+    lampBulb: THREE.Mesh;
+    lampHead: THREE.Group;
+    neonSign: THREE.Group;
+    neonMat: THREE.MeshBasicMaterial;
+    screenGlow: THREE.Mesh;
+    screenOff: THREE.Mesh;
+    tvGlow: THREE.Mesh;
+    tvOff: THREE.Mesh;
+    speakerCones: THREE.Mesh[];
+    posters: THREE.Mesh[];
+    towerMats: THREE.MeshStandardMaterial[];
   };
-  neonSign: THREE.Group;
-  screenGlow: THREE.Mesh;
-  tvGlow: THREE.Mesh;
   dispose: () => void;
 };
-
-const ROOM = {
-  w: 6,
-  h: 3,
-  d: 5,
-  backZ: -2.6,
-  leftX: -3,
-  rightX: 3,
-};
-
-const WIN = { x0: -1.7, x1: 1.9, y0: 1.05, y1: 2.45 };
-
-/* The desk surface everything else is measured from. */
-const DESK_Y = 0.76;
 
 export function buildRoom(): Built {
   const root = new THREE.Group();
   const disposables: Array<{ dispose: () => void }> = [];
   const targets: THREE.Object3D[] = [];
+  const life: Life[] = [];
 
   const keep = <T extends { dispose: () => void }>(x: T): T => {
     disposables.push(x);
     return x;
   };
 
+  const hitBox = (w: number, h: number, d: number, name: string, pos: THREE.Vector3) => {
+    const m = new THREE.Mesh(
+      keep(new THREE.BoxGeometry(w, h, d)),
+      keep(new THREE.MeshBasicMaterial({ visible: false })),
+    );
+    m.name = name;
+    m.position.copy(pos);
+    root.add(m);
+    targets.push(m);
+    return m;
+  };
+
   const wallMap = keep(wallTexture());
   const woodMap = keep(woodTexture());
   const rugMap = keep(rugTexture());
 
-  const wallMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x6d6480, roughness: 0.94, map: wallMap }),
-  );
+  const wallMat = keep(new THREE.MeshStandardMaterial({ color: 0x6d6480, roughness: 0.94, map: wallMap }));
   const floorMat = keep(
     new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 0.62, map: woodMap, metalness: 0.02 }),
   );
   const deskMat = keep(
     new THREE.MeshStandardMaterial({ color: 0x7a5538, roughness: 0.46, map: woodMap, metalness: 0.04 }),
   );
-  const darkMetal = keep(
-    new THREE.MeshStandardMaterial({ color: 0x1b1a22, roughness: 0.42, metalness: 0.68 }),
-  );
-  const plastic = keep(
-    new THREE.MeshStandardMaterial({ color: 0x24222c, roughness: 0.56, metalness: 0.08 }),
-  );
-  const potMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x9a5f3e, roughness: 0.85 }),
-  );
-  const soilMat = keep(new THREE.MeshStandardMaterial({ color: 0x241a14, roughness: 1 }));
+  const darkMetal = keep(new THREE.MeshStandardMaterial({ color: 0x1b1a22, roughness: 0.42, metalness: 0.68 }));
+  const plastic = keep(new THREE.MeshStandardMaterial({ color: 0x24222c, roughness: 0.56, metalness: 0.08 }));
 
   const box = (w: number, h: number, d: number) => keep(new THREE.BoxGeometry(w, h, d));
 
@@ -312,16 +272,14 @@ export function buildRoom(): Built {
     return m;
   };
 
-  /* ── Shell ─────────────────────────────────────────────── */
-  const floorGeo = keep(new THREE.PlaneGeometry(ROOM.w, ROOM.d));
-  const floor = new THREE.Mesh(floorGeo, floorMat);
+  /* ══ Shell ═══════════════════════════════════════════════ */
+  const floor = new THREE.Mesh(keep(new THREE.PlaneGeometry(ROOM.w, ROOM.d)), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, 0, ROOM.backZ + ROOM.d / 2);
   floor.receiveShadow = true;
   root.add(floor);
 
-  const ceilGeo = keep(new THREE.PlaneGeometry(ROOM.w, ROOM.d));
-  const ceil = new THREE.Mesh(ceilGeo, wallMat);
+  const ceil = new THREE.Mesh(keep(new THREE.PlaneGeometry(ROOM.w, ROOM.d)), wallMat);
   ceil.rotation.x = Math.PI / 2;
   ceil.position.set(0, ROOM.h, ROOM.backZ + ROOM.d / 2);
   ceil.receiveShadow = true;
@@ -332,7 +290,7 @@ export function buildRoom(): Built {
   add(box(ROOM.w, WIN.y0, T), wallMat, 0, WIN.y0 / 2, ROOM.backZ - T / 2);
   add(box(ROOM.w, ROOM.h - WIN.y1, T), wallMat, 0, (ROOM.h + WIN.y1) / 2, ROOM.backZ - T / 2);
   add(
-    box(WIN.x0 - -ROOM.w / 2, WIN.y1 - WIN.y0, T),
+    box(WIN.x0 + ROOM.w / 2, WIN.y1 - WIN.y0, T),
     wallMat,
     (-ROOM.w / 2 + WIN.x0) / 2,
     (WIN.y0 + WIN.y1) / 2,
@@ -346,182 +304,151 @@ export function buildRoom(): Built {
     ROOM.backZ - T / 2,
   );
 
-  // Side walls.
   const sideGeo = keep(new THREE.PlaneGeometry(ROOM.d, ROOM.h));
-  const left = new THREE.Mesh(sideGeo, wallMat);
-  left.rotation.y = Math.PI / 2;
-  left.position.set(ROOM.leftX, ROOM.h / 2, ROOM.backZ + ROOM.d / 2);
-  left.receiveShadow = true;
-  root.add(left);
+  const leftWall = new THREE.Mesh(sideGeo, wallMat);
+  leftWall.rotation.y = Math.PI / 2;
+  leftWall.position.set(ROOM.leftX, ROOM.h / 2, ROOM.backZ + ROOM.d / 2);
+  leftWall.receiveShadow = true;
+  root.add(leftWall);
 
-  const right = new THREE.Mesh(sideGeo, wallMat);
-  right.rotation.y = -Math.PI / 2;
-  right.position.set(ROOM.rightX, ROOM.h / 2, ROOM.backZ + ROOM.d / 2);
-  right.receiveShadow = true;
-  root.add(right);
+  const rightWall = new THREE.Mesh(sideGeo, wallMat);
+  rightWall.rotation.y = -Math.PI / 2;
+  rightWall.position.set(ROOM.rightX, ROOM.h / 2, ROOM.backZ + ROOM.d / 2);
+  rightWall.receiveShadow = true;
+  root.add(rightWall);
 
-  // Skirting, because a wall meeting a floor at a hard seam is the
-  // single clearest tell that a room was never built.
+  // Skirting. A wall meeting a floor at a hard seam is the single
+  // clearest tell that a room was never built.
   const skirtMat = keep(new THREE.MeshStandardMaterial({ color: 0x3b3446, roughness: 0.7 }));
   add(box(ROOM.w, 0.1, 0.03), skirtMat, 0, 0.05, ROOM.backZ + 0.015);
   const skirtL = add(box(ROOM.d, 0.1, 0.03), skirtMat, 0, 0.05, 0);
   skirtL.rotation.y = Math.PI / 2;
   skirtL.position.set(ROOM.leftX + 0.015, 0.05, ROOM.backZ + ROOM.d / 2);
 
-  // Window frame and sill.
+  /* ══ Window ══════════════════════════════════════════════ */
   const frameMat = keep(new THREE.MeshStandardMaterial({ color: 0x15121d, roughness: 0.5, metalness: 0.3 }));
   const fw = WIN.x1 - WIN.x0;
   const fh = WIN.y1 - WIN.y0;
-  add(box(fw + 0.12, 0.07, 0.14), frameMat, (WIN.x0 + WIN.x1) / 2, WIN.y0 - 0.02, ROOM.backZ);
-  add(box(fw + 0.12, 0.07, 0.14), frameMat, (WIN.x0 + WIN.x1) / 2, WIN.y1 + 0.02, ROOM.backZ);
-  add(box(0.07, fh, 0.14), frameMat, WIN.x0 - 0.02, (WIN.y0 + WIN.y1) / 2, ROOM.backZ);
-  add(box(0.07, fh, 0.14), frameMat, WIN.x1 + 0.02, (WIN.y0 + WIN.y1) / 2, ROOM.backZ);
-  // Mullions.
+  const cx = (WIN.x0 + WIN.x1) / 2;
+  const cy = (WIN.y0 + WIN.y1) / 2;
+  add(box(fw + 0.12, 0.07, 0.14), frameMat, cx, WIN.y0 - 0.02, ROOM.backZ);
+  add(box(fw + 0.12, 0.07, 0.14), frameMat, cx, WIN.y1 + 0.02, ROOM.backZ);
+  add(box(0.07, fh, 0.14), frameMat, WIN.x0 - 0.02, cy, ROOM.backZ);
+  add(box(0.07, fh, 0.14), frameMat, WIN.x1 + 0.02, cy, ROOM.backZ);
   for (const mx of [WIN.x0 + fw / 3, WIN.x0 + (2 * fw) / 3]) {
-    add(box(0.05, fh, 0.1), frameMat, mx, (WIN.y0 + WIN.y1) / 2, ROOM.backZ);
+    add(box(0.05, fh, 0.1), frameMat, mx, cy, ROOM.backZ);
   }
-  add(box(fw, 0.05, 0.1), frameMat, (WIN.x0 + WIN.x1) / 2, (WIN.y0 + WIN.y1) / 2, ROOM.backZ);
-  // Sill, deep enough for a cat.
-  const sill = add(box(fw + 0.3, 0.06, 0.3), deskMat, (WIN.x0 + WIN.x1) / 2, WIN.y0 - 0.05, ROOM.backZ + 0.11);
+  add(box(fw, 0.05, 0.1), frameMat, cx, cy, ROOM.backZ);
+  add(box(fw + 0.3, 0.06, 0.3), deskMat, cx, WIN.y0 - 0.05, ROOM.backZ + 0.11);
 
-  /* ── Rug ───────────────────────────────────────────────── */
-  const rugGeo = keep(new THREE.PlaneGeometry(3.4, 2.2));
-  const rugMat = keep(new THREE.MeshStandardMaterial({ map: rugMap, roughness: 0.98 }));
-  const rug = new THREE.Mesh(rugGeo, rugMat);
+  /* ══ Rug ═════════════════════════════════════════════════ */
+  const rug = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(3.4, 2.2)),
+    keep(new THREE.MeshStandardMaterial({ map: rugMap, roughness: 0.98 })),
+  );
   rug.rotation.x = -Math.PI / 2;
   rug.position.set(0.1, 0.004, -0.75);
   rug.receiveShadow = true;
   root.add(rug);
 
-  /* ── Desk ──────────────────────────────────────────────── */
+  /* ══ Desk ════════════════════════════════════════════════ */
   const deskW = 2.7;
   const deskD = 0.72;
-  const deskZ = ROOM.backZ + 0.52;
-  add(box(deskW, 0.045, deskD), deskMat, 0.1, DESK_Y, deskZ);
-  // Legs.
+  add(box(deskW, 0.045, deskD), deskMat, 0.1, DESK_Y, DESK_Z);
   for (const lx of [0.1 - deskW / 2 + 0.07, 0.1 + deskW / 2 - 0.07]) {
-    for (const lz of [deskZ - deskD / 2 + 0.06, deskZ + deskD / 2 - 0.06]) {
+    for (const lz of [DESK_Z - deskD / 2 + 0.06, DESK_Z + deskD / 2 - 0.06]) {
       add(box(0.05, DESK_Y, 0.05), darkMetal, lx, DESK_Y / 2, lz);
     }
   }
-  // Drawer unit.
-  const drawer = add(box(0.46, 0.6, 0.6), deskMat, 1.1, 0.3, deskZ);
+  add(box(0.46, 0.6, 0.6), deskMat, 1.1, 0.3, DESK_Z);
   for (let i = 0; i < 3; i++) {
-    add(box(0.4, 0.015, 0.02), darkMetal, 1.1, 0.12 + i * 0.18, deskZ + 0.31);
+    add(box(0.4, 0.015, 0.02), darkMetal, 1.1, 0.12 + i * 0.18, DESK_Z + 0.31);
   }
-  void drawer;
 
-  /* ── Monitor ───────────────────────────────────────────── */
+  /* ══ Monitor ═════════════════════════════════════════════ */
   const SCREEN_W = 0.62;
   const SCREEN_H = SCREEN_W * (464 / 780);
   const screenY = DESK_Y + 0.055 + 0.03 + SCREEN_H / 2 + 0.03;
-  const screenZ = deskZ - 0.19;
+  const screenZ = DESK_Z - 0.19;
 
-  // Body, a hair behind the picture.
   const bodyMat = keep(new THREE.MeshStandardMaterial({ color: 0x2b2a33, roughness: 0.34, metalness: 0.55 }));
   add(box(SCREEN_W + 0.05, SCREEN_H + 0.09, 0.035), bodyMat, 0, screenY - 0.015, screenZ - 0.022);
-  // Chin.
   add(box(SCREEN_W + 0.05, 0.035, 0.04), bodyMat, 0, screenY - SCREEN_H / 2 - 0.042, screenZ - 0.02);
-  // Neck and foot.
   add(box(0.09, 0.17, 0.05), bodyMat, 0, DESK_Y + 0.055 + 0.085, screenZ - 0.02);
-  const footGeo = keep(new THREE.CylinderGeometry(0.16, 0.18, 0.016, 32));
-  add(footGeo, bodyMat, 0, DESK_Y + 0.03, screenZ - 0.02);
+  add(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.016, 32)), bodyMat, 0, DESK_Y + 0.03, screenZ - 0.02);
 
   /**
-   * The screen is a CSS3D element, which composites over the WebGL
-   * canvas and therefore cannot bloom. This plane sits just behind
-   * it, emissive, purely so the monitor throws light into the
-   * bloom pass and onto the wall — the glow you see around a
-   * screen in a dark room is doing most of the work of selling it.
+   * The desktop is a CSS3D element composited over the WebGL
+   * canvas, so it cannot bloom. This plane sits just behind it,
+   * emissive, purely so the monitor throws light into the bloom
+   * pass and onto the wall — the glow around a screen in a dark
+   * room is doing most of the work of selling it.
    */
-  const screenGlowMat = keep(
-    new THREE.MeshBasicMaterial({ color: 0x7fb4e8, transparent: true, opacity: 0.0 }),
+  const screenGlow = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H)),
+    keep(new THREE.MeshBasicMaterial({ color: 0x7fb4e8, transparent: true, opacity: 0 })),
   );
-  const screenGlow = new THREE.Mesh(keep(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H)), screenGlowMat);
   screenGlow.position.set(0, screenY, screenZ - 0.004);
   root.add(screenGlow);
 
   // Asleep, the panel is a dark mirror rather than a hole.
-  const offMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.08, metalness: 0.9 }),
+  const screenOff = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x0a0c12, roughness: 0.08, metalness: 0.9 })),
   );
-  const offPanel = new THREE.Mesh(keep(new THREE.PlaneGeometry(SCREEN_W, SCREEN_H)), offMat);
-  offPanel.position.set(0, screenY, screenZ);
-  root.add(offPanel);
+  screenOff.position.set(0, screenY, screenZ);
+  root.add(screenOff);
+  hitBox(SCREEN_W + 0.1, SCREEN_H + 0.1, 0.1, "monitor", new THREE.Vector3(0, screenY, screenZ));
 
-  /**
-   * A hit box rather than the panel itself.
-   *
-   * The glass is a plane a few millimetres thick seen at an
-   * angle, and expecting anyone to land a click on it is the kind
-   * of thing that tests fine and then frustrates every real
-   * visitor. Anywhere on the monitor wakes it.
-   */
-  const monitorHit = new THREE.Mesh(
-    box(SCREEN_W + 0.1, SCREEN_H + 0.2, 0.14),
-    keep(new THREE.MeshBasicMaterial({ visible: false })),
-  );
-  monitorHit.position.set(0, screenY - 0.015, screenZ - 0.04);
-  monitorHit.name = "monitor";
-  root.add(monitorHit);
-  targets.push(monitorHit);
-
-  /* ── Desk things ───────────────────────────────────────── */
-  // Keyboard, on a slight angle because nobody squares theirs up.
-  const kb = add(box(0.44, 0.015, 0.14), plastic, -0.06, DESK_Y + 0.03, deskZ + 0.19);
+  /* ══ Desk things ═════════════════════════════════════════ */
+  const kb = add(box(0.44, 0.015, 0.14), plastic, -0.06, DESK_Y + 0.03, DESK_Z + 0.19);
   kb.rotation.y = 0.045;
+  const keyMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.8 }));
+  const keyGeo = box(0.026, 0.006, 0.024);
   for (let rw = 0; rw < 4; rw++) {
     for (let k = 0; k < 13; k++) {
-      const key = add(
-        box(0.026, 0.006, 0.024),
-        keep(new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.8 })),
-        -0.06 - 0.2 + k * 0.032,
-        DESK_Y + 0.04,
-        deskZ + 0.145 + rw * 0.03,
-        false,
-        false,
-      );
+      const key = add(keyGeo, keyMat, -0.26 + k * 0.032, DESK_Y + 0.04, DESK_Z + 0.145 + rw * 0.03, false, false);
       key.rotation.y = 0.045;
     }
   }
-  // Mouse.
-  const mouse = add(keep(new THREE.SphereGeometry(0.035, 20, 14)), plastic, 0.3, DESK_Y + 0.032, deskZ + 0.2);
+  const mouse = add(keep(new THREE.SphereGeometry(0.035, 20, 14)), plastic, 0.3, DESK_Y + 0.032, DESK_Z + 0.2);
   mouse.scale.set(1, 0.5, 1.5);
 
-  // Mug.
-  const mugMat = keep(new THREE.MeshStandardMaterial({ color: 0xbf5f7f, roughness: 0.32 }));
-  const mug = add(keep(new THREE.CylinderGeometry(0.043, 0.038, 0.1, 28, 1, true)), mugMat, -0.78, DESK_Y + 0.078, deskZ + 0.1);
-  mug.material = keep(new THREE.MeshStandardMaterial({ color: 0xbf5f7f, roughness: 0.32, side: THREE.DoubleSide }));
-  add(keep(new THREE.CylinderGeometry(0.043, 0.043, 0.006, 28)), mugMat, -0.78, DESK_Y + 0.031, deskZ + 0.1);
-  // Coffee.
+  // Mug. The steam above it is a Life object.
+  const mugMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0xbf5f7f, roughness: 0.32, side: THREE.DoubleSide }),
+  );
+  const MUG = new THREE.Vector3(-0.82, DESK_Y + 0.078, DESK_Z + 0.12);
+  add(keep(new THREE.CylinderGeometry(0.043, 0.038, 0.1, 28, 1, true)), mugMat, MUG.x, MUG.y, MUG.z);
+  add(keep(new THREE.CylinderGeometry(0.043, 0.043, 0.006, 28)), mugMat, MUG.x, DESK_Y + 0.031, MUG.z);
   add(
     keep(new THREE.CylinderGeometry(0.038, 0.038, 0.004, 24)),
     keep(new THREE.MeshStandardMaterial({ color: 0x2a1408, roughness: 0.18 })),
-    -0.78,
+    MUG.x,
     DESK_Y + 0.105,
-    deskZ + 0.1,
+    MUG.z,
     false,
   );
-  const handle = add(keep(new THREE.TorusGeometry(0.028, 0.008, 10, 24, Math.PI)), mugMat, -0.74, DESK_Y + 0.078, deskZ + 0.1);
+  const handle = add(keep(new THREE.TorusGeometry(0.028, 0.008, 10, 24, Math.PI)), mugMat, MUG.x + 0.04, MUG.y, MUG.z);
   handle.rotation.z = -Math.PI / 2;
   handle.rotation.y = Math.PI / 2;
+  hitBox(0.16, 0.22, 0.16, "mug", new THREE.Vector3(MUG.x, DESK_Y + 0.11, MUG.z));
 
-  // Books, stacked slightly out of true.
-  const bookCols = [0x6f3550, 0x2f4a6b, 0x6b5a2f];
-  bookCols.forEach((col, i) => {
+  // Books.
+  [0x6f3550, 0x2f4a6b, 0x6b5a2f].forEach((col, i) => {
     const b = add(
       box(0.2, 0.032, 0.28),
       keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.82 })),
-      -1.08,
+      -1.12,
       DESK_Y + 0.04 + i * 0.034,
-      deskZ - 0.02,
+      DESK_Z - 0.02,
     );
     b.rotation.y = (i - 1) * 0.07;
   });
 
-  // Speaker.
-  const spk = add(box(0.11, 0.17, 0.1), plastic, 0.72, DESK_Y + 0.11, deskZ - 0.08);
-  void spk;
+  // Speaker, with cones that pulse when the music is on.
+  add(box(0.11, 0.17, 0.1), plastic, 0.72, DESK_Y + 0.11, DESK_Z - 0.08);
+  const speakerCones: THREE.Mesh[] = [];
   for (const [sy, sr] of [
     [0.145, 0.032],
     [0.072, 0.018],
@@ -531,26 +458,27 @@ export function buildRoom(): Built {
       keep(new THREE.MeshStandardMaterial({ color: 0x100f16, roughness: 0.9 })),
       0.72,
       DESK_Y + sy,
-      deskZ - 0.031,
+      DESK_Z - 0.031,
       false,
       false,
     );
     cone.rotation.x = Math.PI / 2;
+    speakerCones.push(cone);
   }
+  hitBox(0.18, 0.24, 0.18, "speaker", new THREE.Vector3(0.72, DESK_Y + 0.11, DESK_Z - 0.06));
 
   // Headphones hooked under the desk edge.
   const hpMat = keep(new THREE.MeshStandardMaterial({ color: 0x18171f, roughness: 0.5 }));
-  const band = add(keep(new THREE.TorusGeometry(0.075, 0.009, 10, 30, Math.PI)), hpMat, -1.18, DESK_Y - 0.08, deskZ + 0.2);
+  const band = add(keep(new THREE.TorusGeometry(0.075, 0.009, 10, 30, Math.PI)), hpMat, -1.2, DESK_Y - 0.08, DESK_Z + 0.2);
   band.rotation.x = Math.PI / 2;
   band.rotation.z = -0.35;
   for (const ex of [-0.055, 0.055]) {
-    const cup = add(keep(new THREE.CylinderGeometry(0.035, 0.035, 0.022, 20)), hpMat, -1.18 + ex, DESK_Y - 0.145, deskZ + 0.2);
+    const cup = add(keep(new THREE.CylinderGeometry(0.035, 0.035, 0.022, 20)), hpMat, -1.2 + ex, DESK_Y - 0.145, DESK_Z + 0.2);
     cup.rotation.z = Math.PI / 2;
   }
 
-  // Sticky notes on the monitor bezel.
-  const stickyCols = [0xf2d479, 0xf2a0b5, 0x9fe0c4];
-  stickyCols.forEach((col, i) => {
+  // Sticky notes on the bezel.
+  [0xf2d479, 0xf2a0b5, 0x9fe0c4].forEach((col, i) => {
     const s = add(
       box(0.055, 0.055, 0.002),
       keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.95 })),
@@ -562,38 +490,92 @@ export function buildRoom(): Built {
     s.rotation.z = (i - 1) * 0.12;
   });
 
-  /* ── Desk lamp ─────────────────────────────────────────── */
+  /**
+   * Desk lamp.
+   *
+   * Built end to end rather than as parts placed by eye. The arm
+   * was a rotated cylinder and the head was positioned separately,
+   * and of course they did not meet — the shade floated twenty
+   * centimetres off the end of its own arm, which in a dark room
+   * reads as a black blob hanging over the desk. A strut between
+   * two points cannot come apart.
+   */
   const lampMat = keep(new THREE.MeshStandardMaterial({ color: 0x2a2833, roughness: 0.35, metalness: 0.6 }));
-  add(keep(new THREE.CylinderGeometry(0.075, 0.085, 0.018, 28)), lampMat, 0.86, DESK_Y + 0.035, deskZ - 0.12);
-  const arm = add(keep(new THREE.CylinderGeometry(0.012, 0.012, 0.46, 12)), lampMat, 0.86, DESK_Y + 0.26, deskZ - 0.12);
-  arm.rotation.z = 0.28;
-  const armB = add(keep(new THREE.CylinderGeometry(0.011, 0.011, 0.34, 12)), lampMat, 0.73, DESK_Y + 0.5, deskZ - 0.04);
-  armB.rotation.z = -0.9;
-  armB.rotation.x = 0.5;
-  const shade = add(keep(new THREE.ConeGeometry(0.1, 0.13, 26, 1, true)), lampMat, 0.57, DESK_Y + 0.5, deskZ + 0.05);
-  shade.rotation.x = 2.1;
-  shade.rotation.z = 0.3;
-  shade.material = keep(
-    new THREE.MeshStandardMaterial({ color: 0x2a2833, roughness: 0.35, metalness: 0.6, side: THREE.DoubleSide }),
-  );
-  // The bulb itself — emissive, so the bloom pass finds it.
-  const bulbMat = keep(new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
-  const bulb = new THREE.Mesh(keep(new THREE.SphereGeometry(0.03, 16, 12)), bulbMat);
-  bulb.position.set(0.56, DESK_Y + 0.46, deskZ + 0.07);
-  root.add(bulb);
 
-  /* ── Chair ─────────────────────────────────────────────── */
+  const strut = (a: THREE.Vector3, b: THREE.Vector3, rad: number) => {
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const len = dir.length();
+    const m = new THREE.Mesh(keep(new THREE.CylinderGeometry(rad, rad, len, 12)), lampMat);
+    m.position.copy(a).add(b).multiplyScalar(0.5);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    m.castShadow = true;
+    return m;
+  };
+
+  const lampGroup = new THREE.Group();
+  lampGroup.position.set(0.92, DESK_Y + 0.023, DESK_Z - 0.16);
+
+  const lampBase = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.075, 0.085, 0.02, 28)), lampMat);
+  lampBase.castShadow = true;
+  lampGroup.add(lampBase);
+
+  const JOINT_A = new THREE.Vector3(0, 0.01, 0);
+  const JOINT_B = new THREE.Vector3(-0.07, 0.52, 0.02);
+  const JOINT_C = new THREE.Vector3(-0.3, 0.44, 0.19);
+  lampGroup.add(strut(JOINT_A, JOINT_B, 0.012));
+  lampGroup.add(strut(JOINT_B, JOINT_C, 0.011));
+  const elbow = new THREE.Mesh(keep(new THREE.SphereGeometry(0.022, 14, 12)), lampMat);
+  elbow.position.copy(JOINT_B);
+  lampGroup.add(elbow);
+
+  // Head: a cone whose open end points down the arm at the desk.
+  const lampHead = new THREE.Group();
+  lampHead.position.copy(JOINT_C);
+  const shade = new THREE.Mesh(
+    keep(new THREE.ConeGeometry(0.105, 0.14, 26, 1, true)),
+    keep(
+      new THREE.MeshStandardMaterial({
+        color: 0x2a2833,
+        roughness: 0.35,
+        metalness: 0.6,
+        side: THREE.DoubleSide,
+      }),
+    ),
+  );
+  // Apex to -Z, mouth to +Z, so lookAt aims the opening.
+  shade.rotation.x = -Math.PI / 2;
+  shade.castShadow = true;
+  lampHead.add(shade);
+
+  const lampBulb = new THREE.Mesh(
+    keep(new THREE.SphereGeometry(0.026, 16, 12)),
+    keep(new THREE.MeshBasicMaterial({ color: 0xffd9a0 })),
+  );
+  lampBulb.position.set(0, 0, 0.035);
+  lampHead.add(lampBulb);
+  lampGroup.add(lampHead);
+  root.add(lampGroup);
+
+  // Point the head at the near corner of the desk.
+  const LAMP_AIM = new THREE.Vector3(0.24, DESK_Y, DESK_Z + 0.2);
+  lampGroup.updateMatrixWorld(true);
+  lampHead.lookAt(LAMP_AIM);
+
+  const lampWorld = lampHead.getWorldPosition(new THREE.Vector3());
+  hitBox(0.3, 0.3, 0.3, "lamp", lampWorld.clone());
+
+  /* ══ Chair ═══════════════════════════════════════════════ */
   const chair = new THREE.Group();
   const chairMat = keep(new THREE.MeshStandardMaterial({ color: 0x23202e, roughness: 0.78 }));
   const seat = new THREE.Mesh(box(0.5, 0.07, 0.48), chairMat);
   seat.position.set(0, 0.46, 0);
   seat.castShadow = true;
   chair.add(seat);
-  const back = new THREE.Mesh(box(0.48, 0.58, 0.06), chairMat);
-  back.position.set(0, 0.78, -0.21);
-  back.rotation.x = -0.14;
-  back.castShadow = true;
-  chair.add(back);
+  const backRest = new THREE.Mesh(box(0.48, 0.58, 0.06), chairMat);
+  backRest.position.set(0, 0.78, -0.21);
+  backRest.rotation.x = -0.14;
+  backRest.castShadow = true;
+  chair.add(backRest);
   const post = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 16)), darkMetal);
   post.position.set(0, 0.22, 0);
   post.castShadow = true;
@@ -609,58 +591,66 @@ export function buildRoom(): Built {
     caster.position.set(Math.cos(a) * 0.25, 0.025, Math.sin(a) * 0.25);
     chair.add(caster);
   }
-  // Pushed right and turned away. Dead centre it sat between the
-  // camera and the monitor, so the first thing anyone saw of the
-  // room was the back of a chair.
-  chair.position.set(0.62, 0, deskZ + 1.02);
-  chair.rotation.y = 0.55;
+  // Pushed right and turned: dead centre it is a slab between
+  // the camera and the one thing you are meant to click.
+  chair.position.set(0.88, 0, DESK_Z + 0.95);
+  chair.rotation.y = -0.5;
   root.add(chair);
+  hitBox(0.6, 1.1, 0.6, "chair", new THREE.Vector3(0.88, 0.6, DESK_Z + 0.95));
 
-  /* ── Shelf on the left wall ────────────────────────────── */
+  /* ══ Shelf, books, vinyl ═════════════════════════════════ */
   const shelfY = 1.62;
-  const shelf = add(box(0.05, 0.04, 1.1), deskMat, ROOM.leftX + 0.17, shelfY, -1.2);
-  shelf.rotation.y = Math.PI / 2;
-  shelf.scale.set(1, 1, 1);
-  const shelfTop = add(box(0.3, 0.035, 1.1), deskMat, ROOM.leftX + 0.16, shelfY, -1.2);
-  void shelfTop;
-  // Books on it, leaning.
+  add(box(0.3, 0.035, 1.1), deskMat, ROOM.leftX + 0.16, shelfY, -1.2);
   const r2 = rand(53);
   for (let i = 0; i < 11; i++) {
     const hgt = 0.2 + r2() * 0.08;
     const b = add(
       box(0.17, hgt, 0.035),
-      keep(
-        new THREE.MeshStandardMaterial({
-          color: new THREE.Color().setHSL(r2(), 0.32, 0.36),
-          roughness: 0.88,
-        }),
-      ),
+      keep(new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(r2(), 0.32, 0.36), roughness: 0.88 })),
       ROOM.leftX + 0.16,
       shelfY + 0.018 + hgt / 2,
       -1.68 + i * 0.045,
     );
     if (i > 8) b.rotation.x = 0.3;
   }
-  // A record, propped.
-  const sleeve = add(
-    box(0.3, 0.3, 0.012),
-    keep(new THREE.MeshStandardMaterial({ color: 0x191325, roughness: 0.7 })),
-    ROOM.leftX + 0.2,
-    shelfY + 0.17,
-    -0.82,
-  );
-  sleeve.rotation.y = Math.PI / 2;
-  sleeve.rotation.x = 0.16;
 
-  /* ── Posters ───────────────────────────────────────────── */
-  const posterGeo = keep(new THREE.PlaneGeometry(0.52, 0.72));
+  // A record on the shelf, which spins when you look at it.
+  const vinyl = new THREE.Mesh(
+    keep(new THREE.CylinderGeometry(0.14, 0.14, 0.006, 40)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x121019, roughness: 0.3 })),
+  );
+  vinyl.position.set(ROOM.leftX + 0.2, shelfY + 0.17, -0.8);
+  vinyl.rotation.z = Math.PI / 2;
+  vinyl.rotation.x = 0.16;
+  vinyl.castShadow = true;
+  root.add(vinyl);
+  const label = new THREE.Mesh(
+    keep(new THREE.CylinderGeometry(0.05, 0.05, 0.008, 24)),
+    keep(new THREE.MeshStandardMaterial({ color: 0xff2f86, roughness: 0.6 })),
+  );
+  label.position.copy(vinyl.position);
+  label.rotation.copy(vinyl.rotation);
+  root.add(label);
+  hitBox(0.3, 0.32, 0.32, "vinyl", vinyl.position.clone());
+
+  /* ══ Posters ═════════════════════════════════════════════ */
+  const posters: THREE.Mesh[] = [];
   const p1 = new THREE.Mesh(
-    posterGeo,
-    keep(new THREE.MeshStandardMaterial({ color: 0x7b2250, roughness: 0.92, emissive: 0x2a0a1c, emissiveIntensity: 0.4 })),
+    keep(new THREE.PlaneGeometry(0.52, 0.72)),
+    keep(
+      new THREE.MeshStandardMaterial({
+        color: 0x7b2250,
+        roughness: 0.92,
+        emissive: 0x2a0a1c,
+        emissiveIntensity: 0.4,
+      }),
+    ),
   );
   p1.rotation.y = Math.PI / 2;
   p1.position.set(ROOM.leftX + 0.02, 2.1, -1.5);
   root.add(p1);
+  posters.push(p1);
+  hitBox(0.1, 0.78, 0.58, "poster", p1.position.clone());
 
   const p2 = new THREE.Mesh(
     keep(new THREE.PlaneGeometry(0.44, 0.34)),
@@ -669,55 +659,12 @@ export function buildRoom(): Built {
   p2.rotation.y = Math.PI / 2;
   p2.position.set(ROOM.leftX + 0.02, 1.2, -0.3);
   root.add(p2);
+  posters.push(p2);
 
-  /* ── Wall clock ────────────────────────────────────────── */
-  const clock = new THREE.Group();
-  const face = new THREE.Mesh(
-    keep(new THREE.CylinderGeometry(0.11, 0.11, 0.025, 36)),
-    keep(new THREE.MeshStandardMaterial({ color: 0xe6e0d4, roughness: 0.6 })),
-  );
-  face.rotation.x = Math.PI / 2;
-  face.castShadow = true;
-  clock.add(face);
-  const rim = new THREE.Mesh(
-    keep(new THREE.TorusGeometry(0.112, 0.012, 10, 36)),
-    keep(new THREE.MeshStandardMaterial({ color: 0x241f2e, roughness: 0.5 })),
-  );
-  clock.add(rim);
-  // Hands, on pivots, driven by the actual clock in the loop. A
-  // wall clock stopped at ten past ten is the oldest tell in
-  // product photography.
-  const handMat = keep(new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.5 }));
-  const hourPivot = new THREE.Object3D();
-  const hourHand = new THREE.Mesh(box(0.009, 0.052, 0.004), handMat);
-  hourHand.position.y = 0.026;
-  hourPivot.add(hourHand);
-  hourPivot.position.z = 0.016;
-  clock.add(hourPivot);
-
-  const minPivot = new THREE.Object3D();
-  const minHand = new THREE.Mesh(box(0.006, 0.08, 0.004), handMat);
-  minHand.position.y = 0.04;
-  minPivot.add(minHand);
-  minPivot.position.z = 0.018;
-  clock.add(minPivot);
-
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const tick = new THREE.Mesh(box(0.004, i % 3 === 0 ? 0.016 : 0.009, 0.003), handMat);
-    tick.position.set(Math.sin(a) * 0.088, Math.cos(a) * 0.088, 0.014);
-    tick.rotation.z = -a;
-    clock.add(tick);
-  }
-
-  clock.position.set(-1.1, 2.62, ROOM.backZ + 0.02);
-  root.add(clock);
-
-  /* ── Neon sign ─────────────────────────────────────────── */
+  /* ══ Neon sign ═══════════════════════════════════════════ */
   const neonSign = new THREE.Group();
   const neonMat = keep(new THREE.MeshBasicMaterial({ color: 0xff2f86 }));
-  // An abstract mark of Claude's own invention: two arcs and a
-  // bar. No wordmark, nothing borrowed.
+  // An abstract mark of its own: two arcs and a bar.
   const arc1 = new THREE.Mesh(keep(new THREE.TorusGeometry(0.16, 0.012, 10, 40, Math.PI * 1.35)), neonMat);
   arc1.rotation.z = -0.5;
   neonSign.add(arc1);
@@ -725,343 +672,36 @@ export function buildRoom(): Built {
   arc2.rotation.z = 2.3;
   arc2.position.set(0.03, -0.02, 0.012);
   neonSign.add(arc2);
-  const barGeo = keep(new THREE.CylinderGeometry(0.011, 0.011, 0.3, 10));
-  const bar = new THREE.Mesh(barGeo, neonMat);
+  const bar = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.011, 0.011, 0.3, 10)), neonMat);
   bar.rotation.z = Math.PI / 2;
   bar.position.set(0, -0.2, 0);
   neonSign.add(bar);
-  neonSign.position.set(ROOM.leftX + 0.08, 1.9, 0.35);
+  neonSign.position.set(ROOM.leftX + 0.08, 1.95, 0.35);
   neonSign.rotation.y = Math.PI / 2;
   root.add(neonSign);
+  hitBox(0.2, 0.6, 0.5, "neon", new THREE.Vector3(ROOM.leftX + 0.12, 1.9, 0.35));
 
-  /* ── Plants ────────────────────────────────────────────── */
-  /**
-   * A leaf as real geometry: a closed outline, extruded thin.
-   *
-   * The first attempt cut a notch every third sample point, which
-   * produced a jagged star rather than foliage — at any distance
-   * the eye reads a sawtooth edge as "spiky thing", not "plant".
-   * A leaf is a smooth blade. Monstera gets three deep, wide
-   * notches per side, cut as actual bays in the outline; anything
-   * else gets no notches at all.
-   */
-  function leafShape(len: number, wide: number, notches: number): THREE.Shape {
-    const s = new THREE.Shape();
-    const steps = 26;
-
-    /** Half-width of the blade at height t, before any notch. */
-    const span = (t: number) => Math.sin(Math.pow(t, 0.72) * Math.PI) * wide;
-
-    /** How far in the edge is pulled at t: 1 is the full blade. */
-    const bite = (t: number) => {
-      if (notches <= 0) return 1;
-      // Three bays, placed up the blade, each a smooth scoop
-      // rather than a slot — the midrib never gets cut through.
-      let cut = 1;
-      for (let n = 0; n < 3; n++) {
-        const at = 0.28 + n * 0.22;
-        const d = Math.abs(t - at) / 0.085;
-        if (d < 1) cut = Math.min(cut, 0.3 + 0.7 * d * d);
-      }
-      return cut;
-    };
-
-    s.moveTo(0, 0);
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      s.lineTo(-span(t) * bite(t), t * len);
-    }
-    for (let i = steps - 1; i >= 1; i--) {
-      const t = i / steps;
-      s.lineTo(span(t) * bite(t), t * len);
-    }
-    s.lineTo(0, 0);
-    return s;
-  }
-
-  const leafGeoCache = new Map<string, THREE.ExtrudeGeometry>();
-  const leafGeo = (len: number, wide: number, notches: number) => {
-    const k = `${len}:${wide}:${notches}`;
-    let g = leafGeoCache.get(k);
-    if (!g) {
-      g = new THREE.ExtrudeGeometry(leafShape(len, wide, notches), {
-        depth: 0.004,
-        bevelEnabled: true,
-        bevelThickness: 0.002,
-        bevelSize: 0.003,
-        bevelSegments: 1,
-        curveSegments: 4,
-      });
-      leafGeoCache.set(k, g);
-      disposables.push(g);
-    }
-    return g;
-  };
-
-  function plantPot(x: number, z: number, radius: number, height: number) {
-    const g = new THREE.Group();
-    const pot = new THREE.Mesh(
-      keep(new THREE.CylinderGeometry(radius, radius * 0.78, height, 28)),
-      potMat,
-    );
-    pot.position.y = height / 2;
-    pot.castShadow = true;
-    pot.receiveShadow = true;
-    g.add(pot);
-    const lip = new THREE.Mesh(keep(new THREE.TorusGeometry(radius, radius * 0.07, 8, 28)), potMat);
-    lip.rotation.x = Math.PI / 2;
-    lip.position.y = height;
-    g.add(lip);
-    const soil = new THREE.Mesh(keep(new THREE.CylinderGeometry(radius * 0.94, radius * 0.94, 0.02, 24)), soilMat);
-    soil.position.y = height - 0.012;
-    g.add(soil);
-    g.position.set(x, 0, z);
-    return g;
-  }
-
-  // Monstera: big notched leaves on stems, floor right.
-  const monstera = plantPot(1.95, deskZ + 0.45, 0.22, 0.3);
-  const rM = rand(71);
-  const leafMatA = keep(new THREE.MeshStandardMaterial({ color: 0x3f7a42, roughness: 0.62, side: THREE.DoubleSide }));
-  const leafMatB = keep(new THREE.MeshStandardMaterial({ color: 0x55984f, roughness: 0.62, side: THREE.DoubleSide }));
-  for (let i = 0; i < 9; i++) {
-    const stemLen = 0.3 + rM() * 0.34;
-    const a = (i / 9) * Math.PI * 2 + rM() * 0.5;
-    const tilt = 0.4 + rM() * 0.45;
-    const stem = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.009, 0.012, stemLen, 8)), leafMatA);
-    stem.position.set(Math.cos(a) * 0.05, 0.3 + stemLen / 2, Math.sin(a) * 0.05);
-    stem.rotation.z = Math.cos(a) * tilt;
-    stem.rotation.x = -Math.sin(a) * tilt;
-    stem.castShadow = true;
-    monstera.add(stem);
-
-    const lf = new THREE.Mesh(leafGeo(0.3 + rM() * 0.1, 0.14, 1), i % 2 ? leafMatA : leafMatB);
-    lf.position.set(
-      Math.cos(a) * (0.05 + Math.sin(tilt) * stemLen),
-      0.3 + Math.cos(tilt) * stemLen,
-      Math.sin(a) * (0.05 + Math.sin(tilt) * stemLen),
-    );
-    lf.rotation.set(-1.0 - rM() * 0.5, a + rM(), rM() * 0.6 - 0.3);
-    lf.castShadow = true;
-    monstera.add(lf);
-  }
-  root.add(monstera);
-
-  // Snake plant: stiff blades, floor left.
-  const snake = plantPot(-2.2, deskZ + 0.5, 0.17, 0.26);
-  const rS = rand(83);
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * Math.PI * 2 + rS();
-    const len = 0.46 + rS() * 0.4;
-    const blade = new THREE.Mesh(leafGeo(len, 0.038, 0), i % 3 ? leafMatA : leafMatB);
-    blade.position.set(Math.cos(a) * 0.055 * rS(), 0.25, Math.sin(a) * 0.055 * rS());
-    blade.rotation.set(-0.08 + rS() * 0.16, a, Math.cos(a) * (0.08 + rS() * 0.2));
-    blade.castShadow = true;
-    snake.add(blade);
-  }
-  root.add(snake);
-
-  // Trailing pothos on the shelf.
-  const pothos = plantPot(ROOM.leftX + 0.17, -0.45, 0.085, 0.11);
-  pothos.position.y = shelfY + 0.018;
-  const rP = rand(97);
-  for (let v = 0; v < 4; v++) {
-    const dir = v - 1.5;
-    for (let i = 0; i < 12; i++) {
-      const t = i / 11;
-      const lf = new THREE.Mesh(leafGeo(0.07, 0.045, 0), i % 2 ? leafMatA : leafMatB);
-      lf.position.set(
-        dir * 0.035 + Math.sin(t * 5 + v) * 0.05,
-        0.11 - t * (0.5 + v * 0.14),
-        Math.cos(t * 4 + v) * 0.05,
-      );
-      lf.rotation.set(-1.4 + rP() * 0.6, rP() * 6, rP() * 6);
-      pothos.add(lf);
-    }
-  }
-  root.add(pothos);
-
-  // Small succulent on the desk.
-  const succ = plantPot(-0.52, deskZ - 0.12, 0.05, 0.065);
-  succ.position.y = DESK_Y + 0.025;
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * Math.PI * 2;
-    const lf = new THREE.Mesh(leafGeo(0.07, 0.025, 0), i % 2 ? leafMatA : leafMatB);
-    lf.position.set(Math.cos(a) * 0.018, 0.065, Math.sin(a) * 0.018);
-    lf.rotation.set(-0.7, a, 0);
-    succ.add(lf);
-  }
-  root.add(succ);
-
-  // Sill plant, by the cat.
-  const sillPlant = plantPot(WIN.x1 - 0.3, ROOM.backZ + 0.11, 0.07, 0.1);
-  sillPlant.position.y = WIN.y0 - 0.02;
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    const lf = new THREE.Mesh(leafGeo(0.17, 0.028, 0), i % 2 ? leafMatA : leafMatB);
-    lf.position.set(Math.cos(a) * 0.02, 0.1, Math.sin(a) * 0.02);
-    lf.rotation.set(-0.2, a, Math.cos(a) * 0.3);
-    sillPlant.add(lf);
-  }
-  root.add(sillPlant);
-
-  /* ── The cat ───────────────────────────────────────────── */
-  const catGroup = new THREE.Group();
-  const furMat = keep(new THREE.MeshStandardMaterial({ color: 0x1d1a26, roughness: 0.92 }));
-  const body = new THREE.Mesh(keep(new THREE.CapsuleGeometry(0.085, 0.1, 8, 20)), furMat);
-  body.rotation.z = Math.PI / 2;
-  body.position.set(0, 0.085, 0);
-  body.castShadow = true;
-  catGroup.add(body);
-
-  const head = new THREE.Mesh(keep(new THREE.SphereGeometry(0.068, 24, 18)), furMat);
-  head.position.set(0.1, 0.17, 0);
-  head.castShadow = true;
-  catGroup.add(head);
-
-  /**
-   * The head is its own pivot so it can turn and tilt, and the
-   * ears pivot from their base so they can swivel without
-   * sliding off the skull. Everything that moves hangs off the
-   * head, so turning it carries the face with it.
-   */
-  const headPivot = new THREE.Object3D();
-  headPivot.position.set(0.1, 0.17, 0);
-  head.position.set(0, 0, 0);
-  headPivot.add(head);
-  catGroup.add(headPivot);
-
-  const earGeo = keep(new THREE.ConeGeometry(0.03, 0.055, 10));
-  const ears: THREE.Object3D[] = [];
-  for (const ez of [-0.04, 0.04]) {
-    const pivot = new THREE.Object3D();
-    pivot.position.set(-0.01, 0.045, ez);
-    const ear = new THREE.Mesh(earGeo, furMat);
-    ear.position.y = 0.028;
-    ear.castShadow = true;
-    pivot.add(ear);
-    // Inner ear, a shade warmer.
-    const inner = new THREE.Mesh(
-      keep(new THREE.ConeGeometry(0.018, 0.034, 8)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x6b3c48, roughness: 0.9 })),
-    );
-    inner.position.set(0.012, 0.026, 0);
-    pivot.add(inner);
-    headPivot.add(pivot);
-    ears.push(pivot);
-  }
-
-  // Eyes on their own pivot so the pupils can track without the
-  // whole head having to turn.
-  const eyeMat = keep(new THREE.MeshStandardMaterial({ color: 0xc8f05a, emissive: 0x3a4a12, roughness: 0.25 }));
-  const pupilMat = keep(new THREE.MeshBasicMaterial({ color: 0x0a0a08 }));
-  const eyes: THREE.Object3D[] = [];
-  const lids: THREE.Mesh[] = [];
-  for (const ez of [-0.028, 0.028]) {
-    const socket = new THREE.Object3D();
-    socket.position.set(0.058, 0.012, ez);
-    const ball = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0135, 14, 12)), eyeMat);
-    socket.add(ball);
-    const pupil = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0062, 10, 8)), pupilMat);
-    pupil.position.x = 0.009;
-    pupil.scale.set(0.5, 1.5, 1);
-    socket.add(pupil);
-    headPivot.add(socket);
-    eyes.push(socket);
-
-    // A lid that drops for the blink, rather than scaling the eye
-    // — a shrinking eyeball reads as a glitch, a lid reads as a
-    // blink.
-    const lid = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0145, 14, 12)), furMat);
-    lid.position.set(0.058, 0.026, ez);
-    lid.scale.set(1, 0.06, 1);
-    headPivot.add(lid);
-    lids.push(lid);
-  }
-
-  // Nose and whiskers.
-  const nose = new THREE.Mesh(
-    keep(new THREE.ConeGeometry(0.007, 0.008, 6)),
-    keep(new THREE.MeshStandardMaterial({ color: 0xd98aa0, roughness: 0.6 })),
-  );
-  nose.position.set(0.068, -0.004, 0);
-  nose.rotation.z = -Math.PI / 2;
-  headPivot.add(nose);
-
-  const whiskerMat = keep(new THREE.MeshBasicMaterial({ color: 0xbfb6c8, transparent: true, opacity: 0.5 }));
-  for (const wz of [-0.02, 0.02]) {
-    for (let i = 0; i < 3; i++) {
-      const w = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.0006, 0.0004, 0.075, 4)), whiskerMat);
-      w.position.set(0.085, -0.004 + i * 0.006, wz * 1.2);
-      w.rotation.z = Math.PI / 2 - 0.1;
-      w.rotation.y = (wz > 0 ? 1 : -1) * (0.5 + i * 0.16);
-      headPivot.add(w);
-    }
-  }
-
-  // Blush, hidden until she is noticed.
-  const blushMat = keep(
-    new THREE.MeshBasicMaterial({ color: 0xff6f9d, transparent: true, opacity: 0 }),
-  );
-  const blush: THREE.Mesh[] = [];
-  for (const bz of [-0.042, 0.042]) {
-    const b = new THREE.Mesh(keep(new THREE.SphereGeometry(0.019, 14, 10)), blushMat);
-    b.position.set(0.138, 0.158, bz);
-    b.scale.set(0.5, 0.75, 1);
-    catGroup.add(b);
-    blush.push(b);
-  }
-
-  // Tail on its own pivot so it can swing from the base.
-  const tailPivot = new THREE.Object3D();
-  tailPivot.position.set(-0.11, 0.1, 0);
-  const tail = new THREE.Mesh(keep(new THREE.CapsuleGeometry(0.016, 0.17, 6, 12)), furMat);
-  tail.position.set(-0.05, 0.05, 0);
-  tail.rotation.z = 0.9;
-  tail.castShadow = true;
-  tailPivot.add(tail);
-  catGroup.add(tailPivot);
-
-  // One generous hit box, because raycasting a dozen small parts
-  // makes a cat that is hard to pet.
-  const catHit = new THREE.Mesh(
-    box(0.42, 0.34, 0.3),
-    keep(new THREE.MeshBasicMaterial({ visible: false })),
-  );
-  catHit.position.set(0, 0.16, 0);
-  catHit.name = "cat";
-  catGroup.add(catHit);
-  targets.push(catHit);
-
-  catGroup.position.set(WIN.x0 + 0.55, WIN.y0 - 0.02, ROOM.backZ + 0.14);
-  catGroup.rotation.y = -0.5;
-  root.add(catGroup);
-
-  /* ── Television ────────────────────────────────────────── */
+  /* ══ Television ══════════════════════════════════════════ */
   const TV_W = 0.56;
   const TV_H = TV_W * (3 / 4);
   const tvX = ROOM.leftX + 0.62;
   const tvY = 1.78;
   const tvZ = ROOM.backZ + 0.34;
 
-  const tvStand = add(box(0.72, 0.05, 0.5), deskMat, tvX, 1.46, tvZ);
-  void tvStand;
+  add(box(0.72, 0.05, 0.5), deskMat, tvX, 1.46, tvZ);
   for (const lz of [tvZ - 0.2, tvZ + 0.2]) {
     for (const lx of [tvX - 0.3, tvX + 0.3]) {
       add(box(0.04, 1.44, 0.04), darkMetal, lx, 0.72, lz);
     }
   }
 
-  const tvShell = keep(new THREE.MeshStandardMaterial({ color: 0x9a8f7a, roughness: 0.72 }));
-  // Cabinet, built as a frame around the picture so the CSS3D
-  // element sits in a recess rather than floating on a slab.
+  const tvShell = keep(new THREE.MeshStandardMaterial({ color: 0x4e4234, roughness: 0.78 }));
   add(box(TV_W + 0.16, 0.07, 0.42), tvShell, tvX, tvY + TV_H / 2 + 0.035, tvZ);
   add(box(TV_W + 0.16, 0.07, 0.42), tvShell, tvX, tvY - TV_H / 2 - 0.035, tvZ);
   add(box(0.08, TV_H, 0.42), tvShell, tvX - TV_W / 2 - 0.04, tvY, tvZ);
   add(box(0.22, TV_H, 0.42), tvShell, tvX + TV_W / 2 + 0.11, tvY, tvZ);
   add(box(TV_W + 0.3, TV_H + 0.14, 0.04), tvShell, tvX + 0.07, tvY, tvZ - 0.21);
 
-  // Dials on the fascia.
   for (let i = 0; i < 3; i++) {
     const d = add(
       keep(new THREE.CylinderGeometry(0.026, 0.026, 0.022, 20)),
@@ -1072,52 +712,41 @@ export function buildRoom(): Built {
     );
     d.rotation.x = Math.PI / 2;
   }
-  // Rabbit ears.
+  // Rooted on the cabinet top, not hovering above it.
   for (const sign of [-1, 1]) {
-    const ant = add(keep(new THREE.CylinderGeometry(0.004, 0.006, 0.52, 8)), darkMetal, tvX, tvY + TV_H / 2 + 0.3, tvZ);
-    ant.rotation.z = sign * 0.6;
-    ant.position.x += sign * 0.12;
+    const ant = add(
+      keep(new THREE.CylinderGeometry(0.003, 0.005, 0.4, 8)),
+      darkMetal,
+      tvX + sign * 0.115,
+      tvY + TV_H / 2 + 0.24,
+      tvZ - 0.08,
+    );
+    ant.rotation.z = sign * 0.52;
   }
+  add(keep(new THREE.SphereGeometry(0.022, 12, 10)), darkMetal, tvX, tvY + TV_H / 2 + 0.07, tvZ - 0.08);
 
-  // Dark glass when it is off.
-  const tvOffMat = keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.12, metalness: 0.8 }));
-  const tvPanel = new THREE.Mesh(keep(new THREE.PlaneGeometry(TV_W, TV_H)), tvOffMat);
-  tvPanel.position.set(tvX, tvY, tvZ + 0.212);
-  root.add(tvPanel);
-
-  // Same reasoning as the monitor: the whole set is the switch.
-  const tvHit = new THREE.Mesh(
-    box(TV_W + 0.3, TV_H + 0.18, 0.4),
-    keep(new THREE.MeshBasicMaterial({ visible: false })),
+  const tvOff = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(TV_W, TV_H)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.12, metalness: 0.8 })),
   );
-  tvHit.position.set(tvX + 0.05, tvY, tvZ + 0.06);
-  tvHit.name = "tv";
-  root.add(tvHit);
-  targets.push(tvHit);
+  tvOff.position.set(tvX, tvY, tvZ + 0.212);
+  root.add(tvOff);
 
-  const tvGlowMat = keep(
-    new THREE.MeshBasicMaterial({ color: 0x89c8ff, transparent: true, opacity: 0 }),
+  const tvGlow = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(TV_W, TV_H)),
+    keep(new THREE.MeshBasicMaterial({ color: 0x89c8ff, transparent: true, opacity: 0 })),
   );
-  const tvGlow = new THREE.Mesh(keep(new THREE.PlaneGeometry(TV_W, TV_H)), tvGlowMat);
   tvGlow.position.set(tvX, tvY, tvZ + 0.208);
   root.add(tvGlow);
+  hitBox(TV_W + 0.1, TV_H + 0.1, 0.1, "tv", new THREE.Vector3(tvX, tvY, tvZ + 0.21));
 
-  // The deck under it.
+  // The deck under it, with a standby light.
   add(box(TV_W + 0.2, 0.1, 0.34), keep(new THREE.MeshStandardMaterial({ color: 0x2a2832, roughness: 0.5 })), tvX, 1.54, tvZ);
-  add(
-    box(0.2, 0.025, 0.01),
-    keep(new THREE.MeshBasicMaterial({ color: 0x4ad8a0 })),
-    tvX - 0.12,
-    1.54,
-    tvZ + 0.18,
-    false,
-  );
+  add(box(0.2, 0.025, 0.01), keep(new THREE.MeshBasicMaterial({ color: 0x4ad8a0 })), tvX - 0.12, 1.54, tvZ + 0.18, false);
 
-  /* ── Outside ───────────────────────────────────────────── */
+  /* ══ Outside ═════════════════════════════════════════════ */
   const outside = new THREE.Group();
 
-  // Sky: a shader plane rather than a texture, so the phase change
-  // is a uniform lerp instead of four images.
   const skyMat = new THREE.ShaderMaterial({
     depthWrite: false,
     uniforms: {
@@ -1151,7 +780,6 @@ export function buildRoom(): Built {
         vec3 col = mix(uBot, uMid, smoothstep(0.0, 0.52, vUv.y));
         col = mix(col, uTop, smoothstep(0.45, 1.0, vUv.y));
 
-        // Stars only in the upper sky, and only after dark.
         vec2 cell = floor(vUv * vec2(420.0, 260.0));
         float h = hash(cell);
         float star = step(0.9965, h) * smoothstep(0.25, 0.8, vUv.y);
@@ -1163,79 +791,72 @@ export function buildRoom(): Built {
     `,
   });
   disposables.push(skyMat);
-  const skyGeo = keep(new THREE.PlaneGeometry(260, 150));
-  const sky = new THREE.Mesh(skyGeo, skyMat);
+  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(260, 150)), skyMat);
   sky.position.set(0, 30, -90);
   outside.add(sky);
 
-  // City: real towers, each with its own facade.
   const rC = rand(131);
+  /** Every tower's material, so daylight can switch the city off. */
+  const towerMats: THREE.MeshStandardMaterial[] = [];
   const facades = Array.from({ length: 6 }, (_, i) => {
     const f = facadeTexture(200 + i, 0.3 + i * 0.07);
     disposables.push(f.map, f.emissive);
     return f;
   });
 
-  for (let i = 0; i < 64; i++) {
+  /**
+   * The skyline.
+   *
+   * Two things had to be right and both were wrong first time.
+   *
+   * The facade texture is one whole building — ten windows across,
+   * sixteen floors up — so it tiles ONCE. Scaling the repeat by
+   * the tower's size instead put six hundred rows of windows on a
+   * forty-metre building, which at this distance stops being a
+   * city and becomes patterned wallpaper hung behind the glass.
+   *
+   * And they have to be far away. Parked at fifteen metres a
+   * tower fills the whole window and there is no sky left to read
+   * the silhouette against. Real towers outside a real window are
+   * a long way off; the depth is most of what makes it a view
+   * rather than a wall.
+   */
+  for (let i = 0; i < 70; i++) {
     const f = facades[Math.floor(rC() * facades.length)];
-    const w = 2.2 + rC() * 5.5;
-    const d = 2.2 + rC() * 4.4;
-    // Squared falloff keeps most towers low, so a few tall ones
-    // read as tall. And they stop short of the window head —
-    // a skyline with no sky above it is a wall.
-    const hgt = 4 + rC() * rC() * 24;
-    const x = (rC() - 0.5) * 86;
-    /**
-     * Far enough back to be a skyline.
-     *
-     * At fourteen metres a thirty-metre tower is eight metres
-     * behind the glass and taller than the window, so all you see
-     * through the frame is a patch of one facade — and a patch of
-     * facade is not a city, it is a lit wall. Distance is what
-     * turns these boxes into a view.
-     */
-    const z = -26 - rC() * 62;
+    const w = 4 + rC() * 9;
+    const d = 4 + rC() * 8;
+    const hgt = 9 + rC() * rC() * 54;
+    const x = (rC() - 0.5) * 200;
+    const z = -26 - rC() * 120;
 
     const map = f.map.clone();
     const emi = f.emissive.clone();
     map.needsUpdate = true;
     emi.needsUpdate = true;
-    // Roughly one window per three metres, which is what a real
-    // facade does and what stops the skyline reading as noise.
-    const ru = Math.max(1, Math.round(w / 9));
-    const rv = Math.max(1, Math.round(hgt / 26));
-    map.repeat.set(ru, rv);
-    emi.repeat.set(ru, rv);
     disposables.push(map, emi);
 
     const mat = new THREE.MeshStandardMaterial({
       map,
       emissiveMap: emi,
       emissive: 0xffffff,
-      // Lit windows feed the bloom pass, and bloom compounds: at
-      // full strength sixty-four towers of them washed the entire
-      // room yellow and ate the furniture.
-      emissiveIntensity: 0.5,
-      roughness: 0.86,
-      // Nearly black. A night skyline is silhouette plus lit
-      // windows; give the concrete any real colour and the
-      // ambient picks it up and the towers turn into lilac
-      // slabs with lights painted on them.
-      color: 0x17141f,
+      emissiveIntensity: 0.85,
+      roughness: 0.9,
+      color: 0x3a3650,
     });
     disposables.push(mat);
+    towerMats.push(mat);
 
     const tower = new THREE.Mesh(box(w, hgt, d), mat);
-    tower.position.set(x, hgt / 2 - 1.2, z);
+    tower.position.set(x, hgt / 2 - 2, z);
     outside.add(tower);
 
-    // A roof light on the taller ones.
-    if (hgt > 24 && rC() > 0.4) {
+    if (hgt > 32 && rC() > 0.4) {
       const beacon = new THREE.Mesh(
         keep(new THREE.SphereGeometry(0.22, 10, 8)),
         keep(new THREE.MeshBasicMaterial({ color: 0xff3b3b })),
       );
-      beacon.position.set(x, hgt - 1.0, z);
+      // Towers now sit two metres lower, so the roof is hgt - 2.
+      beacon.position.set(x, hgt - 2.2, z);
       outside.add(beacon);
     }
   }
@@ -1245,22 +866,18 @@ export function buildRoom(): Built {
   const hullMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3358, roughness: 0.45, metalness: 0.5 }));
   const thrustMat = keep(new THREE.MeshBasicMaterial({ color: 0x8feaff }));
   const thrustWarm = keep(new THREE.MeshBasicMaterial({ color: 0xffb060 }));
+  const winMat = keep(new THREE.MeshBasicMaterial({ color: 0xbfe8ff }));
 
   const makeShip = (kind: 0 | 1 | 2) => {
     const g = new THREE.Group();
     if (kind === 0) {
-      // Liner: long, slab-sided, lit windows along the flank.
-      const hull = new THREE.Mesh(box(5.4, 0.5, 0.8), hullMat);
-      hull.castShadow = false;
-      g.add(hull);
+      g.add(new THREE.Mesh(box(5.4, 0.5, 0.8), hullMat));
       const fin = new THREE.Mesh(box(1.2, 0.55, 0.1), hullMat);
       fin.position.set(-0.6, 0.5, 0);
       g.add(fin);
+      const wGeo = box(0.12, 0.07, 0.02);
       for (let i = 0; i < 16; i++) {
-        const win = new THREE.Mesh(
-          box(0.12, 0.07, 0.02),
-          keep(new THREE.MeshBasicMaterial({ color: 0xbfe8ff })),
-        );
+        const win = new THREE.Mesh(wGeo, winMat);
         win.position.set(-2.2 + i * 0.3, 0.06, 0.41);
         g.add(win);
       }
@@ -1271,7 +888,6 @@ export function buildRoom(): Built {
         g.add(t);
       }
     } else if (kind === 1) {
-      // Darter: small, fast, one bright engine.
       const hull = new THREE.Mesh(keep(new THREE.ConeGeometry(0.22, 1.5, 10)), hullMat);
       hull.rotation.z = -Math.PI / 2;
       g.add(hull);
@@ -1283,14 +899,11 @@ export function buildRoom(): Built {
       t.position.set(-0.82, 0, 0);
       g.add(t);
     } else {
-      // Hauler: boxy, slung containers, amber exhaust.
-      const hull = new THREE.Mesh(box(3, 0.7, 1), hullMat);
-      g.add(hull);
+      g.add(new THREE.Mesh(box(3, 0.7, 1), hullMat));
+      const cGeo = box(0.8, 0.5, 0.8);
+      const cMat = keep(new THREE.MeshStandardMaterial({ color: 0x4a3f6a, roughness: 0.9 }));
       for (let i = 0; i < 3; i++) {
-        const c = new THREE.Mesh(
-          box(0.8, 0.5, 0.8),
-          keep(new THREE.MeshStandardMaterial({ color: 0x4a3f6a, roughness: 0.9 })),
-        );
+        const c = new THREE.Mesh(cGeo, cMat);
         c.position.set(-0.9 + i * 0.9, -0.6, 0);
         g.add(c);
       }
@@ -1305,12 +918,12 @@ export function buildRoom(): Built {
     return g;
   };
 
-  const SHIP_PLAN: Array<{ kind: 0 | 1 | 2; y: number; z: number; speed: number; t: number; s: number }> = [
-    { kind: 0, y: 17, z: -40, speed: 1.5, t: 0.1, s: 1.6 },
-    { kind: 1, y: 11, z: -22, speed: -7.5, t: 0.4, s: 1 },
-    { kind: 1, y: 22, z: -34, speed: 5.2, t: 0.75, s: 0.8 },
-    { kind: 2, y: 7.5, z: -17, speed: -2.6, t: 0.6, s: 1 },
-    { kind: 1, y: 5, z: -13, speed: 9, t: 0.2, s: 0.7 },
+  const SHIP_PLAN = [
+    { kind: 0 as const, y: 17, z: -40, speed: 1.5, t: 0.1, s: 1.6 },
+    { kind: 1 as const, y: 11, z: -22, speed: -7.5, t: 0.4, s: 1 },
+    { kind: 1 as const, y: 22, z: -34, speed: 5.2, t: 0.75, s: 0.8 },
+    { kind: 2 as const, y: 7.5, z: -17, speed: -2.6, t: 0.6, s: 1 },
+    { kind: 1 as const, y: 5, z: -13, speed: 9, t: 0.2, s: 0.7 },
   ];
 
   for (const plan of SHIP_PLAN) {
@@ -1350,7 +963,7 @@ export function buildRoom(): Built {
 
         /**
          * The fold. Space inside the disc is remapped so that
-         * travelling outward takes you inward — the radius is
+         * travelling outward takes you inward: the radius is
          * inverted and wound. Rings pile up toward the rim
          * instead of the centre, which is the wrong way round
          * for anything physical, and that wrongness is the
@@ -1365,7 +978,6 @@ export function buildRoom(): Built {
         vec3 cold = vec3(0.16, 0.82, 0.74);
         vec3 col = mix(deep, cold, rings * smoothstep(1.0, 0.25, r));
 
-        // Rim: a hard chromatic edge where the fold meets the sky.
         float rim = smoothstep(0.86, 0.99, r);
         col = mix(col, uTint, rim * 0.85);
         col += cold * smoothstep(0.93, 1.0, r) * 0.6;
@@ -1376,188 +988,54 @@ export function buildRoom(): Built {
     `,
   });
   disposables.push(riftMat);
-  const riftGeo = keep(new THREE.PlaneGeometry(13, 13));
-  const rift = new THREE.Mesh(riftGeo, riftMat);
+  const rift = new THREE.Mesh(keep(new THREE.PlaneGeometry(13, 13)), riftMat);
   rift.position.set(5.5, 13, -27);
   outside.add(rift);
 
   root.add(outside);
 
-  /* ── Seasonal ──────────────────────────────────────────
-     The room keeps a calendar. Most of the year that only shows
-     in the leaf colour, but December gets a tree, because a room
-     that ignores December is a room nobody lives in. */
-  const seasonal = new THREE.Group();
+  /* ══ Living things ═══════════════════════════════════════ */
+  const cat = buildCat(keep);
+  cat.group.position.set(WIN.x0 + 0.62, WIN.y0 - 0.02, ROOM.backZ + 0.16);
+  cat.group.rotation.y = -0.55;
+  root.add(cat.group);
+  life.push(cat);
+  if (cat.hit) targets.push(cat.hit);
 
-  const tree = new THREE.Group();
-  const trunk = new THREE.Mesh(
-    keep(new THREE.CylinderGeometry(0.035, 0.045, 0.22, 12)),
-    keep(new THREE.MeshStandardMaterial({ color: 0x4a3122, roughness: 0.95 })),
-  );
-  trunk.position.y = 0.11;
-  trunk.castShadow = true;
-  tree.add(trunk);
-
-  const needleMat = keep(new THREE.MeshStandardMaterial({ color: 0x24512f, roughness: 0.92 }));
-  const tiers: Array<[number, number, number]> = [
-    [0.42, 0.42, 0.2],
-    [0.33, 0.38, 0.5],
-    [0.24, 0.34, 0.76],
-    [0.14, 0.3, 1.0],
+  const plantSpecs: Array<[Parameters<typeof buildPlant>[0], number, THREE.Vector3]> = [
+    ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],
+    ["snake", 83, new THREE.Vector3(-2.55, 0, -2.05)],
+    ["pothos", 97, new THREE.Vector3(ROOM.leftX + 0.17, shelfY + 0.018, -0.45)],
+    ["succulent", 113, new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z - 0.14)],
   ];
-  for (const [r, h, y] of tiers) {
-    const tier = new THREE.Mesh(keep(new THREE.ConeGeometry(r, h, 18)), needleMat);
-    tier.position.y = y;
-    tier.castShadow = true;
-    tier.receiveShadow = true;
-    tree.add(tier);
+  for (const [kind, seed, pos] of plantSpecs) {
+    const p = buildPlant(kind, seed, keep);
+    p.group.position.copy(pos);
+    root.add(p.group);
+    life.push(p);
+    if (p.hit) targets.push(p.hit);
   }
 
-  // Baubles and a string of lights, emissive so the bloom pass
-  // picks them up and the tree actually lights the corner.
-  const baubleCols = [0xff4d6a, 0xffd36a, 0x6ad8ff, 0xc08cff];
-  const baubles: THREE.Mesh[] = [];
-  const rT = rand(211);
-  for (let i = 0; i < 34; i++) {
-    const t = rT();
-    const y = 0.16 + t * 0.92;
-    // Radius tapers with height so they sit on the cone, not in it.
-    const rr = 0.4 * (1 - t * 0.82) + 0.03;
-    const a = rT() * Math.PI * 2;
-    const b = new THREE.Mesh(
-      keep(new THREE.SphereGeometry(0.022, 12, 10)),
-      keep(new THREE.MeshBasicMaterial({ color: baubleCols[i % baubleCols.length] })),
-    );
-    b.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
-    tree.add(b);
-    baubles.push(b);
-  }
+  const steam = buildSteam(keep);
+  steam.group.position.set(MUG.x, DESK_Y + 0.13, MUG.z);
+  root.add(steam.group);
+  life.push(steam);
 
-  const star = new THREE.Mesh(
-    keep(new THREE.OctahedronGeometry(0.055, 0)),
-    keep(new THREE.MeshBasicMaterial({ color: 0xffe9a8 })),
-  );
-  star.position.y = 1.2;
-  tree.add(star);
+  const clock = buildClock(keep);
+  clock.group.position.set(-1.15, 2.62, ROOM.backZ + 0.03);
+  root.add(clock.group);
+  life.push(clock);
+  if (clock.hit) targets.push(clock.hit);
 
-  tree.position.set(-2.1, 0, ROOM.backZ + 1.35);
-  seasonal.add(tree);
-  root.add(seasonal);
-
-  const treeLight = new THREE.PointLight(0xffb470, 0, 2.6, 2);
-  treeLight.position.set(-2.1, 0.7, ROOM.backZ + 1.35);
-  root.add(treeLight);
-
-  /* ── Particles ─────────────────────────────────────────
-     Three systems, all Points, all cheap. Dust is what makes a
-     shaft of light visible; without something in the air, light
-     is just a bright patch on the floor. */
-  function dotTexture(): THREE.Texture {
-    const { c, g } = canvas(64, 64);
-    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grd.addColorStop(0, "rgba(255,255,255,1)");
-    grd.addColorStop(0.4, "rgba(255,255,255,0.5)");
-    grd.addColorStop(1, "rgba(255,255,255,0)");
-    g.fillStyle = grd;
-    g.fillRect(0, 0, 64, 64);
-    return finish(c, 1);
-  }
-  const dot = keep(dotTexture());
-
-  function points(count: number, size: number, colour: number, opacity: number) {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-    const mat = new THREE.PointsMaterial({
-      size,
-      map: dot,
-      color: colour,
-      transparent: true,
-      opacity,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      sizeAttenuation: true,
-    });
-    disposables.push(geo, mat);
-    const p = new THREE.Points(geo, mat);
-    p.frustumCulled = false;
-    return p;
-  }
-
-  // Sparse and faint. Additively blended points at half opacity
-  // scattered through the whole room do not read as dust in a
-  // sunbeam, they read as stars stuck to the furniture.
-  const dust = points(80, 0.013, 0xfff0d8, 0.16);
-  const rD = rand(307);
-  {
-    const a = dust.geometry.attributes.position.array as Float32Array;
-    for (let i = 0; i < a.length; i += 3) {
-      a[i] = -2.6 + rD() * 5.2;
-      a[i + 1] = 0.3 + rD() * 2.4;
-      a[i + 2] = ROOM.backZ + 0.2 + rD() * 2.6;
-    }
-  }
-  root.add(dust);
-
-  const steam = points(46, 0.02, 0xffffff, 0.3);
-  {
-    const a = steam.geometry.attributes.position.array as Float32Array;
-    for (let i = 0; i < a.length; i += 3) {
-      a[i] = -0.78 + (rD() - 0.5) * 0.03;
-      a[i + 1] = DESK_Y + 0.12 + rD() * 0.25;
-      a[i + 2] = deskZ + 0.1 + (rD() - 0.5) * 0.03;
-    }
-  }
-  root.add(steam);
-
-  const snow = points(700, 0.14, 0xeaf2ff, 0.85);
-  {
-    const a = snow.geometry.attributes.position.array as Float32Array;
-    for (let i = 0; i < a.length; i += 3) {
-      a[i] = (rD() - 0.5) * 70;
-      a[i + 1] = rD() * 40;
-      a[i + 2] = -8 - rD() * 44;
-    }
-  }
-  snow.visible = false;
-  outside.add(snow);
-
-  /* ── Television static ─────────────────────────────────
-     Shown when the set is on but nothing is playing, and as the
-     flicker behind the picture. A shader, because a noise texture
-     that does not change is a photograph of static. */
-  const staticMat = new THREE.ShaderMaterial({
-    transparent: true,
-    uniforms: { uTime: { value: 0 }, uAmt: { value: 0 } },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float uTime; uniform float uAmt;
-      varying vec2 vUv;
-      float hash(vec2 p) {
-        p = fract(p * vec2(443.897, 441.423));
-        p += dot(p, p + 19.19);
-        return fract(p.x * p.y);
-      }
-      void main() {
-        float n = hash(vUv * vec2(320.0, 240.0) + floor(uTime * 24.0) * 7.0);
-        // Rolling band, the way an untuned set drifts.
-        float band = smoothstep(0.0, 0.08, abs(fract(vUv.y + uTime * 0.12) - 0.5));
-        vec3 col = vec3(n) * (0.35 + band * 0.4);
-        gl_FragColor = vec4(col, uAmt);
-      }
-    `,
+  const decor = buildDecor(keep, {
+    corner: new THREE.Vector3(-1.95, 0, -1.98),
+    desk: new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z + 0.08),
+    sill: new THREE.Vector3(WIN.x1 - 0.45, WIN.y0 - 0.02, ROOM.backZ + 0.13),
   });
-  disposables.push(staticMat);
-  const tvStatic = new THREE.Mesh(keep(new THREE.PlaneGeometry(TV_W, TV_H)), staticMat);
-  tvStatic.position.set(tvX, tvY, tvZ + 0.214);
-  root.add(tvStatic);
+  root.add(decor.group);
+  for (const h of decor.hits) targets.push(h);
 
-  /* ── Light ─────────────────────────────────────────────── */
+  /* ══ Light ═══════════════════════════════════════════════ */
   const ambient = new THREE.HemisphereLight(0x5a6ea8, 0x201828, 0.5);
   root.add(ambient);
 
@@ -1579,20 +1057,22 @@ export function buildRoom(): Built {
 
   // Soft fill across the glass. No shadows, but it is what stops
   // the window reading as a hole with a light behind it.
-  const windowFill = new THREE.RectAreaLight(0x8ab0ff, 2.4, WIN.x1 - WIN.x0, WIN.y1 - WIN.y0);
-  windowFill.position.set((WIN.x0 + WIN.x1) / 2, (WIN.y0 + WIN.y1) / 2, ROOM.backZ + 0.05);
-  windowFill.lookAt((WIN.x0 + WIN.x1) / 2, 1.2, 2);
+  const windowFill = new THREE.RectAreaLight(0x8ab0ff, 2.4, fw, fh);
+  windowFill.position.set(cx, cy, ROOM.backZ + 0.05);
+  windowFill.lookAt(cx, 1.2, 2);
   root.add(windowFill);
 
   const deskLamp = new THREE.PointLight(0xffc98a, 2.2, 3.4, 2);
-  deskLamp.position.set(0.56, DESK_Y + 0.44, deskZ + 0.08);
+  // Just in front of the shade's mouth, so the pool lands where
+  // the head is actually pointing.
+  deskLamp.position.set(0.56, DESK_Y + 0.43, DESK_Z + 0.1);
   deskLamp.castShadow = true;
   deskLamp.shadow.mapSize.set(1024, 1024);
   deskLamp.shadow.bias = -0.004;
   root.add(deskLamp);
 
   const neonLight = new THREE.PointLight(0xff2f86, 1.5, 2.6, 2);
-  neonLight.position.set(ROOM.leftX + 0.25, 1.9, 0.35);
+  neonLight.position.set(ROOM.leftX + 0.25, 1.95, 0.35);
   root.add(neonLight);
 
   const screenLight = new THREE.PointLight(0x7fb4e8, 0, 2.2, 2);
@@ -1606,59 +1086,38 @@ export function buildRoom(): Built {
   return {
     root,
     screen: {
-      position: new THREE.Vector3(0, screenY, screenZ + 0.001),
+      position: new THREE.Vector3(0, screenY, screenZ + 0.002),
       width: SCREEN_W,
       height: SCREEN_H,
     },
-    tv: {
-      position: new THREE.Vector3(tvX, tvY, tvZ + 0.213),
-      width: TV_W,
-      height: TV_H,
-    },
+    tv: { position: new THREE.Vector3(tvX, tvY, tvZ + 0.214), width: TV_W, height: TV_H },
     targets,
-    lamps: {
-      sun,
-      windowFill,
-      desk: deskLamp,
-      neon: neonLight,
-      screen: screenLight,
-      tv: tvLight,
-      ambient,
-    },
-    sky,
-    skyMat,
-    ships,
-    rift,
-    riftMat,
-    cat: {
-      group: catGroup,
-      head: headPivot,
-      ears,
-      eyes,
-      lids,
-      blush,
-      tail: tailPivot,
-      body,
-    },
-    clock: { hour: hourPivot, minute: minPivot },
-    seasonal: { group: seasonal, tree, baubles, star, light: treeLight },
-    particles: { dust, steam, snow },
-    plants: [monstera, snake, pothos, succ, sillPlant],
-    leafMats: [leafMatA, leafMatB],
+    life,
+    decor,
+    lamps: { sun, windowFill, desk: deskLamp, neon: neonLight, screen: screenLight, tv: tvLight, ambient },
     props: {
-      bulb,
-      record: sleeve,
+      skyMat,
+      ships,
+      riftMat,
+      rift,
       chair,
-      tvStatic,
-      tvStaticMat: staticMat,
+      vinyl,
+      lampBulb,
+      lampHead,
+      neonSign,
+      neonMat,
+      screenGlow,
+      screenOff,
+      tvGlow,
+      tvOff,
+      speakerCones,
+      posters,
+      towerMats,
     },
-    neonSign,
-    screenGlow,
-    tvGlow,
     dispose: () => {
       for (const d of disposables) d.dispose();
     },
   };
 }
 
-export { ROOM, WIN, DESK_Y };
+export { ROOM, WIN, DESK_Y, DESK_Z };

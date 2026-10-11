@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createRoot, type Root } from "react-dom/client";
 import * as THREE from "three";
 import { CSS3DObject, CSS3DRenderer } from "three/examples/jsm/renderers/CSS3DRenderer.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -10,84 +10,97 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 
-import AtelierOS, { OS_W, OS_H } from "./AtelierOS";
-import TvScreen from "./TvScreen";
 import { buildRoom, type Built } from "@/lib/atelier-build";
-import { bringToLife, type Life } from "@/lib/atelier-life";
-import {
-  moodNow,
-  PHASE_ORDER,
-  SEASON_ORDER,
-  type Phase,
-  type Season,
-} from "@/lib/atelier-time";
+import type { LifeCtx } from "@/lib/atelier-life";
+import { moodNow, PHASE_ORDER, SEASON_ORDER, type Phase, type Season } from "@/lib/atelier-time";
+import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-decor";
+import { useAmbient } from "@/lib/ambient";
+import AtelierOS from "./AtelierOS";
 
 /**
  * The Lab, in three dimensions.
  *
- * Geometry and materials live in lib/atelier-build. This file is
- * the part that moves: the camera, the light, the pointer, and the
- * clock. Three renderers are stacked on one camera —
+ * Two renderers over one camera. WebGL draws the room; a
+ * CSS3DRenderer draws the two screens — the desk machine and the
+ * television — as real DOM transformed into the same perspective.
+ * That is the only way to have a monitor you can actually type
+ * into sitting inside a lit 3D room: a texture would be a picture
+ * of a computer, and this is a computer.
  *
- *   WebGL      the room, through a bloom pass
- *   CSS3D      the two live screens, as real DOM in perspective
- *
- * — because a screen rendered as a texture is a picture of a
- * computer, and the whole point is that you can use this one. The
- * CSS layer sits above the canvas with pointer-events off, so
- * clicks land on the desktop where there is a desktop and fall
- * through to the raycaster everywhere else.
+ * The CSS layer sits above the canvas and is click-through
+ * everywhere except those two screens, so the raycaster below
+ * still gets everything else in the room.
  */
 
-/* How far the light moves between times of day. Each phase is a
-   full lighting rig, not a tint. */
-type Rig = {
+/* ── Light, by hour ────────────────────────────────────────── */
+type Mood = {
   sun: { color: number; intensity: number; pos: [number, number, number] };
   fill: { color: number; intensity: number };
   ambient: { sky: number; ground: number; intensity: number };
+  sky: { top: number; mid: number; bot: number; stars: number };
   lamp: number;
   neon: number;
-  sky: { top: number; mid: number; bot: number; stars: number };
+  /** How lit the city outside is. Nobody leaves the office lights
+   *  blazing at noon, and at noon you could not see them anyway. */
+  city: number;
+  /** Concrete, which is grey in daylight and nearly black at night. */
+  cityCol: number;
   exposure: number;
 };
 
-const RIGS: Record<Phase, Rig> = {
+const MOODS: Record<Phase, Mood> = {
   dawn: {
-    sun: { color: 0xffb98a, intensity: 1.5, pos: [-5, 3.4, -7] },
-    fill: { color: 0xffc3a0, intensity: 2.6 },
-    ambient: { sky: 0x4a5a8c, ground: 0x2a2030, intensity: 0.55 },
+    sun: { color: 0xffbd8a, intensity: 1.1, pos: [-6, 3.4, -7] },
+    fill: { color: 0xffc9a0, intensity: 3.2 },
+    ambient: { sky: 0x6a6ea0, ground: 0x2a2030, intensity: 0.55 },
+    sky: { top: 0x141c3a, mid: 0x5b4a7a, bot: 0xe8a177, stars: 0.3 },
     lamp: 1.1,
-    neon: 1.1,
-    sky: { top: 0x141c3a, mid: 0x4a4274, bot: 0xe8a177, stars: 0.3 },
-    exposure: 1.0,
+    neon: 0.9,
+    city: 0.5,
+    cityCol: 0x6a6480,
+    exposure: 1.05,
   },
   day: {
-    sun: { color: 0xfff4e2, intensity: 3.4, pos: [-4, 8, -6] },
-    fill: { color: 0xdceaf4, intensity: 5.5 },
-    ambient: { sky: 0x9cc5e6, ground: 0x4a4038, intensity: 1.15 },
+    sun: { color: 0xfff4e2, intensity: 3.6, pos: [-4, 8, -6] },
+    fill: { color: 0xdceaf8, intensity: 5.8 },
+    ambient: { sky: 0xb4d0f0, ground: 0x60556a, intensity: 1.5 },
+    sky: { top: 0x3f6ea8, mid: 0x7aa8d0, bot: 0xb8cfe0, stars: 0 },
     lamp: 0,
-    neon: 0.18,
-    sky: { top: 0x5d92cf, mid: 0x9cc5e6, bot: 0xdceaf4, stars: 0 },
-    exposure: 1.0,
+    neon: 0.25,
+    city: 0,
+    cityCol: 0xa8b4c8,
+    exposure: 0.82,
   },
   dusk: {
-    sun: { color: 0xff8a4c, intensity: 1.7, pos: [-6, 2.2, -6] },
-    fill: { color: 0xff9a62, intensity: 3.0 },
-    ambient: { sky: 0x6b3a6a, ground: 0x2a1a28, intensity: 0.6 },
-    lamp: 1.5,
-    neon: 1.5,
+    sun: { color: 0xff8a4a, intensity: 1.4, pos: [7, 2.2, -7] },
+    fill: { color: 0xff9a62, intensity: 3.6 },
+    ambient: { sky: 0x7a4a7a, ground: 0x2a1a2a, intensity: 0.6 },
     sky: { top: 0x241546, mid: 0x79356d, bot: 0xef7a3c, stars: 0.45 },
+    lamp: 1.5,
+    neon: 1.4,
+    city: 0.85,
+    cityCol: 0x5e4a66,
     exposure: 1.05,
   },
   night: {
-    sun: { color: 0x7a90d8, intensity: 0.32, pos: [-3, 6, -7] },
-    fill: { color: 0x6f7fd8, intensity: 1.1 },
-    ambient: { sky: 0x28224a, ground: 0x140f20, intensity: 0.34 },
+    sun: { color: 0x7f9ad8, intensity: 0.22, pos: [-3, 6, -7] },
+    fill: { color: 0x7a8ed8, intensity: 1.5 },
+    ambient: { sky: 0x3a4068, ground: 0x15101e, intensity: 0.34 },
+    sky: { top: 0x05040f, mid: 0x1d0c3c, bot: 0x5e1a52, stars: 1 },
     lamp: 2.6,
-    neon: 2.2,
-    sky: { top: 0x07061a, mid: 0x241048, bot: 0x6d1f5c, stars: 1 },
-    exposure: 1.18,
+    neon: 2.1,
+    city: 1,
+    cityCol: 0x2a2740,
+    exposure: 1.15,
   },
+};
+
+/* Season tints the leaves and what grows outside. */
+const LEAF: Record<Season, [number, number]> = {
+  spring: [0x5f9150, 0x86b468],
+  summer: [0x3f7a42, 0x5f9a4e],
+  autumn: [0x8a6a30, 0xb08440],
+  winter: [0x4c6b58, 0x6f8c78],
 };
 
 const PHASE_NOTE: Record<Phase, string> = {
@@ -103,37 +116,41 @@ const SEASON_NOTE: Record<Season, string> = {
   winter: "Winter",
 };
 
-/** Camera framing, asleep and at the desk. */
-const VIEW = {
-  idle: { pos: new THREE.Vector3(0.22, 1.62, 1.75), look: new THREE.Vector3(0.05, 1.18, -1.9) },
-  desk: { pos: new THREE.Vector3(0, 1.272, -1.33), look: new THREE.Vector3(0, 1.272, -2.1) },
-};
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export default function AtelierRoom3D() {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [screenEl, setScreenEl] = useState<HTMLDivElement | null>(null);
-  const [tvEl, setTvEl] = useState<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const [supported, setSupported] = useState(true);
+  const [ready, setReady] = useState(false);
+  const [awake, setAwake] = useState(false);
   const [tvOn, setTvOn] = useState(false);
+  const [hovered, setHovered] = useState<string | null>(null);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
+  const [decor, setDecor] = useState<Decor>("plain");
   const [clock, setClock] = useState("--:--");
   const [auto, setAuto] = useState(true);
-  const [awake, setAwake] = useState(false);
-  const [reduced, setReduced] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [ready, setReady] = useState(false);
 
-  // Read by the animation loop, which must not re-subscribe on
-  // every React render.
-  const live = useRef({ phase, season, awake, reduced, auto, tvOn });
-  live.current = { phase, season, awake, reduced, auto, tvOn };
+  const { playing } = useAmbient();
 
-  useEffect(() => {
-    setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
-  }, []);
+  /* Mutable mirrors, so the render loop never closes over stale
+     state and never has to be rebuilt when state changes. */
+  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false });
+  stateRef.current.awake = awake;
+  stateRef.current.tvOn = tvOn;
+  stateRef.current.phase = phase;
+  stateRef.current.season = season;
+  stateRef.current.playing = playing;
 
+  const osRootRef = useRef<Root | null>(null);
+  const osHostRef = useRef<HTMLDivElement | null>(null);
+  const builtRef = useRef<Built | null>(null);
+  const pokeRef = useRef<((name: string) => void) | null>(null);
+
+  /* ── Clock and calendar ──────────────────────────────── */
   useEffect(() => {
     const sync = () => {
       const m = moodNow();
@@ -141,26 +158,19 @@ export default function AtelierRoom3D() {
       if (auto) {
         setPhase(m.phase);
         setSeason(m.season);
+        setDecor(decorFor().key);
       }
     };
     sync();
-    const id = window.setInterval(sync, 30_000);
+    const id = window.setInterval(sync, 20_000);
     return () => window.clearInterval(id);
   }, [auto]);
 
-  const onPhase = useCallback((next?: Phase) => {
-    setAuto(false);
-    setPhase((p) => next ?? PHASE_ORDER[(PHASE_ORDER.indexOf(p) + 1) % PHASE_ORDER.length]);
-  }, []);
-
-  const onSeason = useCallback((next?: Season) => {
-    setAuto(false);
-    setSeason(
-      (s) => next ?? SEASON_ORDER[(SEASON_ORDER.indexOf(s) + 1) % SEASON_ORDER.length],
-    );
-  }, []);
-
   const sleep = useCallback(() => setAwake(false), []);
+  const wake = useCallback(() => {
+    setAwake(true);
+    stageRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     if (!awake) return;
@@ -171,6 +181,19 @@ export default function AtelierRoom3D() {
     return () => window.removeEventListener("keydown", onKey);
   }, [awake]);
 
+  const cyclePhase = useCallback((next?: Phase) => {
+    setAuto(false);
+    setPhase((p) => next ?? PHASE_ORDER[(PHASE_ORDER.indexOf(p) + 1) % PHASE_ORDER.length]);
+  }, []);
+  const cycleSeason = useCallback((next?: Season) => {
+    setAuto(false);
+    setSeason((s) => next ?? SEASON_ORDER[(SEASON_ORDER.indexOf(s) + 1) % SEASON_ORDER.length]);
+  }, []);
+  const cycleDecor = useCallback(() => {
+    setAuto(false);
+    setDecor((d) => DECOR_ORDER[(DECOR_ORDER.indexOf(d) + 1) % DECOR_ORDER.length]);
+  }, []);
+
   /* ══ The scene ═══════════════════════════════════════════ */
   useEffect(() => {
     const host = hostRef.current;
@@ -180,370 +203,481 @@ export default function AtelierRoom3D() {
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     } catch {
-      setFailed(true);
+      setSupported(false);
       return;
     }
 
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     RectAreaLightUniformsLib.init();
 
-    let disposed = false;
-    let frame = 0;
-    let shown = false;
-
-    const w = () => host.clientWidth || 1;
-    const h = () => host.clientHeight || 1;
+    let w = host.clientWidth || 1;
+    let h = host.clientHeight || 1;
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
-    renderer.setSize(w(), h());
+    renderer.setSize(w, h);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.domElement.className = "room3d-canvas";
+    renderer.domElement.classList.add("room3d-gl");
     host.appendChild(renderer.domElement);
 
-    const css = new CSS3DRenderer();
-    css.setSize(w(), h());
-    css.domElement.className = "room3d-css";
-    host.appendChild(css.domElement);
-
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, w() / h(), 0.08, 300);
-    camera.position.copy(VIEW.idle.pos);
-    camera.lookAt(VIEW.idle.look);
+    // 42 degrees framed the desk and cropped both corners of the
+    // room off the sides, which is where most of the furniture is.
+    const camera = new THREE.PerspectiveCamera(50, w / h, 0.05, 400);
+    camera.position.set(0.35, 1.6, 1.6);
 
-    let built: Built;
-    try {
-      built = buildRoom();
-    } catch (err) {
-      console.error("[lab] scene build failed", err);
-      setFailed(true);
-      renderer.dispose();
-      return;
-    }
+    const built = buildRoom();
+    builtRef.current = built;
     scene.add(built.root);
 
-    // Geometry is built; this is what moves it.
-    const life: Life = bringToLife(built);
+    /* ── CSS3D: the two screens ────────────────────────── */
+    const css = new CSS3DRenderer();
+    css.setSize(w, h);
+    css.domElement.classList.add("room3d-css");
+    host.appendChild(css.domElement);
 
-    /* ── The two live screens ─────────────────────────────
-       Real DOM, placed in the scene. Sized in CSS pixels and
-       scaled down to metres, so the desktop inside keeps its own
-       sensible pixel grid instead of being authored in millimetres. */
-    const mkScreen = (cls: string, pxW: number, pxH: number, worldW: number) => {
-      const el = document.createElement("div");
-      el.className = cls;
-      el.style.width = `${pxW}px`;
-      el.style.height = `${pxH}px`;
-      const obj = new CSS3DObject(el);
-      obj.scale.setScalar(worldW / pxW);
-      return { el, obj };
-    };
+    // The desktop. React renders into this element; CSS3D only
+    // ever moves it, so the OS keeps its own state across every
+    // camera move.
+    const osHost = document.createElement("div");
+    osHost.className = "room3d-screen";
+    osHost.style.width = "780px";
+    osHost.style.height = "464px";
+    osHostRef.current = osHost;
 
-    const deskScreen = mkScreen("os3d", OS_W, OS_H, built.screen.width);
-    deskScreen.obj.position.copy(built.screen.position);
-    scene.add(deskScreen.obj);
-    setScreenEl(deskScreen.el);
+    const osObject = new CSS3DObject(osHost);
+    osObject.position.copy(built.screen.position);
+    const osScale = built.screen.width / 780;
+    osObject.scale.setScalar(osScale);
+    scene.add(osObject);
 
-    // The television gets the same treatment — a real embed in
-    // perspective, rather than video painted onto a box.
-    const tvScreen = mkScreen("tv3d", 480, 360, built.tv.width);
-    tvScreen.obj.position.copy(built.tv.position);
-    scene.add(tvScreen.obj);
-    setTvEl(tvScreen.el);
+    // The television.
+    const tvHost = document.createElement("div");
+    tvHost.className = "room3d-screen room3d-tv";
+    tvHost.style.width = "480px";
+    tvHost.style.height = "360px";
+    const tvObject = new CSS3DObject(tvHost);
+    tvObject.position.copy(built.tv.position);
+    tvObject.scale.setScalar(built.tv.width / 480);
+    scene.add(tvObject);
 
-    /* ── Post ─────────────────────────────────────────────
-       Bloom is doing real work here, not decoration: the neon, the
-       bulb, the city windows and the screen are all emissive, and
-       the bleed off them is most of what makes the room feel lit
-       rather than coloured. */
+    /* ── Post ──────────────────────────────────────────── */
     const composer = new EffectComposer(renderer);
-    composer.setSize(w(), h());
     composer.addPass(new RenderPass(scene, camera));
-    // Strength, radius, threshold. The threshold is the important
-    // one: low and every lit window in the city qualifies, and the
-    // bloom stacks until the room is a single yellow smear. High,
-    // and only the things that are genuinely sources — the bulb,
-    // the neon, the screen — bleed at all.
-    const bloom = new UnrealBloomPass(new THREE.Vector2(w(), h()), 0.34, 0.62, 0.92);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.62, 0.72, 0.82);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
+    composer.setSize(w, h);
 
-    /* ── Pointer ──────────────────────────────────────────── */
+    /* ── Interaction ───────────────────────────────────── */
     const ray = new THREE.Raycaster();
-    const ndc = new THREE.Vector2(0, 0);
-    const parallax = new THREE.Vector2(0, 0);
-    const parallaxTarget = new THREE.Vector2(0, 0);
-    let hovered: string | null = null;
+    const pointer = new THREE.Vector2(0, 0);
+    /** Pointer in world space, so the cat has something to look at. */
+    const cursorWorld = new THREE.Vector3(0, 1.2, 0);
+    const focus = new Map<string, number>();
+    let hoverName: string | null = null;
+    let pointerInside = false;
 
-    const onMove = (e: PointerEvent) => {
-      const r = host.getBoundingClientRect();
-      ndc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-      ndc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
-      parallaxTarget.set(ndc.x, ndc.y);
+    const onPointerMove = (e: PointerEvent) => {
+      const rect = host.getBoundingClientRect();
+      pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      pointerInside = true;
     };
-
-    const onLeave = () => {
-      parallaxTarget.set(0, 0);
-      ndc.set(99, 99);
+    const onPointerLeave = () => {
+      pointerInside = false;
     };
-
-    const pick = (): string | null => {
-      if (live.current.awake) return null;
-      if (Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1) return null;
-      ray.setFromCamera(ndc, camera);
-      const hit = ray.intersectObjects(built.targets, false)[0];
-      return hit ? hit.object.name : null;
-    };
-
     const onClick = () => {
-      const name = pick();
-      if (name === "monitor") setAwake(true);
-      else if (name === "tv") setTvOn((v) => !v);
+      if (!hoverName) return;
+      pokeRef.current?.(hoverName);
     };
 
-    renderer.domElement.addEventListener("pointermove", onMove);
-    renderer.domElement.addEventListener("pointerleave", onLeave);
-    renderer.domElement.addEventListener("click", onClick);
+    host.addEventListener("pointermove", onPointerMove);
+    host.addEventListener("pointerleave", onPointerLeave);
+    host.addEventListener("click", onClick);
 
-    /* ── Light rig ────────────────────────────────────────── */
-    const applied = { phase: "" as string, season: "" as string };
-    const cur = {
-      sunColor: new THREE.Color(),
-      fillColor: new THREE.Color(),
-      skyTop: new THREE.Color(),
-      skyMid: new THREE.Color(),
-      skyBot: new THREE.Color(),
-      ambSky: new THREE.Color(),
-      ambGround: new THREE.Color(),
-    };
-    const want = {
-      sunColor: new THREE.Color(),
-      fillColor: new THREE.Color(),
-      skyTop: new THREE.Color(),
-      skyMid: new THREE.Color(),
-      skyBot: new THREE.Color(),
-      ambSky: new THREE.Color(),
-      ambGround: new THREE.Color(),
-    };
-    const num = { sun: 0, fill: 0, amb: 0, lamp: 0, neon: 0, stars: 0, exposure: 1 };
-    const numWant = { ...num };
-    const sunPos = new THREE.Vector3();
-    const sunWant = new THREE.Vector3();
+    /* ── Camera rigs ───────────────────────────────────── */
+    const IDLE_POS = new THREE.Vector3(0.35, 1.6, 1.6);
+    const IDLE_AIM = new THREE.Vector3(0, 1.15, -1.95);
+    const WAKE_POS = new THREE.Vector3(
+      built.screen.position.x,
+      built.screen.position.y,
+      built.screen.position.z + 0.58,
+    );
+    const WAKE_AIM = built.screen.position.clone();
 
-    function targetRig(p: Phase) {
-      const r = RIGS[p];
-      want.sunColor.setHex(r.sun.color);
-      want.fillColor.setHex(r.fill.color);
-      want.skyTop.setHex(r.sky.top);
-      want.skyMid.setHex(r.sky.mid);
-      want.skyBot.setHex(r.sky.bot);
-      want.ambSky.setHex(r.ambient.sky);
-      want.ambGround.setHex(r.ambient.ground);
-      numWant.sun = r.sun.intensity;
-      numWant.fill = r.fill.intensity;
-      numWant.amb = r.ambient.intensity;
-      numWant.lamp = r.lamp;
-      numWant.neon = r.neon;
-      numWant.stars = r.sky.stars;
-      numWant.exposure = r.exposure;
-      sunWant.set(...r.sun.pos);
-    }
+    const camPos = IDLE_POS.clone();
+    const camAim = IDLE_AIM.clone();
+    const wantPos = new THREE.Vector3();
+    const wantAim = new THREE.Vector3();
 
-    // Snap on the first frame; lerp on every change after.
-    targetRig(live.current.phase);
-    cur.sunColor.copy(want.sunColor);
-    cur.fillColor.copy(want.fillColor);
-    cur.skyTop.copy(want.skyTop);
-    cur.skyMid.copy(want.skyMid);
-    cur.skyBot.copy(want.skyBot);
-    cur.ambSky.copy(want.ambSky);
-    cur.ambGround.copy(want.ambGround);
-    Object.assign(num, numWant);
-    sunPos.copy(sunWant);
-    applied.phase = live.current.phase;
-
-    /* ── Camera ───────────────────────────────────────────── */
-    const camPos = camera.position.clone();
-    const camLook = VIEW.idle.look.clone();
-    const lookWant = VIEW.idle.look.clone();
-    const posWant = VIEW.idle.pos.clone();
-
-    function resize() {
-      const W = w();
-      const H = h();
-      renderer.setSize(W, H);
-      css.setSize(W, H);
-      composer.setSize(W, H);
-      bloom.setSize(W, H);
-      camera.aspect = W / H;
-      camera.updateProjectionMatrix();
-    }
-    window.addEventListener("resize", resize, { passive: true });
-    const ro = new ResizeObserver(resize);
-    ro.observe(host);
-
-    /* ── Loop ─────────────────────────────────────────────── */
-    const clk = new THREE.Clock();
+    /* ── Loop ──────────────────────────────────────────── */
+    const clockT = new THREE.Clock();
     let t = 0;
+    let frame = 0;
+    let disposed = false;
 
-    function tick() {
+    // Eased, so changing the hour is a sunset rather than a cut.
+    const cur = {
+      sunI: 0,
+      fillI: 0,
+      ambI: 0,
+      lamp: 0,
+      neon: 0,
+      exposure: 1.1,
+      screenI: 0,
+      tvI: 0,
+      city: 1,
+    };
+    const sunCol = new THREE.Color();
+    const fillCol = new THREE.Color();
+    const skyTop = new THREE.Color();
+    const skyMid = new THREE.Color();
+    const skyBot = new THREE.Color();
+    const sunPos = new THREE.Vector3();
+    const cityCol = new THREE.Color();
+    let starAmt = 1;
+    let vinylSpin = 0;
+    let chairSpin = 0;
+
+    const lifeCtx: LifeCtx = { focus: 0, cursor: cursorWorld, t: 0, dt: 0, reduced };
+
+    const render = () => {
       if (disposed) return;
-      frame = requestAnimationFrame(tick);
+      frame = requestAnimationFrame(render);
 
-      const dt = Math.min(clk.getDelta(), 0.05);
+      const dt = Math.min(clockT.getDelta(), 0.05);
       t += dt;
-      const { phase: ph, season: se, awake: aw, reduced: rd } = live.current;
+      const s = stateRef.current;
 
-      if (applied.phase !== ph) {
-        targetRig(ph);
-        applied.phase = ph;
-      }
-      if (applied.season !== se) {
-        life.setSeason(se, !live.current.auto);
-        applied.season = se;
-      }
-
-      // Light eases rather than cuts, so changing the hour is a
-      // sunrise instead of a switch.
-      const k = Math.min(1, dt * 1.7);
-      cur.sunColor.lerp(want.sunColor, k);
-      cur.fillColor.lerp(want.fillColor, k);
-      cur.skyTop.lerp(want.skyTop, k);
-      cur.skyMid.lerp(want.skyMid, k);
-      cur.skyBot.lerp(want.skyBot, k);
-      cur.ambSky.lerp(want.ambSky, k);
-      cur.ambGround.lerp(want.ambGround, k);
-      sunPos.lerp(sunWant, k);
-      for (const key of Object.keys(num) as Array<keyof typeof num>) {
-        num[key] += (numWant[key] - num[key]) * k;
+      /* Hover. One raycast per frame against a short list. */
+      if (pointerInside && !s.awake) {
+        ray.setFromCamera(pointer, camera);
+        const live = built.targets.filter((o) => o.visible && !o.userData.inactive);
+        const hits = ray.intersectObjects(live, false);
+        const next = hits.length ? hits[0].object.name : null;
+        if (next !== hoverName) {
+          hoverName = next;
+          setHovered(next);
+        }
+        if (hits.length) cursorWorld.copy(hits[0].point);
+        else {
+          // No object under the cursor: project onto a plane at
+          // the desk so the cat still tracks an empty hand.
+          ray.ray.at(2.6, cursorWorld);
+        }
+      } else if (hoverName !== null) {
+        hoverName = null;
+        setHovered(null);
       }
 
-      const L = built.lamps;
-      L.sun.color.copy(cur.sunColor);
-      L.sun.intensity = num.sun;
-      L.sun.position.copy(sunPos);
-      L.windowFill.color.copy(cur.fillColor);
-      L.windowFill.intensity = num.fill;
-      L.ambient.color.copy(cur.ambSky);
-      L.ambient.groundColor.copy(cur.ambGround);
-      L.ambient.intensity = num.amb;
-      renderer.toneMappingExposure = num.exposure;
+      // Ease every focus value toward 0 or 1. Boolean hover makes
+      // things snap; a living room never snaps.
+      const touch = (name: string) => {
+        const want = hoverName === name ? 1 : 0;
+        const have = focus.get(name) ?? 0;
+        const v = have + (want - have) * Math.min(1, dt * (want > have ? 7 : 4));
+        focus.set(name, v);
+        return v;
+      };
 
-      built.skyMat.uniforms.uTop.value.copy(cur.skyTop);
-      built.skyMat.uniforms.uMid.value.copy(cur.skyMid);
-      built.skyMat.uniforms.uBot.value.copy(cur.skyBot);
-      built.skyMat.uniforms.uStars.value = num.stars;
-      built.skyMat.uniforms.uTime.value = t;
-      built.riftMat.uniforms.uTime.value = t;
+      /* Living things. */
+      lifeCtx.t = t;
+      lifeCtx.dt = dt;
+      for (const item of built.life) {
+        lifeCtx.focus = touch(item.name);
+        item.update(lifeCtx);
+      }
+      lifeCtx.focus = Math.max(
+        touch("tree"),
+        touch("pumpkin"),
+        touch("flowers"),
+        touch("fan"),
+      );
+      built.decor.update(lifeCtx);
 
-      // Hover, and what each thing does about it.
-      const name = pick();
-      if (name !== hovered) {
-        hovered = name;
-        life.setHover(name);
-        renderer.domElement.style.cursor = name ? "pointer" : "default";
-        setHint(name ? life.hintFor(name) : null);
+      /* Props with simpler lives. */
+      const p = built.props;
+
+      // The record turns when watched, and keeps turning a moment
+      // after you look away.
+      const vinylFocus = touch("vinyl");
+      vinylSpin += dt * (0.25 + vinylFocus * 9);
+      p.vinyl.rotation.y = vinylSpin;
+
+      const chairFocus = touch("chair");
+      chairSpin += dt * chairFocus * 1.6;
+      p.chair.rotation.y = 0.22 + Math.sin(chairSpin) * 0.5 * chairFocus;
+
+      // Speaker cones breathe with the music.
+      const beat = s.playing && !reduced ? 1 + Math.sin(t * 7.5) * 0.09 + Math.sin(t * 3.1) * 0.05 : 1;
+      p.speakerCones.forEach((c, i) => c.scale.setScalar(beat - i * 0.02 * (beat - 1)));
+      const speakerFocus = touch("speaker");
+
+      // Neon hum, plus a rare flicker. Real tubes do this.
+      const neonFocus = touch("neon");
+      const flick = reduced ? 1 : Math.sin(t * 90) > 0.985 ? 0.35 : 1;
+      p.neonMat.color.setHex(0xff2f86);
+      p.neonSign.scale.setScalar(1 + neonFocus * 0.06);
+
+      const posterFocus = touch("poster");
+      const pm = p.posters[0].material as THREE.MeshStandardMaterial;
+      pm.emissiveIntensity = 0.4 + posterFocus * 1.6;
+
+      const clockFocus = focus.get("clock") ?? 0;
+      void clockFocus;
+      void speakerFocus;
+
+      /* Lighting, eased toward the current hour. */
+      const mood = MOODS[s.phase];
+      const k = Math.min(1, dt * 1.6);
+      cur.sunI = lerp(cur.sunI, mood.sun.intensity, k);
+      cur.fillI = lerp(cur.fillI, mood.fill.intensity, k);
+      cur.ambI = lerp(cur.ambI, mood.ambient.intensity, k);
+      const lampFocus = touch("lamp");
+      cur.lamp = lerp(cur.lamp, mood.lamp * (1 + lampFocus * 0.7), k);
+      cur.neon = lerp(cur.neon, mood.neon * (1 + neonFocus * 0.8), k);
+      cur.exposure = lerp(cur.exposure, mood.exposure, k);
+      cur.city = lerp(cur.city, mood.city, k);
+      cityCol.setHex(mood.cityCol);
+      for (const m of p.towerMats) {
+        m.emissiveIntensity = cur.city * 0.95;
+        m.color.lerp(cityCol, k);
       }
 
-      life.update(t, dt, {
-        reduced: rd,
-        awake: aw,
-        lamp: num.lamp,
-        neon: num.neon,
-        pointer: parallax,
-        tv: live.current.tvOn,
-      });
+      sunCol.lerpColors(built.lamps.sun.color, new THREE.Color(mood.sun.color), k);
+      built.lamps.sun.color.copy(sunCol);
+      built.lamps.sun.intensity = cur.sunI;
+      sunPos.set(...mood.sun.pos);
+      built.lamps.sun.position.lerp(sunPos, k);
 
-      // Camera: ease to whichever framing is current, plus a
-      // little parallax so the room has weight when you move.
-      const view = aw ? VIEW.desk : VIEW.idle;
-      posWant.copy(view.pos);
-      lookWant.copy(view.look);
-      if (!aw && !rd) {
-        parallax.lerp(parallaxTarget, Math.min(1, dt * 2.4));
-        posWant.x += parallax.x * 0.16;
-        posWant.y += parallax.y * 0.09;
-        posWant.y += Math.sin(t * 0.33) * 0.012;
+      fillCol.lerpColors(built.lamps.windowFill.color, new THREE.Color(mood.fill.color), k);
+      built.lamps.windowFill.color.copy(fillCol);
+      built.lamps.windowFill.intensity = cur.fillI;
+
+      built.lamps.ambient.intensity = cur.ambI;
+      built.lamps.ambient.color.lerp(new THREE.Color(mood.ambient.sky), k);
+      built.lamps.ambient.groundColor.lerp(new THREE.Color(mood.ambient.ground), k);
+
+      built.lamps.desk.intensity = cur.lamp * flick;
+      (p.lampBulb.material as THREE.MeshBasicMaterial).color.setScalar(
+        Math.min(1, 0.25 + cur.lamp * 0.35),
+      );
+      built.lamps.neon.intensity = cur.neon * flick;
+      renderer.toneMappingExposure = cur.exposure;
+
+      // Sky outside.
+      const u = p.skyMat.uniforms;
+      skyTop.setHex(mood.sky.top);
+      skyMid.setHex(mood.sky.mid);
+      skyBot.setHex(mood.sky.bot);
+      (u.uTop.value as THREE.Color).lerp(skyTop, k);
+      (u.uMid.value as THREE.Color).lerp(skyMid, k);
+      (u.uBot.value as THREE.Color).lerp(skyBot, k);
+      starAmt = lerp(starAmt, mood.sky.stars, k);
+      u.uStars.value = starAmt;
+      u.uTime.value = reduced ? 0 : t;
+
+      // Screens.
+      const monitorFocus = touch("monitor");
+      cur.screenI = lerp(cur.screenI, s.awake ? 1.6 : monitorFocus * 0.4, Math.min(1, dt * 4));
+      built.lamps.screen.intensity = cur.screenI;
+      (p.screenGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.85, cur.screenI * 0.5);
+      p.screenOff.visible = !s.awake;
+      (p.screenOff.material as THREE.MeshStandardMaterial).emissive.setScalar(monitorFocus * 0.06);
+
+      const tvFocus = touch("tv");
+      cur.tvI = lerp(cur.tvI, s.tvOn ? 1.5 : tvFocus * 0.3, Math.min(1, dt * 4));
+      built.lamps.tv.intensity = cur.tvI * (reduced ? 1 : 0.86 + Math.sin(t * 11) * 0.14);
+      (p.tvGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, cur.tvI * 0.45);
+      p.tvOff.visible = !s.tvOn;
+      tvHost.style.visibility = s.tvOn ? "visible" : "hidden";
+
+      // Ships cross the window and wrap round.
+      if (!reduced) {
+        for (const ship of p.ships.children) {
+          const d = ship.userData as { speed: number; t: number };
+          d.t += dt * d.speed * 0.012;
+          if (d.t > 1.2) d.t = -0.2;
+          if (d.t < -0.2) d.t = 1.2;
+          ship.position.x = -46 + d.t * 92;
+          ship.position.y += Math.sin(t * 0.4 + d.t * 6) * 0.004;
+        }
+        p.riftMat.uniforms.uTime.value = t;
+        p.rift.lookAt(camera.position);
       }
-      const ck = Math.min(1, dt * (aw ? 2.6 : 2.0));
-      camPos.lerp(posWant, ck);
-      camLook.lerp(lookWant, ck);
+
+      /* Camera. */
+      if (s.awake) {
+        wantPos.copy(WAKE_POS);
+        wantAim.copy(WAKE_AIM);
+      } else {
+        wantPos.copy(IDLE_POS);
+        wantAim.copy(IDLE_AIM);
+        if (!reduced) {
+          // A slow breath, plus a little parallax toward the
+          // cursor. Enough that the room is never quite still.
+          wantPos.x += Math.sin(t * 0.17) * 0.07 + pointer.x * 0.1;
+          wantPos.y += Math.cos(t * 0.13) * 0.035 + pointer.y * 0.05;
+          wantAim.x += pointer.x * 0.06;
+        }
+      }
+      const camK = Math.min(1, dt * (s.awake ? 2.6 : 1.8));
+      camPos.lerp(wantPos, camK);
+      camAim.lerp(wantAim, camK);
       camera.position.copy(camPos);
-      camera.lookAt(camLook);
+      camera.lookAt(camAim);
 
       composer.render();
       css.render(scene, camera);
+    };
 
-      if (!shown) {
-        shown = true;
-        setReady(true);
+    /* ── Poke handler ──────────────────────────────────── */
+    pokeRef.current = (name: string) => {
+      if (name === "monitor") {
+        wake();
+        return;
       }
-    }
+      if (name === "tv") {
+        setTvOn((v) => !v);
+        return;
+      }
+      const item = built.life.find((l) => l.name === name);
+      item?.poke?.();
+    };
+
+    /* ── Resize ────────────────────────────────────────── */
+    const resize = () => {
+      w = host.clientWidth || 1;
+      h = host.clientHeight || 1;
+      renderer.setSize(w, h);
+      css.setSize(w, h);
+      composer.setSize(w, h);
+      bloom.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(host);
+
+    const onVisibility = () => {
+      if (document.hidden) cancelAnimationFrame(frame);
+      else {
+        clockT.getDelta();
+        frame = requestAnimationFrame(render);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     resize();
-    tick();
+    render();
+    setReady(true);
 
     return () => {
       disposed = true;
       cancelAnimationFrame(frame);
-      window.removeEventListener("resize", resize);
       ro.disconnect();
-      renderer.domElement.removeEventListener("pointermove", onMove);
-      renderer.domElement.removeEventListener("pointerleave", onLeave);
-      renderer.domElement.removeEventListener("click", onClick);
-      setScreenEl(null);
-      setTvEl(null);
-      built.dispose();
+      document.removeEventListener("visibilitychange", onVisibility);
+      host.removeEventListener("pointermove", onPointerMove);
+      host.removeEventListener("pointerleave", onPointerLeave);
+      host.removeEventListener("click", onClick);
       composer.dispose();
+      built.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       if (css.domElement.parentNode === host) host.removeChild(css.domElement);
+      builtRef.current = null;
+      osHostRef.current = null;
+    };
+    // Built once. Everything that changes is read through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── Mount the OS into the CSS3D element ─────────────── */
+  useEffect(() => {
+    if (!ready) return;
+    const el = osHostRef.current;
+    if (!el) return;
+    if (!osRootRef.current) osRootRef.current = createRoot(el);
+    osRootRef.current.render(
+      awake ? (
+        <AtelierOS
+          phase={phase}
+          season={season}
+          clock={clock}
+          reduced={false}
+          onPhase={cyclePhase}
+          onSeason={cycleSeason}
+          onSleep={sleep}
+        />
+      ) : null,
+    );
+  }, [ready, awake, phase, season, clock, cyclePhase, cycleSeason, sleep]);
+
+  // Unmount the React root on teardown, on its own, because doing
+  // it inside the scene effect races with React's own commit.
+  useEffect(() => {
+    return () => {
+      const root = osRootRef.current;
+      osRootRef.current = null;
+      if (root) setTimeout(() => root.unmount(), 0);
     };
   }, []);
 
-  return (
-    <div className="atelier" data-phase={phase} data-season={season}>
-      <div
-        className={`atelier-stage room3d${ready ? " is-ready" : ""}${awake ? " is-awake" : ""}`}
-      >
-        <div className="room3d-mount" ref={hostRef} />
+  /* ── Decor and season into the scene ─────────────────── */
+  useEffect(() => {
+    builtRef.current?.decor.show(decor);
+  }, [decor, ready]);
 
-        {failed ? (
-          <p className="room3d-boot">
-            This room needs WebGL, and this browser has it switched off.
+  useEffect(() => {
+    const built = builtRef.current;
+    if (!built) return;
+    const [a, b] = LEAF[season];
+    // Leaf materials are shared across every plant, so recolouring
+    // two of them repaints the whole room's greenery at once.
+    built.root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
+      if (!mat || !mat.color) return;
+      if (mat.userData.leaf === "a") mat.color.setHex(a);
+      if (mat.userData.leaf === "b") mat.color.setHex(b);
+    });
+  }, [season, ready]);
+
+  if (!supported) {
+    return (
+      <div className="atelier">
+        <p className="micro">
+          This room is drawn with WebGL, and this browser has it switched off.
+        </p>
+      </div>
+    );
+  }
+
+  const decorNote = decorLabel(decor);
+
+  return (
+    <div className="atelier">
+      <div className={`room3d-stage${awake ? " is-awake" : ""}`} ref={stageRef}>
+        <div className={`room3d-host${hovered ? " is-pointing" : ""}`} ref={hostRef} />
+
+        {!ready ? <p className="room3d-boot">Lighting the room…</p> : null}
+
+        {!awake && hovered ? (
+          <p className="room3d-tip" aria-live="polite">
+            {TIPS[hovered] ?? hovered}
           </p>
         ) : null}
-
-        {hint && !awake ? <p className="room3d-tip">{hint}</p> : null}
-
-        {screenEl
-          ? createPortal(
-              awake ? (
-                <AtelierOS
-                  phase={phase}
-                  season={season}
-                  clock={clock}
-                  reduced={reduced}
-                  onPhase={onPhase}
-                  onSeason={onSeason}
-                  onSleep={sleep}
-                />
-              ) : (
-                <div className="os3d-off" />
-              ),
-              screenEl,
-            )
-          : null}
-
-        {tvEl ? createPortal(<TvScreen on={tvOn} />, tvEl) : null}
       </div>
 
       <div className="atelier-bar">
         <p className="micro">
           {clock} — {PHASE_NOTE[phase]}, {SEASON_NOTE[season]}
           {auto ? " · live" : " · manual"}
+          {decorNote ? ` · ${decorNote}` : ""}
         </p>
 
         <div className="atelier-ctl">
@@ -552,11 +686,14 @@ export default function AtelierRoom3D() {
               Step back
             </button>
           ) : null}
-          <button type="button" onClick={() => onPhase()}>
+          <button type="button" onClick={() => cyclePhase()}>
             Time
           </button>
-          <button type="button" onClick={() => onSeason()}>
+          <button type="button" onClick={() => cycleSeason()}>
             Season
+          </button>
+          <button type="button" onClick={cycleDecor}>
+            Decor
           </button>
           <button type="button" onClick={() => setAuto(true)} disabled={auto}>
             Back to now
@@ -566,3 +703,26 @@ export default function AtelierRoom3D() {
     </div>
   );
 }
+
+/** What the room says about itself when you point at something. */
+const TIPS: Record<string, string> = {
+  cat: "She has noticed you.",
+  monitor: "Click to sit down at it",
+  tv: "Click to switch it on",
+  lamp: "The lamp",
+  chair: "Give it a spin",
+  vinyl: "Something from the shelf",
+  mug: "Still warm",
+  speaker: "Turn the sound on",
+  neon: "Hand-bent, buzzing",
+  clock: "The actual time",
+  poster: "A print from a while back",
+  tree: "Up since late November",
+  pumpkin: "Carved badly, on purpose",
+  flowers: "Cut this morning",
+  fan: "Doing its best",
+  "plant-monstera-71": "Monstera. Thriving, somehow.",
+  "plant-snake-83": "Snake plant. Unkillable.",
+  "plant-pothos-97": "Pothos, taking over the shelf",
+  "plant-succulent-113": "Small and smug",
+};
