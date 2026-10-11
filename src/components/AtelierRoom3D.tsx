@@ -125,6 +125,23 @@ const SEASON_NOTE: Record<Season, string> = {
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
+/**
+ * Where you can stand.
+ *
+ * The room is a cutaway model rather than somewhere you are
+ * inside, so moving around it is a short list of framings rather
+ * than free orbit — free orbit in a room with three walls mostly
+ * shows you the back of a wall. Arrows step between them.
+ */
+type Shot = { name: string; pos: [number, number, number]; aim: [number, number, number] };
+
+const SHOTS: Shot[] = [
+  { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6] },
+  { name: "The desk", pos: [1.5, 2.15, 1.5], aim: [0.05, 1.05, -2.05] },
+  { name: "The window", pos: [-2.3, 2.6, 3.0], aim: [0.3, 1.45, -2.3] },
+  { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7] },
+];
+
 export default function AtelierRoom3D() {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -134,6 +151,7 @@ export default function AtelierRoom3D() {
   const [awake, setAwake] = useState(false);
   const [tvOn, setTvOn] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [shot, setShot] = useState(0);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -145,12 +163,13 @@ export default function AtelierRoom3D() {
 
   /* Mutable mirrors, so the render loop never closes over stale
      state and never has to be rebuilt when state changes. */
-  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false });
+  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false, shot: 0 });
   stateRef.current.awake = awake;
   stateRef.current.tvOn = tvOn;
   stateRef.current.phase = phase;
   stateRef.current.season = season;
   stateRef.current.playing = playing;
+  stateRef.current.shot = shot;
 
   const osRootRef = useRef<Root | null>(null);
   const osHostRef = useRef<HTMLDivElement | null>(null);
@@ -314,8 +333,8 @@ export default function AtelierRoom3D() {
     host.addEventListener("click", onClick);
 
     /* ── Camera rigs ───────────────────────────────────── */
-    const IDLE_POS = new THREE.Vector3(0.35, 1.6, 1.6);
-    const IDLE_AIM = new THREE.Vector3(0, 1.15, -1.95);
+    const IDLE_POS = new THREE.Vector3(...SHOTS[0].pos);
+    const IDLE_AIM = new THREE.Vector3(...SHOTS[0].aim);
     const WAKE_POS = new THREE.Vector3(
       built.screen.position.x,
       built.screen.position.y,
@@ -547,8 +566,9 @@ export default function AtelierRoom3D() {
         wantPos.copy(WAKE_POS);
         wantAim.copy(WAKE_AIM);
       } else {
-        wantPos.copy(IDLE_POS);
-        wantAim.copy(IDLE_AIM);
+        const sh = SHOTS[s.shot] ?? SHOTS[0];
+        wantPos.set(sh.pos[0], sh.pos[1], sh.pos[2]);
+        wantAim.set(sh.aim[0], sh.aim[1], sh.aim[2]);
         if (!reduced) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
@@ -562,6 +582,19 @@ export default function AtelierRoom3D() {
       camAim.lerp(wantAim, camK);
       camera.position.copy(camPos);
       camera.lookAt(camAim);
+
+      /* The cutaway. The ceiling only exists when you are sitting
+         inside at the desk; from outside it is a lid on a box.
+         Side walls drop out as the camera passes them, which is
+         the one thing that makes a model like this readable from
+         more than one side. */
+      p.ceiling.visible = s.awake;
+      p.rightWall.visible = camPos.x < 2.4;
+      p.leftWall.visible = camPos.x > -2.4;
+      p.plinth.visible = !s.awake;
+      // The overview needs a light of its own; sitting at the desk
+      // does not, and keeping it on there flattens the lamp.
+      p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 0.85, Math.min(1, dt * 2));
 
       composer.render();
       css.render(scene, camera);
@@ -714,6 +747,29 @@ export default function AtelierRoom3D() {
           <p className="room3d-tip" aria-live="polite">
             {TIPS[hovered] ?? hovered}
           </p>
+        ) : null}
+
+        {/* Move around the model. Arrows rather than free orbit,
+            because a cutaway room has three walls and free orbit
+            spends half its time behind one of them. */}
+        {ready && !awake ? (
+          <div className="room3d-nav">
+            <button
+              type="button"
+              aria-label="Previous view"
+              onClick={() => setShot((v) => (v - 1 + SHOTS.length) % SHOTS.length)}
+            >
+              ←
+            </button>
+            <span className="room3d-shot">{SHOTS[shot].name}</span>
+            <button
+              type="button"
+              aria-label="Next view"
+              onClick={() => setShot((v) => (v + 1) % SHOTS.length)}
+            >
+              →
+            </button>
+          </div>
         ) : null}
       </div>
 

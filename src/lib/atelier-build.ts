@@ -216,6 +216,11 @@ export type Built = {
     signs: THREE.Mesh[];
     ledGlowA: THREE.PointLight;
     ledGlowB: THREE.PointLight;
+    ceiling: THREE.Mesh;
+    leftWall: THREE.Mesh;
+    rightWall: THREE.Mesh;
+    plinth: THREE.Group;
+    modelFill: THREE.DirectionalLight;
   };
   dispose: () => void;
 };
@@ -285,6 +290,15 @@ export function buildRoom(): Built {
   floor.receiveShadow = true;
   root.add(floor);
 
+  /**
+   * A cutaway model, not a room you stand in.
+   *
+   * The ceiling and whichever side wall is between you and the
+   * furniture get hidden by the driver as the view moves around —
+   * which is the whole trick of a dollhouse render. Both are kept
+   * as handles rather than deleted, because from the low desk
+   * framings you want the room closed again.
+   */
   const ceil = new THREE.Mesh(keep(new THREE.PlaneGeometry(ROOM.w, ROOM.d)), wallMat);
   ceil.rotation.x = Math.PI / 2;
   ceil.position.set(0, ROOM.h, ROOM.backZ + ROOM.d / 2);
@@ -330,6 +344,34 @@ export function buildRoom(): Built {
   const skirtL = add(box(ROOM.d, 0.1, 0.03), skirtMat, 0, 0.05, 0);
   skirtL.rotation.y = Math.PI / 2;
   skirtL.position.set(ROOM.leftX + 0.015, 0.05, ROOM.backZ + ROOM.d / 2);
+
+  /* The slab the whole model sits on. Thick enough to read as a
+     solid object with the lights off around it. */
+  const slabMat = keep(new THREE.MeshStandardMaterial({ color: 0x1a1726, roughness: 0.85 }));
+  const slab = new THREE.Mesh(box(ROOM.w + 0.3, 0.26, ROOM.d + 0.3), slabMat);
+  slab.position.set(0, -0.135, ROOM.backZ + ROOM.d / 2);
+  slab.receiveShadow = true;
+  root.add(slab);
+  /* A lit edge around the base. Four bars, not a slab — as a
+     single box the size of the floor it simply rendered as a
+     glowing cyan floor with the actual room sitting on top of
+     it. An edge is made of edges. */
+  const plinthMat = keep(new THREE.MeshBasicMaterial({ color: 0x49e8ff }));
+  const plinth = new THREE.Group();
+  const PW = ROOM.w + 0.3;
+  const PD = ROOM.d + 0.3;
+  const PZ = ROOM.backZ + ROOM.d / 2;
+  for (const [bw, bd, bx, bz] of [
+    [PW, 0.035, 0, PZ - PD / 2],
+    [PW, 0.035, 0, PZ + PD / 2],
+    [0.035, PD, -PW / 2, PZ],
+    [0.035, PD, PW / 2, PZ],
+  ] as const) {
+    const bar = new THREE.Mesh(box(bw, 0.016, bd), plinthMat);
+    bar.position.set(bx, 0.004, bz);
+    plinth.add(bar);
+  }
+  root.add(plinth);
 
   /* ══ Window ══════════════════════════════════════════════ */
   const frameMat = keep(new THREE.MeshStandardMaterial({ color: 0x15121d, roughness: 0.5, metalness: 0.3 }));
@@ -817,8 +859,8 @@ export function buildRoom(): Built {
   /* Behind everything. At -90 the sky plane sat in the middle of
      the tower field and hid every building behind it, which is
      why the skyline had holes in it with blank sky showing. */
-  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(900, 460)), skyMat);
-  sky.position.set(0, 60, -300);
+  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(2600, 1300)), skyMat);
+  sky.position.set(0, 180, -420);
   outside.add(sky);
 
   const rC = rand(131);
@@ -1164,6 +1206,22 @@ export function buildRoom(): Built {
   const ambient = new THREE.HemisphereLight(0x5a6ea8, 0x201828, 0.5);
   root.add(ambient);
 
+  /**
+   * Model fill.
+   *
+   * Every other light in here points into the room from somewhere
+   * inside it, which is right when you are sitting at the desk
+   * and useless when you are looking down at the whole thing from
+   * outside: the floor and the near walls get nothing and the
+   * cutaway reads as a black box. This one exists only for the
+   * overview framings and the driver fades it out as you move in.
+   */
+  const modelFill = new THREE.DirectionalLight(0x9fb4ff, 0);
+  modelFill.position.set(6, 9, 8);
+  modelFill.target.position.set(0, 0.6, -0.8);
+  root.add(modelFill);
+  root.add(modelFill.target);
+
   const sun = new THREE.DirectionalLight(0xbfd4ff, 0.7);
   sun.position.set(-3, 7, -6);
   sun.target.position.set(0, 0.9, -1);
@@ -1253,6 +1311,11 @@ export function buildRoom(): Built {
       signs,
       ledGlowA,
       ledGlowB,
+      ceiling: ceil,
+      leftWall,
+      rightWall,
+      plinth,
+      modelFill,
     },
     dispose: () => {
       for (const d of disposables) d.dispose();

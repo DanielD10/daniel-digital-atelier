@@ -2896,3 +2896,54 @@ main { position: relative; z-index: 3; }
 @media (prefers-reduced-motion: reduce) {
   .tv-static { animation: none; }
 }
+
+/* ── Moving around the model ────────────────────────────────── */
+.room3d-nav {
+  position: absolute;
+  z-index: 5;
+  right: 18px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: rgba(8, 6, 16, 0.66);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+}
+.room3d-nav button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
+  color: #efe9df;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  cursor: pointer;
+  font-family: var(--f-micro);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.room3d-nav button:hover,
+.room3d-nav button:focus-visible {
+  background: rgba(255, 47, 134, 0.26);
+  border-color: #ff2f86;
+  outline: none;
+}
+.room3d-shot {
+  min-width: 10ch;
+  text-align: center;
+  font-family: var(--f-micro);
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: #efe9df;
+}
+
+@media (max-width: 760px) {
+  .room3d-nav { right: 10px; bottom: 10px; gap: 6px; }
+  .room3d-shot { min-width: 8ch; font-size: 10px; }
+}
