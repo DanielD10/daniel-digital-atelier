@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
-import AtelierRoom from "@/components/AtelierRoom";
+import LabRoom from "@/components/LabRoom";
 
 export const metadata: Metadata = {
   title: "Lab",
@@ -22,14 +22,15 @@ export default function Lab() {
         <h1>The lab</h1>
 
         <p className="lede">
-          The room, as it is right now. Wake the iMac.
+          The room, as it is right now. Sit down at the machine — it works.
         </p>
 
-        <AtelierRoom />
+        <LabRoom />
 
         <p className="micro lab-note">
-          The light tracks your actual clock and the season. Change either
-          yourself if you&rsquo;d rather see it another way.
+          The light tracks your actual clock and the season, the clock on the
+          wall tells the real time, and the cat is watching your cursor.
+          Change the hour yourself if you&rsquo;d rather see it another way.
         </p>
       </main>
     </>

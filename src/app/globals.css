@@ -1561,6 +1561,160 @@ main { position: relative; z-index: 3; }
   50% { opacity: 0.95; }
 }
 
+/* ═══════════════ THE ROOM IN 3D ═══════════════
+   Two renderers stacked on one camera. The WebGL canvas carries
+   the room; the CSS3D layer above it carries the only two things
+   that have to be real DOM — the desktop and the television —
+   because there is no way to put a working text field inside a
+   texture without reimplementing a browser. */
+.atelier-stage.room3d {
+  background: #06050e;
+  aspect-ratio: 16 / 10;
+}
+
+.room3d-mount {
+  position: absolute;
+  inset: 0;
+}
+
+.room3d-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+.room3d.is-ready .room3d-canvas { opacity: 1; }
+
+/* The CSS layer is transparent to the pointer everywhere except
+   the screens themselves. That is what lets a click land on the
+   room behind it — the raycast and the desktop share one surface
+   and never fight over a click. */
+.room3d-css {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.os3d {
+  position: relative;
+  overflow: hidden;
+  background: #07060f;
+  pointer-events: none;
+}
+.os3d .os-host { pointer-events: auto; }
+/* In 3D the monitor sets the scale, so the desktop renders at its
+   own size and the CSS3D matrix does the rest. */
+.os3d .os { transform: none !important; }
+.os3d-off { width: 100%; height: 100%; background: #080a10; }
+
+.tv3d {
+  position: relative;
+  overflow: hidden;
+  background: #05070a;
+  pointer-events: none;
+  font-family: var(--f-micro);
+  color: #e8e4f2;
+}
+.tv-off { width: 100%; height: 100%; }
+.tv-live,
+.tv-tune { pointer-events: auto; width: 100%; height: 100%; position: relative; }
+.tv-live iframe { display: block; width: 100%; height: 100%; border: 0; }
+.tv-change {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 5px 10px;
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  color: #fff;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.tv-live:hover .tv-change { opacity: 1; }
+
+.tv-tune {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  background: radial-gradient(120% 90% at 50% 0%, #1b1430, #05070a 70%);
+}
+.tv-kicker {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.5;
+}
+.tv-tune form { display: flex; gap: 8px; width: 100%; }
+.tv-tune input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  font-size: 15px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 3px;
+  color: inherit;
+  font-family: inherit;
+}
+.tv-tune input:focus { outline: none; border-color: #ff2f86; }
+.tv-tune button {
+  padding: 9px 14px;
+  font-size: 14px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 3px;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.tv-tune button:hover { background: rgba(255, 255, 255, 0.12); }
+.tv-bad { margin: 0; font-size: 14px; color: #ff9f8a; }
+.tv-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
+
+.room3d-boot,
+.room3d-tip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: var(--t-micro);
+  letter-spacing: var(--track-micro);
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  pointer-events: none;
+  z-index: 4;
+}
+.room3d-boot { top: 50%; }
+.room3d-tip {
+  bottom: 18px;
+  padding: 7px 14px;
+  background: rgba(8, 6, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--bone);
+  animation: tipIn 220ms ease both;
+}
+@keyframes tipIn {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ═══════════════ ATELIER OS ═══════════════
    Sits exactly over the screen rect in the drawing. Everything
    inside is laid out against a fixed 1000x595 desktop and scaled

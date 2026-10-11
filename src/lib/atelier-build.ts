@@ -128,10 +128,20 @@ function rugTexture(): THREE.Texture {
  * what keeps a skyline from looking stamped.
  */
 function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissive: THREE.Texture } {
-  const COLS = 10;
-  const ROWS = 16;
-  const CW = 16;
-  const CH = 16;
+  /**
+   * Few, large cells.
+   *
+   * The first version used a 10x16 grid and then repeated it once
+   * per metre of building, which put several hundred rows of
+   * windows on a thirty-metre tower. At that density a facade
+   * stops being a building and becomes a QR code. Real towers
+   * show a window every three metres or so; the repeat below is
+   * set from the building's actual size to land near that.
+   */
+  const COLS = 3;
+  const ROWS = 5;
+  const CW = 26;
+  const CH = 26;
   const w = COLS * CW;
   const h = ROWS * CH;
 
@@ -149,17 +159,19 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
       const on = r() < lit;
       const px = x * CW + 4;
       const py = y * CH + 4;
+      const w2 = CW - 9;
+      const h2 = CH - 11;
       if (on) {
         // Warm sodium, with a few cold fluorescent offices.
         const cold = r() < 0.22;
         const col = cold ? "#cfe4ff" : `rgb(255,${190 + r() * 50},${110 + r() * 70})`;
         base.g.fillStyle = col;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillRect(px, py, w2, h2);
         glow.g.fillStyle = col;
-        glow.g.fillRect(px, py, CW - 8, CH - 8);
+        glow.g.fillRect(px, py, w2, h2);
       } else {
-        base.g.fillStyle = `rgba(40,36,64,${0.25 + r() * 0.3})`;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillStyle = `rgba(38,34,60,${0.3 + r() * 0.35})`;
+        base.g.fillRect(px, py, w2, h2);
       }
     }
   }
@@ -191,7 +203,36 @@ export type Built = {
   ships: THREE.Group;
   rift: THREE.Mesh;
   riftMat: THREE.ShaderMaterial;
-  cat: { group: THREE.Group; blush: THREE.Mesh[]; tail: THREE.Object3D };
+  cat: {
+    group: THREE.Group;
+    head: THREE.Object3D;
+    ears: THREE.Object3D[];
+    eyes: THREE.Object3D[];
+    lids: THREE.Mesh[];
+    blush: THREE.Mesh[];
+    tail: THREE.Object3D;
+    body: THREE.Mesh;
+  };
+  clock: { hour: THREE.Object3D; minute: THREE.Object3D };
+  seasonal: {
+    group: THREE.Group;
+    tree: THREE.Group;
+    baubles: THREE.Mesh[];
+    star: THREE.Mesh;
+    light: THREE.PointLight;
+  };
+  particles: { dust: THREE.Points; steam: THREE.Points; snow: THREE.Points };
+  /** Everything that sways when the room breathes. */
+  plants: THREE.Object3D[];
+  /** Shared leaf materials — the season recolours these two. */
+  leafMats: THREE.MeshStandardMaterial[];
+  props: {
+    bulb: THREE.Mesh;
+    record: THREE.Mesh;
+    chair: THREE.Group;
+    tvStatic: THREE.Mesh;
+    tvStaticMat: THREE.ShaderMaterial;
+  };
   neonSign: THREE.Group;
   screenGlow: THREE.Mesh;
   tvGlow: THREE.Mesh;
@@ -619,6 +660,32 @@ export function buildRoom(): Built {
     keep(new THREE.MeshStandardMaterial({ color: 0x241f2e, roughness: 0.5 })),
   );
   clock.add(rim);
+  // Hands, on pivots, driven by the actual clock in the loop. A
+  // wall clock stopped at ten past ten is the oldest tell in
+  // product photography.
+  const handMat = keep(new THREE.MeshStandardMaterial({ color: 0x1a1622, roughness: 0.5 }));
+  const hourPivot = new THREE.Object3D();
+  const hourHand = new THREE.Mesh(box(0.009, 0.052, 0.004), handMat);
+  hourHand.position.y = 0.026;
+  hourPivot.add(hourHand);
+  hourPivot.position.z = 0.016;
+  clock.add(hourPivot);
+
+  const minPivot = new THREE.Object3D();
+  const minHand = new THREE.Mesh(box(0.006, 0.08, 0.004), handMat);
+  minHand.position.y = 0.04;
+  minPivot.add(minHand);
+  minPivot.position.z = 0.018;
+  clock.add(minPivot);
+
+  for (let i = 0; i < 12; i++) {
+    const a = (i / 12) * Math.PI * 2;
+    const tick = new THREE.Mesh(box(0.004, i % 3 === 0 ? 0.016 : 0.009, 0.003), handMat);
+    tick.position.set(Math.sin(a) * 0.088, Math.cos(a) * 0.088, 0.014);
+    tick.rotation.z = -a;
+    clock.add(tick);
+  }
+
   clock.position.set(-1.1, 2.62, ROOM.backZ + 0.02);
   root.add(clock);
 
@@ -644,22 +711,45 @@ export function buildRoom(): Built {
   root.add(neonSign);
 
   /* ── Plants ────────────────────────────────────────────── */
-  /** A leaf as real geometry: a closed outline, extruded thin. */
+  /**
+   * A leaf as real geometry: a closed outline, extruded thin.
+   *
+   * The first attempt cut a notch every third sample point, which
+   * produced a jagged star rather than foliage — at any distance
+   * the eye reads a sawtooth edge as "spiky thing", not "plant".
+   * A leaf is a smooth blade. Monstera gets three deep, wide
+   * notches per side, cut as actual bays in the outline; anything
+   * else gets no notches at all.
+   */
   function leafShape(len: number, wide: number, notches: number): THREE.Shape {
     const s = new THREE.Shape();
+    const steps = 26;
+
+    /** Half-width of the blade at height t, before any notch. */
+    const span = (t: number) => Math.sin(Math.pow(t, 0.72) * Math.PI) * wide;
+
+    /** How far in the edge is pulled at t: 1 is the full blade. */
+    const bite = (t: number) => {
+      if (notches <= 0) return 1;
+      // Three bays, placed up the blade, each a smooth scoop
+      // rather than a slot — the midrib never gets cut through.
+      let cut = 1;
+      for (let n = 0; n < 3; n++) {
+        const at = 0.28 + n * 0.22;
+        const d = Math.abs(t - at) / 0.085;
+        if (d < 1) cut = Math.min(cut, 0.3 + 0.7 * d * d);
+      }
+      return cut;
+    };
+
     s.moveTo(0, 0);
-    const steps = 14;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      const span = Math.sin(t * Math.PI) * wide * (1 - t * 0.25);
-      const cut = notches > 0 && i % 3 === 0 ? 0.42 : 1;
-      s.lineTo(-span * cut, t * len);
+      s.lineTo(-span(t) * bite(t), t * len);
     }
-    for (let i = steps; i >= 1; i--) {
+    for (let i = steps - 1; i >= 1; i--) {
       const t = i / steps;
-      const span = Math.sin(t * Math.PI) * wide * (1 - t * 0.25);
-      const cut = notches > 0 && i % 3 === 0 ? 0.42 : 1;
-      s.lineTo(span * cut, t * len);
+      s.lineTo(span(t) * bite(t), t * len);
     }
     s.lineTo(0, 0);
     return s;
@@ -805,22 +895,84 @@ export function buildRoom(): Built {
   head.castShadow = true;
   catGroup.add(head);
 
-  const earGeo = keep(new THREE.ConeGeometry(0.03, 0.055, 10));
-  const earL = new THREE.Mesh(earGeo, furMat);
-  earL.position.set(0.09, 0.225, -0.04);
-  earL.rotation.z = -0.2;
-  catGroup.add(earL);
-  const earR = new THREE.Mesh(earGeo, furMat);
-  earR.position.set(0.09, 0.225, 0.04);
-  earR.rotation.z = -0.2;
-  catGroup.add(earR);
+  /**
+   * The head is its own pivot so it can turn and tilt, and the
+   * ears pivot from their base so they can swivel without
+   * sliding off the skull. Everything that moves hangs off the
+   * head, so turning it carries the face with it.
+   */
+  const headPivot = new THREE.Object3D();
+  headPivot.position.set(0.1, 0.17, 0);
+  head.position.set(0, 0, 0);
+  headPivot.add(head);
+  catGroup.add(headPivot);
 
-  const eyeMat = keep(new THREE.MeshBasicMaterial({ color: 0xc8f05a }));
-  const eyeGeo = keep(new THREE.SphereGeometry(0.011, 12, 10));
+  const earGeo = keep(new THREE.ConeGeometry(0.03, 0.055, 10));
+  const ears: THREE.Object3D[] = [];
+  for (const ez of [-0.04, 0.04]) {
+    const pivot = new THREE.Object3D();
+    pivot.position.set(-0.01, 0.045, ez);
+    const ear = new THREE.Mesh(earGeo, furMat);
+    ear.position.y = 0.028;
+    ear.castShadow = true;
+    pivot.add(ear);
+    // Inner ear, a shade warmer.
+    const inner = new THREE.Mesh(
+      keep(new THREE.ConeGeometry(0.018, 0.034, 8)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x6b3c48, roughness: 0.9 })),
+    );
+    inner.position.set(0.012, 0.026, 0);
+    pivot.add(inner);
+    headPivot.add(pivot);
+    ears.push(pivot);
+  }
+
+  // Eyes on their own pivot so the pupils can track without the
+  // whole head having to turn.
+  const eyeMat = keep(new THREE.MeshStandardMaterial({ color: 0xc8f05a, emissive: 0x3a4a12, roughness: 0.25 }));
+  const pupilMat = keep(new THREE.MeshBasicMaterial({ color: 0x0a0a08 }));
+  const eyes: THREE.Object3D[] = [];
+  const lids: THREE.Mesh[] = [];
   for (const ez of [-0.028, 0.028]) {
-    const eye = new THREE.Mesh(eyeGeo, eyeMat);
-    eye.position.set(0.158, 0.182, ez);
-    catGroup.add(eye);
+    const socket = new THREE.Object3D();
+    socket.position.set(0.058, 0.012, ez);
+    const ball = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0135, 14, 12)), eyeMat);
+    socket.add(ball);
+    const pupil = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0062, 10, 8)), pupilMat);
+    pupil.position.x = 0.009;
+    pupil.scale.set(0.5, 1.5, 1);
+    socket.add(pupil);
+    headPivot.add(socket);
+    eyes.push(socket);
+
+    // A lid that drops for the blink, rather than scaling the eye
+    // — a shrinking eyeball reads as a glitch, a lid reads as a
+    // blink.
+    const lid = new THREE.Mesh(keep(new THREE.SphereGeometry(0.0145, 14, 12)), furMat);
+    lid.position.set(0.058, 0.026, ez);
+    lid.scale.set(1, 0.06, 1);
+    headPivot.add(lid);
+    lids.push(lid);
+  }
+
+  // Nose and whiskers.
+  const nose = new THREE.Mesh(
+    keep(new THREE.ConeGeometry(0.007, 0.008, 6)),
+    keep(new THREE.MeshStandardMaterial({ color: 0xd98aa0, roughness: 0.6 })),
+  );
+  nose.position.set(0.068, -0.004, 0);
+  nose.rotation.z = -Math.PI / 2;
+  headPivot.add(nose);
+
+  const whiskerMat = keep(new THREE.MeshBasicMaterial({ color: 0xbfb6c8, transparent: true, opacity: 0.5 }));
+  for (const wz of [-0.02, 0.02]) {
+    for (let i = 0; i < 3; i++) {
+      const w = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.0006, 0.0004, 0.075, 4)), whiskerMat);
+      w.position.set(0.085, -0.004 + i * 0.006, wz * 1.2);
+      w.rotation.z = Math.PI / 2 - 0.1;
+      w.rotation.y = (wz > 0 ? 1 : -1) * (0.5 + i * 0.16);
+      headPivot.add(w);
+    }
   }
 
   // Blush, hidden until she is noticed.
@@ -994,18 +1146,23 @@ export function buildRoom(): Built {
 
   for (let i = 0; i < 64; i++) {
     const f = facades[Math.floor(rC() * facades.length)];
-    const w = 1.6 + rC() * 4.2;
-    const d = 1.6 + rC() * 3.4;
-    const hgt = 4 + rC() * rC() * 38;
-    const x = (rC() - 0.5) * 76;
-    const z = -11 - rC() * 52;
+    const w = 2.2 + rC() * 5.5;
+    const d = 2.2 + rC() * 4.4;
+    // Squared falloff keeps most towers low, so a few tall ones
+    // read as tall. And they stop short of the window head —
+    // a skyline with no sky above it is a wall.
+    const hgt = 4 + rC() * rC() * 24;
+    const x = (rC() - 0.5) * 86;
+    const z = -14 - rC() * 56;
 
     const map = f.map.clone();
     const emi = f.emissive.clone();
     map.needsUpdate = true;
     emi.needsUpdate = true;
-    const ru = Math.max(1, Math.round(w / 1.1));
-    const rv = Math.max(1, Math.round(hgt / 1.1));
+    // Roughly one window per three metres, which is what a real
+    // facade does and what stops the skyline reading as noise.
+    const ru = Math.max(1, Math.round(w / 9));
+    const rv = Math.max(1, Math.round(hgt / 15));
     map.repeat.set(ru, rv);
     emi.repeat.set(ru, rv);
     disposables.push(map, emi);
@@ -1178,6 +1335,177 @@ export function buildRoom(): Built {
 
   root.add(outside);
 
+  /* ── Seasonal ──────────────────────────────────────────
+     The room keeps a calendar. Most of the year that only shows
+     in the leaf colour, but December gets a tree, because a room
+     that ignores December is a room nobody lives in. */
+  const seasonal = new THREE.Group();
+
+  const tree = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    keep(new THREE.CylinderGeometry(0.035, 0.045, 0.22, 12)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x4a3122, roughness: 0.95 })),
+  );
+  trunk.position.y = 0.11;
+  trunk.castShadow = true;
+  tree.add(trunk);
+
+  const needleMat = keep(new THREE.MeshStandardMaterial({ color: 0x24512f, roughness: 0.92 }));
+  const tiers: Array<[number, number, number]> = [
+    [0.42, 0.42, 0.2],
+    [0.33, 0.38, 0.5],
+    [0.24, 0.34, 0.76],
+    [0.14, 0.3, 1.0],
+  ];
+  for (const [r, h, y] of tiers) {
+    const tier = new THREE.Mesh(keep(new THREE.ConeGeometry(r, h, 18)), needleMat);
+    tier.position.y = y;
+    tier.castShadow = true;
+    tier.receiveShadow = true;
+    tree.add(tier);
+  }
+
+  // Baubles and a string of lights, emissive so the bloom pass
+  // picks them up and the tree actually lights the corner.
+  const baubleCols = [0xff4d6a, 0xffd36a, 0x6ad8ff, 0xc08cff];
+  const baubles: THREE.Mesh[] = [];
+  const rT = rand(211);
+  for (let i = 0; i < 34; i++) {
+    const t = rT();
+    const y = 0.16 + t * 0.92;
+    // Radius tapers with height so they sit on the cone, not in it.
+    const rr = 0.4 * (1 - t * 0.82) + 0.03;
+    const a = rT() * Math.PI * 2;
+    const b = new THREE.Mesh(
+      keep(new THREE.SphereGeometry(0.022, 12, 10)),
+      keep(new THREE.MeshBasicMaterial({ color: baubleCols[i % baubleCols.length] })),
+    );
+    b.position.set(Math.cos(a) * rr, y, Math.sin(a) * rr);
+    tree.add(b);
+    baubles.push(b);
+  }
+
+  const star = new THREE.Mesh(
+    keep(new THREE.OctahedronGeometry(0.055, 0)),
+    keep(new THREE.MeshBasicMaterial({ color: 0xffe9a8 })),
+  );
+  star.position.y = 1.2;
+  tree.add(star);
+
+  tree.position.set(-2.1, 0, ROOM.backZ + 1.35);
+  seasonal.add(tree);
+  root.add(seasonal);
+
+  const treeLight = new THREE.PointLight(0xffb470, 0, 2.6, 2);
+  treeLight.position.set(-2.1, 0.7, ROOM.backZ + 1.35);
+  root.add(treeLight);
+
+  /* ── Particles ─────────────────────────────────────────
+     Three systems, all Points, all cheap. Dust is what makes a
+     shaft of light visible; without something in the air, light
+     is just a bright patch on the floor. */
+  function dotTexture(): THREE.Texture {
+    const { c, g } = canvas(64, 64);
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.4, "rgba(255,255,255,0.5)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    return finish(c, 1);
+  }
+  const dot = keep(dotTexture());
+
+  function points(count: number, size: number, colour: number, opacity: number) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    const mat = new THREE.PointsMaterial({
+      size,
+      map: dot,
+      color: colour,
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+    });
+    disposables.push(geo, mat);
+    const p = new THREE.Points(geo, mat);
+    p.frustumCulled = false;
+    return p;
+  }
+
+  const dust = points(260, 0.016, 0xfff0d8, 0.5);
+  const rD = rand(307);
+  {
+    const a = dust.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      a[i] = -2.6 + rD() * 5.2;
+      a[i + 1] = 0.3 + rD() * 2.4;
+      a[i + 2] = ROOM.backZ + 0.2 + rD() * 2.6;
+    }
+  }
+  root.add(dust);
+
+  const steam = points(46, 0.02, 0xffffff, 0.3);
+  {
+    const a = steam.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      a[i] = -0.78 + (rD() - 0.5) * 0.03;
+      a[i + 1] = DESK_Y + 0.12 + rD() * 0.25;
+      a[i + 2] = deskZ + 0.1 + (rD() - 0.5) * 0.03;
+    }
+  }
+  root.add(steam);
+
+  const snow = points(700, 0.14, 0xeaf2ff, 0.85);
+  {
+    const a = snow.geometry.attributes.position.array as Float32Array;
+    for (let i = 0; i < a.length; i += 3) {
+      a[i] = (rD() - 0.5) * 70;
+      a[i + 1] = rD() * 40;
+      a[i + 2] = -8 - rD() * 44;
+    }
+  }
+  snow.visible = false;
+  outside.add(snow);
+
+  /* ── Television static ─────────────────────────────────
+     Shown when the set is on but nothing is playing, and as the
+     flicker behind the picture. A shader, because a noise texture
+     that does not change is a photograph of static. */
+  const staticMat = new THREE.ShaderMaterial({
+    transparent: true,
+    uniforms: { uTime: { value: 0 }, uAmt: { value: 0 } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime; uniform float uAmt;
+      varying vec2 vUv;
+      float hash(vec2 p) {
+        p = fract(p * vec2(443.897, 441.423));
+        p += dot(p, p + 19.19);
+        return fract(p.x * p.y);
+      }
+      void main() {
+        float n = hash(vUv * vec2(320.0, 240.0) + floor(uTime * 24.0) * 7.0);
+        // Rolling band, the way an untuned set drifts.
+        float band = smoothstep(0.0, 0.08, abs(fract(vUv.y + uTime * 0.12) - 0.5));
+        vec3 col = vec3(n) * (0.35 + band * 0.4);
+        gl_FragColor = vec4(col, uAmt);
+      }
+    `,
+  });
+  disposables.push(staticMat);
+  const tvStatic = new THREE.Mesh(keep(new THREE.PlaneGeometry(TV_W, TV_H)), staticMat);
+  tvStatic.position.set(tvX, tvY, tvZ + 0.214);
+  root.add(tvStatic);
+
   /* ── Light ─────────────────────────────────────────────── */
   const ambient = new THREE.HemisphereLight(0x5a6ea8, 0x201828, 0.5);
   root.add(ambient);
@@ -1251,7 +1579,28 @@ export function buildRoom(): Built {
     ships,
     rift,
     riftMat,
-    cat: { group: catGroup, blush, tail: tailPivot },
+    cat: {
+      group: catGroup,
+      head: headPivot,
+      ears,
+      eyes,
+      lids,
+      blush,
+      tail: tailPivot,
+      body,
+    },
+    clock: { hour: hourPivot, minute: minPivot },
+    seasonal: { group: seasonal, tree, baubles, star, light: treeLight },
+    particles: { dust, steam, snow },
+    plants: [monstera, snake, pothos, succ, sillPlant],
+    leafMats: [leafMatA, leafMatB],
+    props: {
+      bulb,
+      record: sleeve,
+      chair,
+      tvStatic,
+      tvStaticMat: staticMat,
+    },
     neonSign,
     screenGlow,
     tvGlow,
