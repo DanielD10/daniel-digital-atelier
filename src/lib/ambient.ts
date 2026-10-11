@@ -27,9 +27,7 @@ export type AmbientState = {
   volume: number;
 };
 
-// 0.22 was inaudible over anything. If someone deliberately turns
-// sound on, they should be in no doubt that it worked.
-const INITIAL: AmbientState = { playing: false, available: true, volume: 0.46 };
+const INITIAL: AmbientState = { playing: false, available: true, volume: 0.75 };
 
 let state: AmbientState = INITIAL;
 let audio: HTMLAudioElement | null = null;
@@ -109,6 +107,7 @@ export async function playAmbient(): Promise<void> {
   const el = ensure();
   if (!el || !state.available) return;
 
+  userStopped = false;
   try {
     await el.play();
     fadeTo(el, state.volume, FADE_IN_MS);
@@ -125,10 +124,49 @@ export async function playAmbient(): Promise<void> {
 }
 
 export function pauseAmbient(): void {
+  userStopped = true;
   set({ playing: false });
   const el = audio;
   if (!el) return;
   fadeTo(el, 0, FADE_OUT_MS, () => el.pause());
+}
+
+/**
+ * Start the room's sound as early as the browser will allow.
+ *
+ * Which is later than you would like. Every current browser
+ * refuses to play audible media until the page has had a real
+ * user gesture — it is a platform rule, enforced above our code,
+ * and there is no flag or trick that turns it off. Chrome will
+ * sometimes allow it outright on a site you visit often, so the
+ * first attempt is worth making and occasionally lands.
+ *
+ * When it does not, the next touch, key, scroll or click starts
+ * it — which for anyone actually using the page is within a
+ * second or two of arriving. The listener detaches after one
+ * shot, and it checks `userStopped` first so that if the very
+ * gesture that fires it was someone pressing the sound off, it
+ * does not immediately switch it back on.
+ */
+let armed = false;
+let userStopped = false;
+
+const KICKERS = ["pointerdown", "keydown", "touchstart", "wheel", "scroll"] as const;
+
+export function armAmbient(): void {
+  if (armed || typeof window === "undefined") return;
+  armed = true;
+
+  void playAmbient();
+
+  const kick = () => {
+    detach();
+    if (!state.playing && state.available && !userStopped) void playAmbient();
+  };
+  const detach = () => {
+    for (const e of KICKERS) window.removeEventListener(e, kick);
+  };
+  for (const e of KICKERS) window.addEventListener(e, kick, { passive: true });
 }
 
 export function toggleAmbient(): void {

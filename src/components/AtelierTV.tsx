@@ -20,8 +20,22 @@ import { useEffect, useState } from "react";
 
 const STORE = "atelier.tv";
 
-/** Presets for the dial. Add { name, url } entries here. */
-const CHANNELS: Array<{ name: string; url: string }> = [];
+/**
+ * What the set is tuned to when nobody has touched it.
+ *
+ * Daniel's link carried a `list=RD…` id, which is a YouTube Mix —
+ * those are generated per viewer and YouTube will not serve them
+ * to an embed, so passing it through would have produced an error
+ * screen rather than a channel. The video id from the same link
+ * plays fine, so that is the default.
+ *
+ * STATIONS is the dial. Add ids to it and the skip buttons walk
+ * them; the player's own controls handle scrubbing within a
+ * track.
+ */
+const STATIONS: Array<{ name: string; id: string }> = [
+  { name: "Star67", id: "8RFbYtOet4g" },
+];
 
 type Tuned = { kind: "video" | "list"; id: string } | null;
 
@@ -58,9 +72,14 @@ function embedUrl(t: NonNullable<Tuned>): string {
   // business setting tracking cookies on their visitors.
   const base = "https://www.youtube-nocookie.com/embed";
   const common = "autoplay=1&rel=0&modestbranding=1&playsinline=1";
-  return t.kind === "list"
-    ? `${base}/videoseries?list=${t.id}&${common}`
-    : `${base}/${t.id}?${common}`;
+  if (t.kind === "list") return `${base}/videoseries?list=${t.id}&${common}`;
+
+  /* Handing the player the whole dial as `playlist` gives its own
+     next/previous buttons something to move between, on top of
+     the ones in the cabinet below. */
+  const rest = STATIONS.filter((x) => x.id !== t.id).map((x) => x.id);
+  const queue = rest.length ? `&playlist=${rest.join(",")}` : "";
+  return `${base}/${t.id}?${common}${queue}`;
 }
 
 export default function AtelierTV() {
@@ -69,13 +88,27 @@ export default function AtelierTV() {
   const [bad, setBad] = useState(false);
 
   useEffect(() => {
+    let saved: Tuned = null;
     try {
-      const saved = window.localStorage.getItem(STORE);
-      if (saved) setTuned(JSON.parse(saved) as Tuned);
+      const raw = window.localStorage.getItem(STORE);
+      if (raw) saved = JSON.parse(raw) as Tuned;
     } catch {
       /* no storage — the set still works for this sitting */
     }
+    setTuned(saved ?? { kind: "video", id: STATIONS[0].id });
   }, []);
+
+  const step = (dir: 1 | -1) => {
+    const here = tuned && tuned.kind === "video" ? STATIONS.findIndex((x) => x.id === tuned.id) : -1;
+    const next = STATIONS[(Math.max(0, here) + dir + STATIONS.length) % STATIONS.length];
+    const t: Tuned = { kind: "video", id: next.id };
+    setTuned(t);
+    try {
+      window.localStorage.setItem(STORE, JSON.stringify(t));
+    } catch {
+      /* ignore */
+    }
+  };
 
   const tune = (raw: string) => {
     const next = parseYouTube(raw);
@@ -102,20 +135,27 @@ export default function AtelierTV() {
           allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowFullScreen
         />
-        <button
-          type="button"
-          className="tv-eject"
-          onClick={() => {
-            setTuned(null);
-            try {
-              window.localStorage.removeItem(STORE);
-            } catch {
-              /* ignore */
-            }
-          }}
-        >
-          Change channel
-        </button>
+        <div className="tv-transport">
+          <button type="button" onClick={() => step(-1)} aria-label="Previous track">
+            ⏮
+          </button>
+          <button type="button" onClick={() => step(1)} aria-label="Skip">
+            ⏭
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTuned(null);
+              try {
+                window.localStorage.removeItem(STORE);
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            Tune
+          </button>
+        </div>
       </div>
     );
   }
@@ -141,11 +181,11 @@ export default function AtelierTV() {
           <button type="submit">Tune</button>
         </form>
         {bad ? <p className="tv-bad">That is not a YouTube link.</p> : null}
-        {CHANNELS.length ? (
+        {STATIONS.length ? (
           <ul className="tv-dial">
-            {CHANNELS.map((c) => (
-              <li key={c.url}>
-                <button type="button" onClick={() => tune(c.url)}>
+            {STATIONS.map((c) => (
+              <li key={c.id}>
+                <button type="button" onClick={() => tune(c.id)}>
                   {c.name}
                 </button>
               </li>

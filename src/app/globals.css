@@ -2617,8 +2617,29 @@ main { position: relative; z-index: 3; }
 
 @media (max-width: 760px) {
   :root { --strip: 190px; --rail: 64px; }
-  .mast { padding-top: 18px; }
-  .nav { display: none; }
+  /* The navigation used to be `display: none` here with nothing
+     built to replace it, so on a phone there was no way to reach
+     Work, Lab, About or Contact at all. Four short words fit
+     across a phone perfectly well on a line of their own. */
+  .mast {
+    padding-top: 14px;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "brand end"
+      "nav nav";
+    row-gap: 12px;
+  }
+  .monogram { grid-area: brand; }
+  .mast-end { grid-area: end; gap: 14px; }
+  .nav {
+    grid-area: nav;
+    justify-self: stretch;
+    justify-content: space-between;
+    gap: 0;
+  }
+  .nav a { font-size: 11px; letter-spacing: 0.18em; }
+  /* Redundant once the links are on screen. */
+  .dots { display: none; }
   .hero { grid-template-columns: minmax(0, 1fr); padding: 104px var(--gut) 28px; }
   .flank-l { grid-column: 1; padding-top: 0; margin-bottom: 26px; }
   .core { grid-column: 1; }
@@ -2802,25 +2823,31 @@ main { position: relative; z-index: 3; }
   height: 100%;
   border: 0;
 }
-.tv-eject {
+.tv-transport {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  padding: 6px 12px;
-  font-size: 13px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  background: rgba(6, 8, 14, 0.78);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-  color: inherit;
-  font-family: inherit;
-  cursor: pointer;
+  display: flex;
+  gap: 6px;
   opacity: 0;
   transition: opacity 0.25s ease;
 }
-.tv-set:hover .tv-eject,
-.tv-eject:focus-visible { opacity: 1; }
+.tv-transport button {
+  padding: 6px 12px;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: rgba(6, 8, 14, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  color: #e8f2ff;
+  font-family: inherit;
+  cursor: pointer;
+}
+.tv-transport button:hover { background: rgba(255, 47, 134, 0.3); border-color: #ff2f86; }
+.tv-set:hover .tv-transport,
+.tv-transport:focus-within { opacity: 1; }
 
 .tv-tune {
   display: grid;

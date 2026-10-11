@@ -220,7 +220,7 @@ export type Built = {
     leftWall: THREE.Mesh;
     rightWall: THREE.Mesh;
     plinth: THREE.Group;
-    modelFill: THREE.DirectionalLight;
+    modelFill: THREE.SpotLight;
   };
   dispose: () => void;
 };
@@ -307,19 +307,24 @@ export function buildRoom(): Built {
 
   // Back wall, built around the window rather than through it.
   const T = 0.12;
-  add(box(ROOM.w, WIN.y0, T), wallMat, 0, WIN.y0 / 2, ROOM.backZ - T / 2);
-  add(box(ROOM.w, ROOM.h - WIN.y1, T), wallMat, 0, (ROOM.h + WIN.y1) / 2, ROOM.backZ - T / 2);
+  /* Wider than the room. The facade carries on past the cutaway in
+     both directions, because otherwise an overview angle looks
+     straight past the end of the wall into open sky, and the room
+     stops reading as part of a building. */
+  const FW = 26;
+  add(box(FW, WIN.y0, T), wallMat, 0, WIN.y0 / 2, ROOM.backZ - T / 2);
+  add(box(FW, ROOM.h - WIN.y1, T), wallMat, 0, (ROOM.h + WIN.y1) / 2, ROOM.backZ - T / 2);
   add(
-    box(WIN.x0 + ROOM.w / 2, WIN.y1 - WIN.y0, T),
+    box(WIN.x0 + FW / 2, WIN.y1 - WIN.y0, T),
     wallMat,
-    (-ROOM.w / 2 + WIN.x0) / 2,
+    (-FW / 2 + WIN.x0) / 2,
     (WIN.y0 + WIN.y1) / 2,
     ROOM.backZ - T / 2,
   );
   add(
-    box(ROOM.w / 2 - WIN.x1, WIN.y1 - WIN.y0, T),
+    box(FW / 2 - WIN.x1, WIN.y1 - WIN.y0, T),
     wallMat,
-    (WIN.x1 + ROOM.w / 2) / 2,
+    (WIN.x1 + FW / 2) / 2,
     (WIN.y0 + WIN.y1) / 2,
     ROOM.backZ - T / 2,
   );
@@ -809,6 +814,259 @@ export function buildRoom(): Built {
   add(box(TV_W + 0.2, 0.1, 0.34), keep(new THREE.MeshStandardMaterial({ color: 0x2a2832, roughness: 0.5 })), tvX, 1.54, tvZ);
   add(box(0.2, 0.025, 0.01), keep(new THREE.MeshBasicMaterial({ color: 0x4ad8a0 })), tvX - 0.12, 1.54, tvZ + 0.18, false);
 
+
+  /* ══ Living half ═════════════════════════════════════════
+     The room had one occupied corner and three empty walls,
+     which is why it read as a diorama of a desk rather than
+     somewhere anyone lives. Everything below is built from the
+     same primitives and designed here — no borrowed forms. */
+
+  const fabric = keep(new THREE.MeshStandardMaterial({ color: 0x3a3550, roughness: 0.95 }));
+  const fabricB = keep(new THREE.MeshStandardMaterial({ color: 0x4a4468, roughness: 0.95 }));
+  const paleWood = keep(new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.6, map: woodMap }));
+
+  /* Sofa, back to the right wall, facing into the room. */
+  const sofa = new THREE.Group();
+  {
+    const baseM = new THREE.Mesh(box(0.9, 0.26, 1.9), fabric);
+    baseM.position.y = 0.26;
+    baseM.castShadow = true;
+    baseM.receiveShadow = true;
+    sofa.add(baseM);
+    const backM = new THREE.Mesh(box(0.22, 0.52, 1.9), fabric);
+    backM.position.set(0.34, 0.5, 0);
+    backM.castShadow = true;
+    sofa.add(backM);
+    for (const az of [-0.86, 0.86]) {
+      const arm = new THREE.Mesh(box(0.9, 0.2, 0.18), fabricB);
+      arm.position.set(0, 0.48, az);
+      arm.castShadow = true;
+      sofa.add(arm);
+    }
+    for (const cz of [-0.46, 0.46]) {
+      const cushion = new THREE.Mesh(box(0.84, 0.14, 0.82), fabricB);
+      cushion.position.set(-0.02, 0.45, cz);
+      cushion.castShadow = true;
+      sofa.add(cushion);
+    }
+    // Throw cushions, tipped over as they always are.
+    const cols = [0xff6f9d, 0x49e8ff, 0xf0c05a];
+    cols.forEach((c, i) => {
+      const m = keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+      const cu = new THREE.Mesh(box(0.3, 0.3, 0.1), m);
+      cu.position.set(0.12, 0.66, -0.62 + i * 0.6);
+      cu.rotation.x = 0.4 + i * 0.2;
+      cu.castShadow = true;
+      sofa.add(cu);
+    });
+    for (const lz of [-0.78, 0.78]) {
+      for (const lx of [-0.34, 0.34]) {
+        const leg = new THREE.Mesh(box(0.06, 0.14, 0.06), darkMetal);
+        leg.position.set(lx, 0.07, lz);
+        sofa.add(leg);
+      }
+    }
+    sofa.position.set(2.2, 0, 0.5);
+    root.add(sofa);
+    hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
+  }
+
+  /* Shelving against the right wall, behind the sofa. */
+  {
+    const shelfUnit = new THREE.Group();
+    const H = 1.95;
+    const WD = 1.6;
+    for (const uz of [-WD / 2, WD / 2]) {
+      const upright = new THREE.Mesh(box(0.33, H, 0.05), paleWood);
+      upright.position.set(0, H / 2, uz);
+      upright.castShadow = true;
+      shelfUnit.add(upright);
+    }
+    const rS = rand(601);
+    for (let i = 0; i < 5; i++) {
+      const y = 0.18 + i * 0.42;
+      const plank = new THREE.Mesh(box(0.33, 0.035, WD), paleWood);
+      plank.position.y = y;
+      plank.castShadow = true;
+      plank.receiveShadow = true;
+      shelfUnit.add(plank);
+
+      // What is on the shelf: books, a box, sometimes a bowl.
+      let z = -WD / 2 + 0.12;
+      while (z < WD / 2 - 0.16) {
+        const roll = rS();
+        if (roll < 0.55) {
+          const n = 3 + Math.floor(rS() * 6);
+          for (let k = 0; k < n && z < WD / 2 - 0.12; k++) {
+            const bh = 0.18 + rS() * 0.1;
+            const bk = new THREE.Mesh(
+              box(0.16, bh, 0.034),
+              keep(
+                new THREE.MeshStandardMaterial({
+                  color: new THREE.Color().setHSL(rS(), 0.3, 0.38),
+                  roughness: 0.88,
+                }),
+              ),
+            );
+            bk.position.set(0, y + 0.018 + bh / 2, z);
+            bk.castShadow = true;
+            shelfUnit.add(bk);
+            z += 0.04;
+          }
+          z += 0.07;
+        } else if (roll < 0.8) {
+          const bx = new THREE.Mesh(
+            box(0.24, 0.18, 0.3),
+            keep(new THREE.MeshStandardMaterial({ color: 0x6a5f7f, roughness: 0.9 })),
+          );
+          bx.position.set(0, y + 0.108, z + 0.15);
+          bx.castShadow = true;
+          shelfUnit.add(bx);
+          z += 0.4;
+        } else {
+          const bowl = new THREE.Mesh(
+            keep(new THREE.CylinderGeometry(0.09, 0.06, 0.09, 18, 1, true)),
+            keep(new THREE.MeshStandardMaterial({ color: 0xc08a5a, roughness: 0.5, side: THREE.DoubleSide })),
+          );
+          bowl.position.set(0, y + 0.063, z + 0.11);
+          shelfUnit.add(bowl);
+          z += 0.3;
+        }
+      }
+    }
+    shelfUnit.position.set(2.78, 0, -1.25);
+    root.add(shelfUnit);
+    hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(2.78, 1, -1.25));
+  }
+
+  /* Coffee table, with the things that live on one. */
+  {
+    const top = add(box(0.62, 0.04, 1.0), paleWood, 1.0, 0.38, 0.62);
+    void top;
+    for (const lz of [0.24, 1.0]) {
+      for (const lx of [0.78, 1.22]) {
+        add(box(0.05, 0.38, 0.05), darkMetal, lx, 0.19, lz);
+      }
+    }
+    // A tray, two cups and a short stack of magazines.
+    add(box(0.3, 0.02, 0.22), keep(new THREE.MeshStandardMaterial({ color: 0x2a2436, roughness: 0.6 })), 1.0, 0.41, 0.4);
+    for (const cz of [0.34, 0.46]) {
+      add(keep(new THREE.CylinderGeometry(0.035, 0.03, 0.08, 18)), keep(new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.3 })), 0.96, 0.46, cz);
+    }
+    [0xb4476a, 0x3f6ea8, 0xd8a53a].forEach((c, i) => {
+      const mag = add(
+        box(0.26, 0.012, 0.34),
+        keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 })),
+        1.02,
+        0.41 + i * 0.014,
+        0.88,
+      );
+      mag.rotation.y = (i - 1) * 0.12;
+    });
+    hitBox(0.8, 0.5, 1.1, "table", new THREE.Vector3(1.0, 0.3, 0.62));
+  }
+
+  /* Floor lamp in the corner behind the sofa. */
+  {
+    const lampG = new THREE.Group();
+    const foot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 24)), darkMetal);
+    foot.castShadow = true;
+    lampG.add(foot);
+    const pole = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.018, 0.018, 1.5, 12)), darkMetal);
+    pole.position.y = 0.76;
+    pole.castShadow = true;
+    lampG.add(pole);
+    /* A pale shade lit from the inside at point-blank range, with
+       a bloom pass on top, is not a lamp — it is a white hole in
+       the middle of the room. The shade is dark and single-sided
+       so you never see its lit interior, and the light is a spot
+       pointing at the floor, which is what a shade is for. */
+    const dome = new THREE.Mesh(
+      keep(new THREE.SphereGeometry(0.19, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x332f42, roughness: 0.55, metalness: 0.3 })),
+    );
+    dome.rotation.x = Math.PI;
+    dome.position.y = 1.52;
+    dome.castShadow = true;
+    lampG.add(dome);
+
+    const warm = new THREE.SpotLight(0xffc98a, 2.4, 3.6, 0.9, 0.7, 1.4);
+    warm.position.set(0, 1.42, 0);
+    warm.target.position.set(0, 0, 0.15);
+    lampG.add(warm);
+    lampG.add(warm.target);
+    lampG.position.set(2.62, 0, 1.75);
+    root.add(lampG);
+    hitBox(0.44, 1.7, 0.44, "floorlamp", new THREE.Vector3(2.62, 0.85, 1.75));
+  }
+
+  /* Crates by the left wall, and a board leaning on them. */
+  {
+    const crateMat = keep(new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, map: woodMap }));
+    const stack = [
+      [0.46, 0.34, 0.4, -2.5, 0.17, 0.9, 0.1],
+      [0.42, 0.3, 0.38, -2.46, 0.49, 0.84, -0.18],
+      [0.3, 0.24, 0.3, -2.56, 0.76, 0.96, 0.3],
+    ] as const;
+    for (const [cw, ch, cd, cx2, cy2, cz2, rot] of stack) {
+      const c = add(box(cw, ch, cd), crateMat, cx2, cy2, cz2);
+      c.rotation.y = rot;
+    }
+    const board = add(box(0.22, 0.9, 0.035), keep(new THREE.MeshStandardMaterial({ color: 0x2f3a58, roughness: 0.6 })), -2.82, 0.45, 0.2);
+    board.rotation.z = 0.16;
+    board.rotation.y = 0.5;
+    hitBox(0.7, 1.1, 0.7, "crates", new THREE.Vector3(-2.5, 0.5, 0.9));
+  }
+
+  /* A pouffe, because the floor needs something soft on it. */
+  {
+    const pouf = add(keep(new THREE.SphereGeometry(0.26, 20, 14)), fabricB, 0.2, 0.19, 1.25);
+    pouf.scale.set(1, 0.72, 1);
+  }
+
+  /* A second rug under the sitting half. */
+  {
+    const rug2 = new THREE.Mesh(
+      keep(new THREE.PlaneGeometry(1.9, 2.4)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x2c2440, roughness: 0.98 })),
+    );
+    rug2.rotation.x = -Math.PI / 2;
+    rug2.position.set(1.5, 0.003, 0.7);
+    rug2.receiveShadow = true;
+    root.add(rug2);
+  }
+
+  /* A cluster of small frames on the left wall. Abstract colour
+     fields of their own — nothing reproduced. */
+  {
+    const frames: Array<[number, number, number, number, number]> = [
+      [0.3, 0.22, 1.62, 0.42, 0x4a6f8a],
+      [0.22, 0.3, 1.95, 0.24, 0x8a4a6f],
+      [0.26, 0.2, 1.42, 0.78, 0x6f8a4a],
+    ];
+    for (const [fwid, fhgt, fy, fz, col] of frames) {
+      const fr = new THREE.Mesh(
+        keep(new THREE.PlaneGeometry(fwid, fhgt)),
+        keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.9, emissive: col, emissiveIntensity: 0.12 })),
+      );
+      fr.rotation.y = Math.PI / 2;
+      fr.position.set(ROOM.leftX + 0.02, fy, fz);
+      root.add(fr);
+    }
+  }
+
+  /* Wastebasket under the desk, and a cable reaching the wall. */
+  {
+    const bin = add(
+      keep(new THREE.CylinderGeometry(0.11, 0.09, 0.26, 18, 1, true)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x2a2634, roughness: 0.6, side: THREE.DoubleSide })),
+      -0.95,
+      0.13,
+      DESK_Z + 0.1,
+    );
+    void bin;
+  }
+
   /* ══ Outside ═════════════════════════════════════════════ */
   const outside = new THREE.Group();
 
@@ -1171,7 +1429,7 @@ export function buildRoom(): Built {
 
   const plantSpecs: Array<[Parameters<typeof buildPlant>[0], number, THREE.Vector3]> = [
     ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],
-    ["snake", 83, new THREE.Vector3(-2.55, 0, -2.05)],
+    ["snake", 83, new THREE.Vector3(-2.62, 0, -0.95)],
     ["pothos", 97, new THREE.Vector3(ROOM.leftX + 0.17, shelfY + 0.018, -0.45)],
     ["succulent", 113, new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z - 0.14)],
   ];
@@ -1216,9 +1474,9 @@ export function buildRoom(): Built {
    * cutaway reads as a black box. This one exists only for the
    * overview framings and the driver fades it out as you move in.
    */
-  const modelFill = new THREE.DirectionalLight(0x9fb4ff, 0);
-  modelFill.position.set(6, 9, 8);
-  modelFill.target.position.set(0, 0.6, -0.8);
+  const modelFill = new THREE.SpotLight(0x9fb4ff, 0, 22, 0.8, 0.45, 1.0);
+  modelFill.position.set(5, 7.5, 6);
+  modelFill.target.position.set(0, 0.5, -0.9);
   root.add(modelFill);
   root.add(modelFill.target);
 

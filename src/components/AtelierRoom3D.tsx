@@ -48,6 +48,9 @@ type Mood = {
   cityCol: number;
   /** Weather on the glass. It rains more after dark here. */
   rain: number;
+  /** Haze over the city. Depth, and the thing that stops the far
+   *  towers reading as a flat sticker behind the glass. */
+  fog: number;
   exposure: number;
 };
 
@@ -62,6 +65,7 @@ const MOODS: Record<Phase, Mood> = {
     city: 0.5,
     cityCol: 0x6a6480,
     rain: 0.5,
+    fog: 0x2a2440,
     exposure: 1.05,
   },
   day: {
@@ -74,6 +78,7 @@ const MOODS: Record<Phase, Mood> = {
     city: 0,
     cityCol: 0xa8b4c8,
     rain: 0.18,
+    fog: 0x8fa8c4,
     exposure: 0.82,
   },
   dusk: {
@@ -86,6 +91,7 @@ const MOODS: Record<Phase, Mood> = {
     city: 0.85,
     cityCol: 0x5e4a66,
     rain: 0.8,
+    fog: 0x3a1e40,
     exposure: 1.05,
   },
   night: {
@@ -98,6 +104,7 @@ const MOODS: Record<Phase, Mood> = {
     city: 1,
     cityCol: 0x2a2740,
     rain: 1,
+    fog: 0x0b0720,
     exposure: 1.2,
   },
 };
@@ -254,6 +261,10 @@ export default function AtelierRoom3D() {
     host.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
+    /* Exponential haze. Light enough that the room is untouched at
+       a few metres, heavy enough that the far side of the city
+       fades out instead of ending at a hard edge. */
+    scene.fog = new THREE.FogExp2(0x0b0720, 0.011);
     // 42 degrees framed the desk and cropped both corners of the
     // room off the sides, which is where most of the furniture is.
     const camera = new THREE.PerspectiveCamera(50, w / h, 0.05, 400);
@@ -365,6 +376,7 @@ export default function AtelierRoom3D() {
       tvI: 0,
       city: 1,
       rain: 1,
+    fog: 0x0b0720,
     };
     const sunCol = new THREE.Color();
     const fillCol = new THREE.Color();
@@ -373,6 +385,7 @@ export default function AtelierRoom3D() {
     const skyBot = new THREE.Color();
     const sunPos = new THREE.Vector3();
     const cityCol = new THREE.Color();
+    const fogCol = new THREE.Color();
     let starAmt = 1;
     let vinylSpin = 0;
     let chairSpin = 0;
@@ -493,6 +506,8 @@ export default function AtelierRoom3D() {
           m.opacity *= 0.25 + cur.city * 0.75;
         }
       }
+      fogCol.setHex(mood.fog);
+      (scene.fog as THREE.FogExp2).color.lerp(fogCol, k);
       cityCol.setHex(mood.cityCol);
       for (const m of p.towerMats) {
         m.emissiveIntensity = cur.city * 0.95;
@@ -594,7 +609,7 @@ export default function AtelierRoom3D() {
       p.plinth.visible = !s.awake;
       // The overview needs a light of its own; sitting at the desk
       // does not, and keeping it on there flattens the lamp.
-      p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 0.85, Math.min(1, dt * 2));
+      p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 3.4, Math.min(1, dt * 2));
 
       composer.render();
       css.render(scene, camera);
@@ -825,4 +840,9 @@ const TIPS: Record<string, string> = {
   "plant-snake-83": "Snake plant. Unkillable.",
   "plant-pothos-97": "Pothos, taking over the shelf",
   "plant-succulent-113": "Small and smug",
+  sofa: "Where the thinking actually happens",
+  shelf: "Mostly books, mostly unread",
+  table: "Two cups, both cold",
+  floorlamp: "On a timer that never worked",
+  crates: "Not unpacked yet",
 };

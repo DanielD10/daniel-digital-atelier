@@ -1,6 +1,8 @@
 "use client";
 
-import { toggleAmbient, useAmbient } from "@/lib/ambient";
+import { useEffect } from "react";
+
+import { armAmbient, toggleAmbient, useAmbient } from "@/lib/ambient";
 
 /**
  * Ambient sound control.
@@ -9,11 +11,19 @@ import { toggleAmbient, useAmbient } from "@/lib/ambient";
  * so the desk player in the Lab and this button stay in agreement
  * instead of each running their own copy of the loop.
  *
- * The page is silent until clicked. Browsers block autoplay with
- * sound and that is correct behaviour, not a bug to work around.
+ * Sound arms itself on mount. Browsers refuse audible media until
+ * a page has had a real user gesture, so the first attempt often
+ * fails and the next touch or scroll starts it instead — see
+ * armAmbient.
  */
 export default function SoundToggle() {
   const { playing, available } = useAmbient();
+
+  // The header is on every page, so this is the one place that
+  // reliably mounts once per visit.
+  useEffect(() => {
+    armAmbient();
+  }, []);
 
   return (
     <button
