@@ -54,6 +54,8 @@ function wobble(t: number, a: number, b: number): number {
   return Math.sin(t * a) * 0.65 + Math.sin(t * b + 1.7) * 0.35;
 }
 
+const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+
 function hitBox(
   w: number,
   h: number,
@@ -272,6 +274,10 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const lookTarget = new THREE.Vector3();
   const headQuat = new THREE.Quaternion();
   const tmp = new THREE.Object3D();
+  const groupQuat = new THREE.Quaternion();
+  const invGroup = new THREE.Quaternion();
+  const localDir = new THREE.Vector3();
+  const aim = new THREE.Vector3();
 
   const update = ({ focus, cursor, t, dt, reduced }: LifeCtx) => {
     if (reduced) {
@@ -338,15 +344,41 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       lookTarget.copy(wander);
     }
 
+    /**
+     * Aim the head.
+     *
+     * Two things were wrong here and together they made her spin.
+     *
+     * The correction rotations were applied to headPivot AFTER the
+     * slerp, which meant the next frame's slerp started from an
+     * already-corrected quaternion and added another quarter turn
+     * to it. Every frame. The whole transform has to be composed
+     * on a scratch object and slerped to once — never touched
+     * afterwards.
+     *
+     * And headPivot's quaternion is relative to the cat, not the
+     * world, so a world-space direction was the wrong frame
+     * entirely. The target comes into her local space first.
+     *
+     * Then it is clamped, because cats do not have owl necks.
+     */
+    group.getWorldQuaternion(groupQuat);
+    localDir.copy(lookTarget).applyQuaternion(invGroup.copy(groupQuat).invert()).normalize();
+
+    const yaw = clamp(Math.atan2(-localDir.z, localDir.x), -1.0, 1.0);
+    const pitch = clamp(Math.asin(clamp(localDir.y, -1, 1)), -0.4, 0.5);
+    const cp = Math.cos(pitch);
+    aim.set(Math.cos(yaw) * cp, Math.sin(pitch), -Math.sin(yaw) * cp);
+
+    tmp.quaternion.identity();
     tmp.position.set(0, 0, 0);
-    tmp.lookAt(lookTarget);
-    // Cats do not own owl necks: clamp, then ease.
+    tmp.lookAt(aim);
+    // lookAt puts +Z on the target; the model faces +X.
+    tmp.rotateY(-Math.PI / 2);
+    // A small tilt when curious. Nothing sells interest like it.
+    tmp.rotateZ(focus * 0.17 * Math.sin(t * 0.8));
     headQuat.copy(tmp.quaternion);
     headPivot.quaternion.slerp(headQuat, Math.min(1, dt * 3.4));
-    // The model faces +X, lookAt faces -Z, so correct for it.
-    headPivot.rotateY(Math.PI / 2);
-    // A small tilt when curious. Nothing sells interest like it.
-    headPivot.rotateZ(focus * 0.17 * Math.sin(t * 0.8));
 
     /* Tail. Slow S-curve at rest, faster and wider when happy. */
     const speed = 1.1 + focus * 2.6;

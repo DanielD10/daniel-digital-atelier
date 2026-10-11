@@ -175,19 +175,28 @@ function BootScreen({ onDone, instant }: { onDone: () => void; instant: boolean 
     }
     let fired = false;
     const id = window.setInterval(() => {
-      const n = Math.min(BOOT.length, Math.floor((Date.now() - startedAt.current) / 190));
+      const n = Math.min(BOOT.length, Math.floor((Date.now() - startedAt.current) / 95));
       setLine(n);
       if (n >= BOOT.length && !fired) {
         fired = true;
         window.clearInterval(id);
-        window.setTimeout(() => done.current(), 420);
+        window.setTimeout(() => done.current(), 220);
       }
     }, 80);
     return () => window.clearInterval(id);
   }, [instant]);
 
   return (
-    <div className="os-boot">
+    <div
+      className="os-boot"
+      role="button"
+      tabIndex={0}
+      title="Skip"
+      onClick={() => done.current()}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") done.current();
+      }}
+    >
       {BOOT.slice(0, line).map((l, i) => (
         <p key={l}>
           {i === 0 ? null : <span className="os-boot-mark">&gt;</span>}

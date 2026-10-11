@@ -16,6 +16,7 @@ import { moodNow, PHASE_ORDER, SEASON_ORDER, type Phase, type Season } from "@/l
 import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-decor";
 import { useAmbient } from "@/lib/ambient";
 import AtelierOS from "./AtelierOS";
+import AtelierTV from "./AtelierTV";
 
 /**
  * The Lab, in three dimensions.
@@ -45,6 +46,8 @@ type Mood = {
   city: number;
   /** Concrete, which is grey in daylight and nearly black at night. */
   cityCol: number;
+  /** Weather on the glass. It rains more after dark here. */
+  rain: number;
   exposure: number;
 };
 
@@ -58,6 +61,7 @@ const MOODS: Record<Phase, Mood> = {
     neon: 0.9,
     city: 0.5,
     cityCol: 0x6a6480,
+    rain: 0.5,
     exposure: 1.05,
   },
   day: {
@@ -69,6 +73,7 @@ const MOODS: Record<Phase, Mood> = {
     neon: 0.25,
     city: 0,
     cityCol: 0xa8b4c8,
+    rain: 0.18,
     exposure: 0.82,
   },
   dusk: {
@@ -76,22 +81,24 @@ const MOODS: Record<Phase, Mood> = {
     fill: { color: 0xff9a62, intensity: 3.6 },
     ambient: { sky: 0x7a4a7a, ground: 0x2a1a2a, intensity: 0.6 },
     sky: { top: 0x241546, mid: 0x79356d, bot: 0xef7a3c, stars: 0.45 },
-    lamp: 1.5,
-    neon: 1.4,
+    lamp: 1.9,
+    neon: 2.4,
     city: 0.85,
     cityCol: 0x5e4a66,
+    rain: 0.8,
     exposure: 1.05,
   },
   night: {
-    sun: { color: 0x7f9ad8, intensity: 0.22, pos: [-3, 6, -7] },
-    fill: { color: 0x7a8ed8, intensity: 1.5 },
-    ambient: { sky: 0x3a4068, ground: 0x15101e, intensity: 0.34 },
-    sky: { top: 0x05040f, mid: 0x1d0c3c, bot: 0x5e1a52, stars: 1 },
-    lamp: 2.6,
-    neon: 2.1,
+    sun: { color: 0x6f86ff, intensity: 0.3, pos: [-3, 6, -7] },
+    fill: { color: 0x49b8ff, intensity: 2.1 },
+    ambient: { sky: 0x2f3a7a, ground: 0x240e2a, intensity: 0.42 },
+    sky: { top: 0x04030c, mid: 0x1b0840, bot: 0x7a1d63, stars: 1 },
+    lamp: 3.1,
+    neon: 3.4,
     city: 1,
     cityCol: 0x2a2740,
-    exposure: 1.15,
+    rain: 1,
+    exposure: 1.2,
   },
 };
 
@@ -147,6 +154,8 @@ export default function AtelierRoom3D() {
 
   const osRootRef = useRef<Root | null>(null);
   const osHostRef = useRef<HTMLDivElement | null>(null);
+  const tvRootRef = useRef<Root | null>(null);
+  const tvHostRef = useRef<HTMLDivElement | null>(null);
   const builtRef = useRef<Built | null>(null);
   const pokeRef = useRef<((name: string) => void) | null>(null);
 
@@ -213,7 +222,9 @@ export default function AtelierRoom3D() {
     let w = host.clientWidth || 1;
     let h = host.clientHeight || 1;
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
+    // Bloom runs the scene through extra full-screen passes, so
+    // every pixel here is paid for several times over.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.setSize(w, h);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -259,6 +270,7 @@ export default function AtelierRoom3D() {
     tvHost.className = "room3d-screen room3d-tv";
     tvHost.style.width = "480px";
     tvHost.style.height = "360px";
+    tvHostRef.current = tvHost;
     const tvObject = new CSS3DObject(tvHost);
     tvObject.position.copy(built.tv.position);
     tvObject.scale.setScalar(built.tv.width / 480);
@@ -267,7 +279,9 @@ export default function AtelierRoom3D() {
     /* ── Post ──────────────────────────────────────────── */
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(w, h), 0.62, 0.72, 0.82);
+    // Half resolution: bloom is a blur, and nobody can see the
+    // difference, but the mip chain is a quarter of the work.
+    const bloom = new UnrealBloomPass(new THREE.Vector2(w * 0.5, h * 0.5), 0.62, 0.72, 0.82);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
     composer.setSize(w, h);
@@ -331,6 +345,7 @@ export default function AtelierRoom3D() {
       screenI: 0,
       tvI: 0,
       city: 1,
+      rain: 1,
     };
     const sunCol = new THREE.Color();
     const fillCol = new THREE.Color();
@@ -442,6 +457,23 @@ export default function AtelierRoom3D() {
       cur.neon = lerp(cur.neon, mood.neon * (1 + neonFocus * 0.8), k);
       cur.exposure = lerp(cur.exposure, mood.exposure, k);
       cur.city = lerp(cur.city, mood.city, k);
+      cur.rain = lerp(cur.rain, mood.rain, k);
+      p.rainMat.uniforms.uTime.value = reduced ? 0 : t;
+      p.rainMat.uniforms.uAmount.value = cur.rain;
+      p.ledGlowA.intensity = 0.55 + cur.neon * 0.22;
+      p.ledGlowB.intensity = 0.5 + cur.neon * 0.2;
+
+      // A handful of the signs out there are on their last legs.
+      if (!reduced) {
+        for (const sign of p.signs) {
+          const m = sign.material as THREE.MeshBasicMaterial;
+          if (sign.userData.flicker) {
+            const ph = sign.userData.phase as number;
+            m.opacity = Math.sin(t * 14 + ph) > 0.55 ? 0.18 : 0.92;
+          }
+          m.opacity *= 0.25 + cur.city * 0.75;
+        }
+      }
       cityCol.setHex(mood.cityCol);
       for (const m of p.towerMats) {
         m.emissiveIntensity = cur.city * 0.95;
@@ -556,7 +588,7 @@ export default function AtelierRoom3D() {
       renderer.setSize(w, h);
       css.setSize(w, h);
       composer.setSize(w, h);
-      bloom.setSize(w, h);
+      bloom.setSize(w * 0.5, h * 0.5);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
     };
@@ -591,6 +623,7 @@ export default function AtelierRoom3D() {
       if (css.domElement.parentNode === host) host.removeChild(css.domElement);
       builtRef.current = null;
       osHostRef.current = null;
+      tvHostRef.current = null;
     };
     // Built once. Everything that changes is read through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -617,13 +650,24 @@ export default function AtelierRoom3D() {
     );
   }, [ready, awake, phase, season, clock, cyclePhase, cycleSeason, sleep]);
 
-  // Unmount the React root on teardown, on its own, because doing
-  // it inside the scene effect races with React's own commit.
+  useEffect(() => {
+    if (!ready) return;
+    const el = tvHostRef.current;
+    if (!el) return;
+    if (!tvRootRef.current) tvRootRef.current = createRoot(el);
+    tvRootRef.current.render(tvOn ? <AtelierTV /> : null);
+  }, [ready, tvOn]);
+
+  // Unmount the React roots on teardown, on their own, because
+  // doing it inside the scene effect races with React's own commit.
   useEffect(() => {
     return () => {
-      const root = osRootRef.current;
+      const roots = [osRootRef.current, tvRootRef.current];
       osRootRef.current = null;
-      if (root) setTimeout(() => root.unmount(), 0);
+      tvRootRef.current = null;
+      setTimeout(() => {
+        for (const r of roots) r?.unmount();
+      }, 0);
     };
   }, []);
 

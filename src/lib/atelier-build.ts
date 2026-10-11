@@ -188,7 +188,7 @@ export type Built = {
   lamps: {
     sun: THREE.DirectionalLight;
     windowFill: THREE.RectAreaLight;
-    desk: THREE.PointLight;
+    desk: THREE.SpotLight;
     neon: THREE.PointLight;
     screen: THREE.PointLight;
     tv: THREE.PointLight;
@@ -212,6 +212,10 @@ export type Built = {
     speakerCones: THREE.Mesh[];
     posters: THREE.Mesh[];
     towerMats: THREE.MeshStandardMaterial[];
+    rainMat: THREE.ShaderMaterial;
+    signs: THREE.Mesh[];
+    ledGlowA: THREE.PointLight;
+    ledGlowB: THREE.PointLight;
   };
   dispose: () => void;
 };
@@ -245,7 +249,9 @@ export function buildRoom(): Built {
 
   const wallMat = keep(new THREE.MeshStandardMaterial({ color: 0x6d6480, roughness: 0.94, map: wallMap }));
   const floorMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 0.62, map: woodMap, metalness: 0.02 }),
+    // Low roughness so the neon and the window smear across it.
+    // A dry matte floor throws none of the colour back.
+    new THREE.MeshStandardMaterial({ color: 0x6d5440, roughness: 0.24, map: woodMap, metalness: 0.22 }),
   );
   const deskMat = keep(
     new THREE.MeshStandardMaterial({ color: 0x7a5538, roughness: 0.46, map: woodMap, metalness: 0.04 }),
@@ -364,6 +370,23 @@ export function buildRoom(): Built {
   for (let i = 0; i < 3; i++) {
     add(box(0.4, 0.015, 0.02), darkMetal, 1.1, 0.12 + i * 0.18, DESK_Z + 0.31);
   }
+
+  /* Bias lighting. Two strips, emissive, feeding the bloom pass:
+     one under the front lip of the desk and one behind the
+     monitor. This is most of what makes the room read as lit from
+     inside rather than only from the window. */
+  const ledA = keep(new THREE.MeshBasicMaterial({ color: 0xff2f86 }));
+  const ledB = keep(new THREE.MeshBasicMaterial({ color: 0x49e8ff }));
+  const underLed = add(box(deskW - 0.3, 0.012, 0.012), ledA, 0.1, DESK_Y - 0.03, DESK_Z + deskD / 2 - 0.01, false, false);
+  void underLed;
+  const backLed = add(box(1.5, 0.012, 0.012), ledB, 0, DESK_Y + 0.07, ROOM.backZ + 0.08, false, false);
+  void backLed;
+  const ledGlowA = new THREE.PointLight(0xff2f86, 0.9, 1.8, 2);
+  ledGlowA.position.set(0.1, DESK_Y - 0.1, DESK_Z + deskD / 2);
+  root.add(ledGlowA);
+  const ledGlowB = new THREE.PointLight(0x49e8ff, 0.8, 1.6, 2);
+  ledGlowB.position.set(0, DESK_Y + 0.14, ROOM.backZ + 0.2);
+  root.add(ledGlowB);
 
   /* ══ Monitor ═════════════════════════════════════════════ */
   const SCREEN_W = 0.62;
@@ -791,13 +814,18 @@ export function buildRoom(): Built {
     `,
   });
   disposables.push(skyMat);
-  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(260, 150)), skyMat);
-  sky.position.set(0, 30, -90);
+  /* Behind everything. At -90 the sky plane sat in the middle of
+     the tower field and hid every building behind it, which is
+     why the skyline had holes in it with blank sky showing. */
+  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(900, 460)), skyMat);
+  sky.position.set(0, 60, -300);
   outside.add(sky);
 
   const rC = rand(131);
   /** Every tower's material, so daylight can switch the city off. */
   const towerMats: THREE.MeshStandardMaterial[] = [];
+  /** Neon signage, so the driver can make a few of them flicker. */
+  const signs: THREE.Mesh[] = [];
   const facades = Array.from({ length: 6 }, (_, i) => {
     const f = facadeTexture(200 + i, 0.3 + i * 0.07);
     disposables.push(f.map, f.emissive);
@@ -821,13 +849,15 @@ export function buildRoom(): Built {
    * a long way off; the depth is most of what makes it a view
    * rather than a wall.
    */
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 95; i++) {
     const f = facades[Math.floor(rC() * facades.length)];
-    const w = 4 + rC() * 9;
-    const d = 4 + rC() * 8;
-    const hgt = 9 + rC() * rC() * 54;
-    const x = (rC() - 0.5) * 200;
-    const z = -26 - rC() * 120;
+    const w = 4 + rC() * 10;
+    const d = 4 + rC() * 9;
+    const hgt = 12 + rC() * rC() * 62;
+    // Narrower spread than the depth, so the window looks into a
+    // canyon rather than across an empty plain.
+    const x = (rC() - 0.5) * 150;
+    const z = -24 - rC() * rC() * 150;
 
     const map = f.map.clone();
     const emi = f.emissive.clone();
@@ -849,6 +879,30 @@ export function buildRoom(): Built {
     const tower = new THREE.Mesh(box(w, hgt, d), mat);
     tower.position.set(x, hgt / 2 - 2, z);
     outside.add(tower);
+
+    // Signage on the nearer towers. Vertical bars and blocks,
+    // saturated, emissive — the thing that makes a skyline read
+    // as this kind of city rather than any other.
+    if (z > -80 && rC() > 0.42) {
+      const palette = [0xff2f86, 0x49e8ff, 0xb44dff, 0xffc247, 0x3dffa8];
+      const col = palette[Math.floor(rC() * palette.length)];
+      const signMat = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.92 });
+      disposables.push(signMat);
+      const vertical = rC() > 0.45;
+      const sw = vertical ? 0.5 + rC() * 0.7 : 2 + rC() * 4;
+      const sh = vertical ? 5 + rC() * 14 : 0.7 + rC() * 1.2;
+      const sign = new THREE.Mesh(box(sw, sh, 0.3), signMat);
+      const face = rC() > 0.5 ? 1 : -1;
+      sign.position.set(
+        x + (rC() - 0.5) * (w * 0.5),
+        hgt * (0.35 + rC() * 0.5) - 2,
+        z + face * (d / 2 + 0.2),
+      );
+      sign.userData.flicker = rC() > 0.72;
+      sign.userData.phase = rC() * 6.28;
+      signs.push(sign);
+      outside.add(sign);
+    }
 
     if (hgt > 32 && rC() > 0.4) {
       const beacon = new THREE.Mesh(
@@ -992,6 +1046,77 @@ export function buildRoom(): Built {
   rift.position.set(5.5, 13, -27);
   outside.add(rift);
 
+  /**
+   * Rain, on the inside face of the glass.
+   *
+   * Not particles — a shader on one plane. Streaks that run down
+   * and reset, plus still droplets clinging between them, which
+   * is what rain on a window actually looks like: mostly stuck,
+   * occasionally running.
+   */
+  const rainMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    uniforms: { uTime: { value: 0 }, uAmount: { value: 1 } },
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uTime;
+      uniform float uAmount;
+      varying vec2 vUv;
+
+      float hash(vec2 p) {
+        p = fract(p * vec2(443.897, 441.423));
+        p += dot(p, p + 19.19);
+        return fract(p.x * p.y);
+      }
+
+      void main() {
+        if (uAmount < 0.01) discard;
+        vec3 col = vec3(0.0);
+        float a = 0.0;
+
+        // Runners: columns, each with its own speed and offset.
+        for (int i = 0; i < 3; i++) {
+          float fi = float(i);
+          vec2 g = vec2(26.0 + fi * 9.0, 1.0);
+          vec2 id = floor(vUv * g);
+          vec2 f = fract(vUv * g);
+          float h = hash(id + fi * 31.0);
+          if (h < 0.55) continue;
+          float speed = 0.12 + h * 0.4;
+          float y = fract(f.y - uTime * speed + h * 10.0);
+          float head = smoothstep(0.04, 0.0, abs(y - 0.5)) ;
+          float tail = smoothstep(0.34, 0.0, y - 0.5) * step(0.5, y) * 0.35;
+          float x = smoothstep(0.42, 0.0, abs(f.x - 0.5));
+          float d = (head + tail) * x;
+          a += d;
+          col += vec3(0.62, 0.78, 1.0) * d;
+        }
+
+        // Clingers: static beads scattered over the pane.
+        vec2 bg = vUv * vec2(60.0, 34.0);
+        vec2 bid = floor(bg);
+        vec2 bf = fract(bg) - 0.5;
+        float bh = hash(bid + 7.7);
+        float bead = smoothstep(0.34 * bh, 0.0, length(bf)) * step(0.88, bh);
+        a += bead * 0.5;
+        col += vec3(0.7, 0.85, 1.0) * bead * 0.5;
+
+        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0) * 0.55 * uAmount);
+      }
+    `,
+  });
+  disposables.push(rainMat);
+  const rain = new THREE.Mesh(keep(new THREE.PlaneGeometry(fw, fh)), rainMat);
+  rain.position.set(cx, cy, ROOM.backZ + 0.03);
+  root.add(rain);
+
   root.add(outside);
 
   /* ══ Living things ═══════════════════════════════════════ */
@@ -1043,7 +1168,7 @@ export function buildRoom(): Built {
   sun.position.set(-3, 7, -6);
   sun.target.position.set(0, 0.9, -1);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1536, 1536);
   sun.shadow.camera.near = 0.5;
   sun.shadow.camera.far = 24;
   sun.shadow.camera.left = -5;
@@ -1062,14 +1187,25 @@ export function buildRoom(): Built {
   windowFill.lookAt(cx, 1.2, 2);
   root.add(windowFill);
 
-  const deskLamp = new THREE.PointLight(0xffc98a, 2.2, 3.4, 2);
-  // Just in front of the shade's mouth, so the pool lands where
-  // the head is actually pointing.
+  /**
+   * A spot, not a point.
+   *
+   * A shadow-casting PointLight renders the whole scene six times
+   * every frame, once per face of a shadow cube — on this scene
+   * that alone was most of the frame budget. A desk lamp throws
+   * light in one direction through a shade, which is exactly what
+   * a spot light is, and it costs one shadow pass.
+   */
+  const deskLamp = new THREE.SpotLight(0xffc98a, 3.4, 4.2, 0.85, 0.55, 1.6);
   deskLamp.position.set(0.56, DESK_Y + 0.43, DESK_Z + 0.1);
+  deskLamp.target.position.set(0.18, DESK_Y, DESK_Z + 0.22);
   deskLamp.castShadow = true;
   deskLamp.shadow.mapSize.set(1024, 1024);
-  deskLamp.shadow.bias = -0.004;
+  deskLamp.shadow.bias = -0.0035;
+  deskLamp.shadow.camera.near = 0.08;
+  deskLamp.shadow.camera.far = 4.5;
   root.add(deskLamp);
+  root.add(deskLamp.target);
 
   const neonLight = new THREE.PointLight(0xff2f86, 1.5, 2.6, 2);
   neonLight.position.set(ROOM.leftX + 0.25, 1.95, 0.35);
@@ -1113,6 +1249,10 @@ export function buildRoom(): Built {
       speakerCones,
       posters,
       towerMats,
+      rainMat,
+      signs,
+      ledGlowA,
+      ledGlowB,
     },
     dispose: () => {
       for (const d of disposables) d.dispose();
