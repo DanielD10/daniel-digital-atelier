@@ -179,7 +179,7 @@ const DESK_Z = ROOM.backZ + 0.52;
 export type Built = {
   root: THREE.Group;
   screen: { position: THREE.Vector3; width: number; height: number };
-  tv: { position: THREE.Vector3; width: number; height: number };
+  tv: { position: THREE.Vector3; width: number; height: number; rotationY: number };
   /** Every mesh the raycaster tests, each with a .name. */
   targets: THREE.Object3D[];
   /** Objects with their own idle and reaction behaviour. */
@@ -216,6 +216,9 @@ export type Built = {
     signs: THREE.Mesh[];
     ledGlowA: THREE.PointLight;
     ledGlowB: THREE.PointLight;
+    cityGroup: THREE.Group;
+    vista: THREE.Mesh;
+    vistaMat: THREE.ShaderMaterial;
     ceiling: THREE.Mesh;
     leftWall: THREE.Mesh;
     rightWall: THREE.Mesh;
@@ -311,9 +314,10 @@ export function buildRoom(): Built {
      both directions, because otherwise an overview angle looks
      straight past the end of the wall into open sky, and the room
      stops reading as part of a building. */
-  const FW = 26;
+  const FW = 6.4;
   add(box(FW, WIN.y0, T), wallMat, 0, WIN.y0 / 2, ROOM.backZ - T / 2);
-  add(box(FW, ROOM.h - WIN.y1, T), wallMat, 0, (ROOM.h + WIN.y1) / 2, ROOM.backZ - T / 2);
+  const FACADE_TOP = ROOM.h;
+  add(box(FW, FACADE_TOP - WIN.y1, T), wallMat, 0, (FACADE_TOP + WIN.y1) / 2, ROOM.backZ - T / 2);
   add(
     box(WIN.x0 + FW / 2, WIN.y1 - WIN.y0, T),
     wallMat,
@@ -393,6 +397,30 @@ export function buildRoom(): Built {
   }
   add(box(fw, 0.05, 0.1), frameMat, cx, cy, ROOM.backZ);
   add(box(fw + 0.3, 0.06, 0.3), deskMat, cx, WIN.y0 - 0.05, ROOM.backZ + 0.11);
+
+  /**
+   * The void behind the room.
+   *
+   * Making the wall itself enormous did hide the sky, but a wall
+   * that large is lit like a wall, so instead of a dark backdrop
+   * the overview filled with a pale grey slab. This is a separate
+   * shell: unlit, near-black, built around the same window
+   * opening so the view through the glass survives. It is the
+   * only thing behind the room from outside, which is what lets
+   * the model read as floating in the dark.
+   */
+  const voidMat = keep(new THREE.MeshBasicMaterial({ color: 0x06050e }));
+  const VZ = ROOM.backZ - 0.3;
+  const VW = 400;
+  const addVoid = (w: number, h: number, x: number, y: number) => {
+    const m = new THREE.Mesh(box(w, h, 0.2), voidMat);
+    m.position.set(x, y, VZ);
+    root.add(m);
+  };
+  addVoid(VW, 120 + WIN.y0, 0, WIN.y0 - (120 + WIN.y0) / 2);
+  addVoid(VW, 160, 0, WIN.y1 + 80);
+  addVoid(VW / 2 + WIN.x0, WIN.y1 - WIN.y0, (-VW / 2 + WIN.x0) / 2, (WIN.y0 + WIN.y1) / 2);
+  addVoid(VW / 2 - WIN.x1, WIN.y1 - WIN.y0, (WIN.x1 + VW / 2) / 2, (WIN.y0 + WIN.y1) / 2);
 
   /* ══ Rug ═════════════════════════════════════════════════ */
   const rug = new THREE.Mesh(
@@ -751,325 +779,114 @@ export function buildRoom(): Built {
   root.add(neonSign);
   hitBox(0.2, 0.6, 0.5, "neon", new THREE.Vector3(ROOM.leftX + 0.12, 1.9, 0.35));
 
-  /* ══ Television ══════════════════════════════════════════ */
-  const TV_W = 0.56;
+  /* ══ Television ══════════════════════════════════════════
+     Wall-mounted on a short bracket and turned toward the room,
+     rather than standing on legs facing the back wall where
+     nobody could see the picture. The whole set is one group so
+     the cabinet, the glass and the CSS3D picture all share the
+     same angle. */
+  const TV_W = 0.62;
   const TV_H = TV_W * (3 / 4);
-  const tvX = ROOM.leftX + 0.62;
-  const tvY = 1.78;
-  const tvZ = ROOM.backZ + 0.34;
+  const TV_YAW = 0.92;
+  const TV_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.46, 1.74, -0.92);
 
-  add(box(0.72, 0.05, 0.5), deskMat, tvX, 1.46, tvZ);
-  for (const lz of [tvZ - 0.2, tvZ + 0.2]) {
-    for (const lx of [tvX - 0.3, tvX + 0.3]) {
-      add(box(0.04, 1.44, 0.04), darkMetal, lx, 0.72, lz);
-    }
-  }
+  const tvSet = new THREE.Group();
+  tvSet.position.copy(TV_ANCHOR);
+  tvSet.rotation.y = TV_YAW;
 
-  const tvShell = keep(new THREE.MeshStandardMaterial({ color: 0x4e4234, roughness: 0.78 }));
-  add(box(TV_W + 0.16, 0.07, 0.42), tvShell, tvX, tvY + TV_H / 2 + 0.035, tvZ);
-  add(box(TV_W + 0.16, 0.07, 0.42), tvShell, tvX, tvY - TV_H / 2 - 0.035, tvZ);
-  add(box(0.08, TV_H, 0.42), tvShell, tvX - TV_W / 2 - 0.04, tvY, tvZ);
-  add(box(0.22, TV_H, 0.42), tvShell, tvX + TV_W / 2 + 0.11, tvY, tvZ);
-  add(box(TV_W + 0.3, TV_H + 0.14, 0.04), tvShell, tvX + 0.07, tvY, tvZ - 0.21);
+  const tvShell = keep(new THREE.MeshStandardMaterial({ color: 0x594a38, roughness: 0.7, metalness: 0.08 }));
+  const tvTrim = keep(new THREE.MeshStandardMaterial({ color: 0xc9b896, roughness: 0.42, metalness: 0.35 }));
 
+  const addTo = (g: THREE.Group, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+
+  // Cabinet: a frame around the picture, deeper at the back the
+  // way a tube set is.
+  addTo(tvSet, box(TV_W + 0.18, 0.08, 0.34), tvShell, 0, TV_H / 2 + 0.04, -0.1);
+  addTo(tvSet, box(TV_W + 0.18, 0.08, 0.34), tvShell, 0, -TV_H / 2 - 0.04, -0.1);
+  addTo(tvSet, box(0.09, TV_H, 0.34), tvShell, -TV_W / 2 - 0.045, 0, -0.1);
+  addTo(tvSet, box(0.26, TV_H, 0.34), tvShell, TV_W / 2 + 0.13, 0, -0.1);
+  addTo(tvSet, box(TV_W + 0.44, TV_H + 0.16, 0.05), tvShell, 0.07, 0, -0.26);
+  // The back taper.
+  const taper = addTo(tvSet, box(TV_W * 0.6, TV_H * 0.6, 0.18), tvShell, 0, 0, -0.36);
+  void taper;
+
+  // Dials and a speaker grille on the fascia.
   for (let i = 0; i < 3; i++) {
-    const d = add(
-      keep(new THREE.CylinderGeometry(0.026, 0.026, 0.022, 20)),
-      darkMetal,
-      tvX + TV_W / 2 + 0.11,
-      tvY + 0.1 - i * 0.1,
-      tvZ + 0.21,
-    );
+    const d = addTo(tvSet, keep(new THREE.CylinderGeometry(0.028, 0.028, 0.024, 20)), tvTrim, TV_W / 2 + 0.13, 0.11 - i * 0.105, 0.075);
     d.rotation.x = Math.PI / 2;
   }
-  // Rooted on the cabinet top, not hovering above it.
-  for (const sign of [-1, 1]) {
-    const ant = add(
-      keep(new THREE.CylinderGeometry(0.003, 0.005, 0.4, 8)),
-      darkMetal,
-      tvX + sign * 0.115,
-      tvY + TV_H / 2 + 0.24,
-      tvZ - 0.08,
-    );
-    ant.rotation.z = sign * 0.52;
+  for (let i = 0; i < 5; i++) {
+    addTo(tvSet, box(0.17, 0.012, 0.006), tvTrim, TV_W / 2 + 0.13, -0.14 - i * 0.022, 0.075);
   }
-  add(keep(new THREE.SphereGeometry(0.022, 12, 10)), darkMetal, tvX, tvY + TV_H / 2 + 0.07, tvZ - 0.08);
+
+  // Bracket back to the wall, so the angle has something holding it.
+  const bracket = new THREE.Group();
+  bracket.position.copy(TV_ANCHOR);
+  const plate = new THREE.Mesh(box(0.05, 0.3, 0.3), darkMetal);
+  plate.position.set(ROOM.leftX + 0.03 - TV_ANCHOR.x, 0, 0);
+  plate.castShadow = true;
+  bracket.add(plate);
+  const armBar = new THREE.Mesh(box(0.42, 0.05, 0.05), darkMetal);
+  armBar.position.set((ROOM.leftX + 0.05 - TV_ANCHOR.x) / 2, 0, -0.05);
+  armBar.castShadow = true;
+  bracket.add(armBar);
+  root.add(bracket);
 
   const tvOff = new THREE.Mesh(
     keep(new THREE.PlaneGeometry(TV_W, TV_H)),
-    keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.12, metalness: 0.8 })),
+    keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.1, metalness: 0.85 })),
   );
-  tvOff.position.set(tvX, tvY, tvZ + 0.212);
-  root.add(tvOff);
+  tvOff.position.set(0, 0, 0.072);
+  tvSet.add(tvOff);
 
   const tvGlow = new THREE.Mesh(
     keep(new THREE.PlaneGeometry(TV_W, TV_H)),
     keep(new THREE.MeshBasicMaterial({ color: 0x89c8ff, transparent: true, opacity: 0 })),
   );
-  tvGlow.position.set(tvX, tvY, tvZ + 0.208);
-  root.add(tvGlow);
-  hitBox(TV_W + 0.1, TV_H + 0.1, 0.1, "tv", new THREE.Vector3(tvX, tvY, tvZ + 0.21));
+  tvGlow.position.set(0, 0, 0.068);
+  tvSet.add(tvGlow);
 
-  // The deck under it, with a standby light.
-  add(box(TV_W + 0.2, 0.1, 0.34), keep(new THREE.MeshStandardMaterial({ color: 0x2a2832, roughness: 0.5 })), tvX, 1.54, tvZ);
-  add(box(0.2, 0.025, 0.01), keep(new THREE.MeshBasicMaterial({ color: 0x4ad8a0 })), tvX - 0.12, 1.54, tvZ + 0.18, false);
+  root.add(tvSet);
 
-
-  /* ══ Living half ═════════════════════════════════════════
-     The room had one occupied corner and three empty walls,
-     which is why it read as a diorama of a desk rather than
-     somewhere anyone lives. Everything below is built from the
-     same primitives and designed here — no borrowed forms. */
-
-  const fabric = keep(new THREE.MeshStandardMaterial({ color: 0x3a3550, roughness: 0.95 }));
-  const fabricB = keep(new THREE.MeshStandardMaterial({ color: 0x4a4468, roughness: 0.95 }));
-  const paleWood = keep(new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.6, map: woodMap }));
-
-  /* Sofa, back to the right wall, facing into the room. */
-  const sofa = new THREE.Group();
+  // Hit box in world space, matching the set's angle.
   {
-    const baseM = new THREE.Mesh(box(0.9, 0.26, 1.9), fabric);
-    baseM.position.y = 0.26;
-    baseM.castShadow = true;
-    baseM.receiveShadow = true;
-    sofa.add(baseM);
-    const backM = new THREE.Mesh(box(0.22, 0.52, 1.9), fabric);
-    backM.position.set(0.34, 0.5, 0);
-    backM.castShadow = true;
-    sofa.add(backM);
-    for (const az of [-0.86, 0.86]) {
-      const arm = new THREE.Mesh(box(0.9, 0.2, 0.18), fabricB);
-      arm.position.set(0, 0.48, az);
-      arm.castShadow = true;
-      sofa.add(arm);
-    }
-    for (const cz of [-0.46, 0.46]) {
-      const cushion = new THREE.Mesh(box(0.84, 0.14, 0.82), fabricB);
-      cushion.position.set(-0.02, 0.45, cz);
-      cushion.castShadow = true;
-      sofa.add(cushion);
-    }
-    // Throw cushions, tipped over as they always are.
-    const cols = [0xff6f9d, 0x49e8ff, 0xf0c05a];
-    cols.forEach((c, i) => {
-      const m = keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
-      const cu = new THREE.Mesh(box(0.3, 0.3, 0.1), m);
-      cu.position.set(0.12, 0.66, -0.62 + i * 0.6);
-      cu.rotation.x = 0.4 + i * 0.2;
-      cu.castShadow = true;
-      sofa.add(cu);
-    });
-    for (const lz of [-0.78, 0.78]) {
-      for (const lx of [-0.34, 0.34]) {
-        const leg = new THREE.Mesh(box(0.06, 0.14, 0.06), darkMetal);
-        leg.position.set(lx, 0.07, lz);
-        sofa.add(leg);
-      }
-    }
-    sofa.position.set(2.2, 0, 0.5);
-    root.add(sofa);
-    hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
-  }
-
-  /* Shelving against the right wall, behind the sofa. */
-  {
-    const shelfUnit = new THREE.Group();
-    const H = 1.95;
-    const WD = 1.6;
-    for (const uz of [-WD / 2, WD / 2]) {
-      const upright = new THREE.Mesh(box(0.33, H, 0.05), paleWood);
-      upright.position.set(0, H / 2, uz);
-      upright.castShadow = true;
-      shelfUnit.add(upright);
-    }
-    const rS = rand(601);
-    for (let i = 0; i < 5; i++) {
-      const y = 0.18 + i * 0.42;
-      const plank = new THREE.Mesh(box(0.33, 0.035, WD), paleWood);
-      plank.position.y = y;
-      plank.castShadow = true;
-      plank.receiveShadow = true;
-      shelfUnit.add(plank);
-
-      // What is on the shelf: books, a box, sometimes a bowl.
-      let z = -WD / 2 + 0.12;
-      while (z < WD / 2 - 0.16) {
-        const roll = rS();
-        if (roll < 0.55) {
-          const n = 3 + Math.floor(rS() * 6);
-          for (let k = 0; k < n && z < WD / 2 - 0.12; k++) {
-            const bh = 0.18 + rS() * 0.1;
-            const bk = new THREE.Mesh(
-              box(0.16, bh, 0.034),
-              keep(
-                new THREE.MeshStandardMaterial({
-                  color: new THREE.Color().setHSL(rS(), 0.3, 0.38),
-                  roughness: 0.88,
-                }),
-              ),
-            );
-            bk.position.set(0, y + 0.018 + bh / 2, z);
-            bk.castShadow = true;
-            shelfUnit.add(bk);
-            z += 0.04;
-          }
-          z += 0.07;
-        } else if (roll < 0.8) {
-          const bx = new THREE.Mesh(
-            box(0.24, 0.18, 0.3),
-            keep(new THREE.MeshStandardMaterial({ color: 0x6a5f7f, roughness: 0.9 })),
-          );
-          bx.position.set(0, y + 0.108, z + 0.15);
-          bx.castShadow = true;
-          shelfUnit.add(bx);
-          z += 0.4;
-        } else {
-          const bowl = new THREE.Mesh(
-            keep(new THREE.CylinderGeometry(0.09, 0.06, 0.09, 18, 1, true)),
-            keep(new THREE.MeshStandardMaterial({ color: 0xc08a5a, roughness: 0.5, side: THREE.DoubleSide })),
-          );
-          bowl.position.set(0, y + 0.063, z + 0.11);
-          shelfUnit.add(bowl);
-          z += 0.3;
-        }
-      }
-    }
-    shelfUnit.position.set(2.78, 0, -1.25);
-    root.add(shelfUnit);
-    hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(2.78, 1, -1.25));
-  }
-
-  /* Coffee table, with the things that live on one. */
-  {
-    const top = add(box(0.62, 0.04, 1.0), paleWood, 1.0, 0.38, 0.62);
-    void top;
-    for (const lz of [0.24, 1.0]) {
-      for (const lx of [0.78, 1.22]) {
-        add(box(0.05, 0.38, 0.05), darkMetal, lx, 0.19, lz);
-      }
-    }
-    // A tray, two cups and a short stack of magazines.
-    add(box(0.3, 0.02, 0.22), keep(new THREE.MeshStandardMaterial({ color: 0x2a2436, roughness: 0.6 })), 1.0, 0.41, 0.4);
-    for (const cz of [0.34, 0.46]) {
-      add(keep(new THREE.CylinderGeometry(0.035, 0.03, 0.08, 18)), keep(new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.3 })), 0.96, 0.46, cz);
-    }
-    [0xb4476a, 0x3f6ea8, 0xd8a53a].forEach((c, i) => {
-      const mag = add(
-        box(0.26, 0.012, 0.34),
-        keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 })),
-        1.02,
-        0.41 + i * 0.014,
-        0.88,
-      );
-      mag.rotation.y = (i - 1) * 0.12;
-    });
-    hitBox(0.8, 0.5, 1.1, "table", new THREE.Vector3(1.0, 0.3, 0.62));
-  }
-
-  /* Floor lamp in the corner behind the sofa. */
-  {
-    const lampG = new THREE.Group();
-    const foot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 24)), darkMetal);
-    foot.castShadow = true;
-    lampG.add(foot);
-    const pole = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.018, 0.018, 1.5, 12)), darkMetal);
-    pole.position.y = 0.76;
-    pole.castShadow = true;
-    lampG.add(pole);
-    /* A pale shade lit from the inside at point-blank range, with
-       a bloom pass on top, is not a lamp — it is a white hole in
-       the middle of the room. The shade is dark and single-sided
-       so you never see its lit interior, and the light is a spot
-       pointing at the floor, which is what a shade is for. */
-    const dome = new THREE.Mesh(
-      keep(new THREE.SphereGeometry(0.19, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x332f42, roughness: 0.55, metalness: 0.3 })),
+    const hm = new THREE.Mesh(
+      keep(new THREE.BoxGeometry(TV_W + 0.2, TV_H + 0.2, 0.3)),
+      keep(new THREE.MeshBasicMaterial({ visible: false })),
     );
-    dome.rotation.x = Math.PI;
-    dome.position.y = 1.52;
-    dome.castShadow = true;
-    lampG.add(dome);
-
-    const warm = new THREE.SpotLight(0xffc98a, 2.4, 3.6, 0.9, 0.7, 1.4);
-    warm.position.set(0, 1.42, 0);
-    warm.target.position.set(0, 0, 0.15);
-    lampG.add(warm);
-    lampG.add(warm.target);
-    lampG.position.set(2.62, 0, 1.75);
-    root.add(lampG);
-    hitBox(0.44, 1.7, 0.44, "floorlamp", new THREE.Vector3(2.62, 0.85, 1.75));
+    hm.name = "tv";
+    hm.position.copy(TV_ANCHOR);
+    hm.rotation.y = TV_YAW;
+    root.add(hm);
+    targets.push(hm);
   }
 
-  /* Crates by the left wall, and a board leaning on them. */
-  {
-    const crateMat = keep(new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, map: woodMap }));
-    const stack = [
-      [0.46, 0.34, 0.4, -2.5, 0.17, 0.9, 0.1],
-      [0.42, 0.3, 0.38, -2.46, 0.49, 0.84, -0.18],
-      [0.3, 0.24, 0.3, -2.56, 0.76, 0.96, 0.3],
-    ] as const;
-    for (const [cw, ch, cd, cx2, cy2, cz2, rot] of stack) {
-      const c = add(box(cw, ch, cd), crateMat, cx2, cy2, cz2);
-      c.rotation.y = rot;
-    }
-    const board = add(box(0.22, 0.9, 0.035), keep(new THREE.MeshStandardMaterial({ color: 0x2f3a58, roughness: 0.6 })), -2.82, 0.45, 0.2);
-    board.rotation.z = 0.16;
-    board.rotation.y = 0.5;
-    hitBox(0.7, 1.1, 0.7, "crates", new THREE.Vector3(-2.5, 0.5, 0.9));
-  }
-
-  /* A pouffe, because the floor needs something soft on it. */
-  {
-    const pouf = add(keep(new THREE.SphereGeometry(0.26, 20, 14)), fabricB, 0.2, 0.19, 1.25);
-    pouf.scale.set(1, 0.72, 1);
-  }
-
-  /* A second rug under the sitting half. */
-  {
-    const rug2 = new THREE.Mesh(
-      keep(new THREE.PlaneGeometry(1.9, 2.4)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x2c2440, roughness: 0.98 })),
-    );
-    rug2.rotation.x = -Math.PI / 2;
-    rug2.position.set(1.5, 0.003, 0.7);
-    rug2.receiveShadow = true;
-    root.add(rug2);
-  }
-
-  /* A cluster of small frames on the left wall. Abstract colour
-     fields of their own — nothing reproduced. */
-  {
-    const frames: Array<[number, number, number, number, number]> = [
-      [0.3, 0.22, 1.62, 0.42, 0x4a6f8a],
-      [0.22, 0.3, 1.95, 0.24, 0x8a4a6f],
-      [0.26, 0.2, 1.42, 0.78, 0x6f8a4a],
-    ];
-    for (const [fwid, fhgt, fy, fz, col] of frames) {
-      const fr = new THREE.Mesh(
-        keep(new THREE.PlaneGeometry(fwid, fhgt)),
-        keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.9, emissive: col, emissiveIntensity: 0.12 })),
-      );
-      fr.rotation.y = Math.PI / 2;
-      fr.position.set(ROOM.leftX + 0.02, fy, fz);
-      root.add(fr);
-    }
-  }
-
-  /* Wastebasket under the desk, and a cable reaching the wall. */
-  {
-    const bin = add(
-      keep(new THREE.CylinderGeometry(0.11, 0.09, 0.26, 18, 1, true)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x2a2634, roughness: 0.6, side: THREE.DoubleSide })),
-      -0.95,
-      0.13,
-      DESK_Z + 0.1,
-    );
-    void bin;
-  }
+  // Where the CSS3D picture goes, in world space.
+  const tvScreenPos = new THREE.Vector3(0, 0, 0.076).applyAxisAngle(new THREE.Vector3(0, 1, 0), TV_YAW).add(TV_ANCHOR);
 
   /* ══ Outside ═════════════════════════════════════════════ */
   const outside = new THREE.Group();
 
+  /**
+   * What is outside the window.
+   *
+   * Ten scenes, all generated in the shader rather than fetched
+   * as images — same reason as everything else here, and it means
+   * each one animates and none of them cost a download.
+   *
+   * The window is a small aperture onto a plane a long way back,
+   * so only a sliver of the plane is ever visible through it.
+   * uZoom pulls the scene's coordinates in to match that sliver,
+   * which is what lets a horizon land where a horizon should
+   * rather than somewhere off past the frame.
+   */
   const skyMat = new THREE.ShaderMaterial({
     depthWrite: false,
     uniforms: {
@@ -1078,10 +895,15 @@ export function buildRoom(): Built {
       uBot: { value: new THREE.Color(0x6d1f5c) },
       uStars: { value: 1 },
       uTime: { value: 0 },
+      uScene: { value: 0 },
+      uZoom: { value: 7.0 },
+      uMode: { value: 0 },
     },
     vertexShader: `
+      varying vec3 vDir;
       varying vec2 vUv;
       void main() {
+        vDir = normalize(position);
         vUv = uv;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
@@ -1089,25 +911,235 @@ export function buildRoom(): Built {
     fragmentShader: `
       uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot;
       uniform float uStars; uniform float uTime;
+      uniform float uScene; uniform float uZoom; uniform float uMode;
+      varying vec3 vDir;
       varying vec2 vUv;
 
       // ALU-only hash. A sin-based one costs a transcendental per
-      // star per fragment, which a phone notices.
-      float hash(vec2 p) {
+      // sample, which a phone notices.
+      float hash21(vec2 p) {
         p = fract(p * vec2(123.34, 456.21));
         p += dot(p, p + 45.32);
         return fract(p.x * p.y);
       }
+      float hash11(float x) { return fract(sin(x * 91.3458) * 47453.5453); }
+
+      float vnoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash21(i), b = hash21(i + vec2(1.0, 0.0));
+        float c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+      float fbm(vec2 p) {
+        float v = 0.0, a = 0.5;
+        for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.02; a *= 0.5; }
+        return v;
+      }
+
+      /* A ridgeline: one value per column, used as a horizon. */
+      float ridge(float x, float seed, float amp, float base) {
+        return base + amp * (fbm(vec2(x * 2.2 + seed * 11.0, seed)) - 0.5);
+      }
 
       void main() {
-        vec3 col = mix(uBot, uMid, smoothstep(0.0, 0.52, vUv.y));
-        col = mix(col, uTop, smoothstep(0.45, 1.0, vUv.y));
+        /**
+         * Angles, not texture coordinates.
+         *
+         * This was a flat plane a long way back, and the window is
+         * a small aperture onto it — so each camera angle looked at
+         * a different patch of it, and the patch the overview found
+         * was far below every scene's horizon. Every vista came out
+         * as the colour of the ground.
+         *
+         * On a dome the horizon is an elevation rather than a
+         * texture row, so it sits where a horizon belongs from any
+         * angle, and moving the camera pans across the view the way
+         * looking out of a window actually does.
+         */
+        /**
+         * Two mountings, one shader.
+         *
+         * On the dome the coordinates come from the viewing angle,
+         * which is right for a sky but means the scene's horizon
+         * lands wherever the camera happens to be pointing — and
+         * through a window the size of this one, that was reliably
+         * somewhere underground.
+         *
+         * The vistas therefore live on a panel directly behind the
+         * glass and use its own surface coordinates, so the horizon
+         * is always across the middle of the window no matter where
+         * you are standing. The dome keeps the sky for the city,
+         * where the skyline is real geometry a long way back.
+         */
+        vec2 uv;
+        if (uMode > 0.5) {
+          uv = vUv;
+        } else {
+          float el = asin(clamp(vDir.y, -1.0, 1.0));
+          uv = vec2(atan(vDir.z, vDir.x) / 6.2831853 + 0.5, el / 1.5707963 * 0.5 + 0.5);
+        }
+        float h = uv.y;
+        vec3 col = mix(uBot, uMid, smoothstep(0.42, 0.62, h));
+        col = mix(col, uTop, smoothstep(0.6, 1.0, h));
 
-        vec2 cell = floor(vUv * vec2(420.0, 260.0));
-        float h = hash(cell);
-        float star = step(0.9965, h) * smoothstep(0.25, 0.8, vUv.y);
-        float tw = 0.65 + 0.35 * sin(uTime * 1.7 + h * 90.0);
-        col += vec3(0.85, 0.9, 1.0) * star * tw * uStars;
+        float s = uScene;
+
+        /* 0 — CITY. The towers are real geometry; this is only the
+           sky they stand against. */
+        if (s < 0.5) {
+          vec2 cell = floor(uv * vec2(260.0, 170.0));
+          float hh = hash21(cell);
+          float star = step(0.9962, hh) * smoothstep(0.5, 0.75, h);
+          col += vec3(0.85, 0.9, 1.0) * star * (0.65 + 0.35 * sin(uTime * 1.7 + hh * 90.0)) * uStars;
+        }
+
+        /* 1 — SPACE. Nebula banding, a dense star field and one
+           ringed planet low on the left. */
+        else if (s < 1.5) {
+          col = vec3(0.012, 0.008, 0.035);
+          float n1 = fbm(uv * 2.4 + vec2(uTime * 0.012, 0.0));
+          float n2 = fbm(uv * 4.1 - vec2(0.0, uTime * 0.008));
+          col += vec3(0.42, 0.10, 0.52) * pow(n1, 2.2) * 0.85;
+          col += vec3(0.08, 0.30, 0.62) * pow(n2, 2.6) * 0.7;
+          vec2 cell = floor(uv * vec2(420.0, 300.0));
+          float hh = hash21(cell);
+          col += vec3(1.0) * step(0.988, hh) * (0.5 + 0.5 * sin(uTime * 2.0 + hh * 60.0));
+          // The planet.
+          vec2 pc = uv - vec2(0.27, 0.34);
+          pc.x *= 1.0;
+          float pr = length(pc);
+          if (pr < 0.14) {
+            vec3 pn = normalize(vec3(pc / 0.14, sqrt(max(0.0, 1.0 - pow(pr / 0.14, 2.0)))));
+            float lit = max(0.0, dot(pn, normalize(vec3(0.7, 0.5, 0.5))));
+            float bands = fbm(vec2(pc.x * 6.0, pc.y * 22.0));
+            col = mix(vec3(0.5, 0.26, 0.14), vec3(0.78, 0.6, 0.38), bands) * (0.12 + lit);
+          }
+          float ring = abs(pc.y * 3.6) + abs(pr - 0.21) * 2.0;
+          if (pr > 0.145 && ring < 0.07) col += vec3(0.7, 0.6, 0.45) * (0.07 - ring) * 6.0;
+        }
+
+        /* 2 — MOUNTAINS. Four ridgelines, hazier and paler with
+           distance, snow above the line on the near ones. */
+        else if (s < 2.5) {
+          col = mix(vec3(0.82, 0.86, 0.93), vec3(0.24, 0.42, 0.68), smoothstep(0.5, 1.0, h));
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float y = ridge(uv.x * 5.0, fi * 3.7, 0.1 - fi * 0.014, 0.56 - fi * 0.028);
+            if (h < y) {
+              vec3 rock = mix(vec3(0.30, 0.33, 0.45), vec3(0.09, 0.11, 0.2), fi / 3.0);
+              float snow = smoothstep(y - 0.05, y, h) * (fi < 2.0 ? 1.0 : 0.0);
+              col = mix(rock, vec3(0.93, 0.95, 1.0), snow * 0.85);
+            }
+          }
+        }
+
+        /* 3 — OCEAN. A flat horizon, a sun, and a glitter path
+           under it that breaks up with distance. */
+        else if (s < 3.5) {
+          float hor = 0.5;
+          col = mix(vec3(0.98, 0.72, 0.45), vec3(0.22, 0.45, 0.75), smoothstep(hor, 1.0, h));
+          float sun = smoothstep(0.045, 0.0, length((uv - vec2(0.56, hor + 0.05)) * vec2(0.6, 1.4)));
+          col += vec3(1.0, 0.75, 0.42) * sun;
+          if (h < hor) {
+            float d = (hor - h);
+            vec3 sea = mix(vec3(0.05, 0.14, 0.26), vec3(0.03, 0.09, 0.18), smoothstep(0.0, 0.12, d));
+            float glint = fbm(vec2(uv.x * 300.0, (hor - h) * 900.0 - uTime * 1.4));
+            glint = pow(glint, 5.0) * smoothstep(0.08, 0.0, abs(uv.x - 0.56)) * smoothstep(0.0, 0.015, d);
+            col = sea + vec3(1.0, 0.82, 0.55) * glint * 2.2;
+          }
+        }
+
+        /* 4 — FOREST. Layered conifer silhouettes in mist. */
+        else if (s < 4.5) {
+          col = mix(vec3(0.76, 0.80, 0.74), vec3(0.42, 0.56, 0.58), smoothstep(0.5, 1.0, h));
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float sp = 26.0 + fi * 16.0;
+            float x = uv.x * sp * 5.0 + fi * 7.0;
+            float tooth = abs(fract(x) - 0.5) * 2.0;
+            float top = 0.53 - fi * 0.022 - tooth * (0.05 - fi * 0.008) * (0.6 + 0.4 * hash11(floor(x)));
+            if (h < top) col = mix(vec3(0.16, 0.26, 0.2), vec3(0.03, 0.08, 0.07), fi / 3.0);
+          }
+        }
+
+        /* 5 — DESERT. Smooth dunes and a low heavy sun. */
+        else if (s < 5.5) {
+          col = mix(vec3(0.98, 0.78, 0.52), vec3(0.42, 0.56, 0.82), smoothstep(0.5, 1.0, h));
+          float sun = smoothstep(0.04, 0.0, length((uv - vec2(0.42, 0.53)) * vec2(0.6, 1.4)));
+          col += vec3(1.0, 0.72, 0.38) * sun * 1.2;
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float y = 0.50 - fi * 0.022 + 0.014 * sin(uv.x * (14.0 + fi * 9.0) + fi * 2.1);
+            if (h < y) col = mix(vec3(0.86, 0.64, 0.38), vec3(0.42, 0.27, 0.16), fi / 2.0);
+          }
+        }
+
+        /* 6 — AURORA. Ribbons over a dark ridge. */
+        else if (s < 6.5) {
+          col = mix(vec3(0.04, 0.07, 0.16), vec3(0.01, 0.02, 0.07), smoothstep(0.2, 1.0, h));
+          vec2 cell = floor(uv * vec2(340.0, 240.0));
+          float hh = hash21(cell);
+          col += vec3(0.9) * step(0.991, hh) * smoothstep(0.5, 0.75, h);
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float band = fbm(vec2(uv.x * 2.4 + fi * 5.0 + uTime * 0.05, fi));
+            float centre = 0.56 + fi * 0.035 + band * 0.08;
+            float d = abs(h - centre);
+            float glow = smoothstep(0.06, 0.0, d) * smoothstep(0.48, 0.56, h);
+            vec3 tint = mix(vec3(0.20, 0.95, 0.55), vec3(0.45, 0.30, 0.95), fi / 2.0);
+            col += tint * glow * 0.42;
+          }
+          float y = ridge(uv.x * 5.0, 1.3, 0.025, 0.5);
+          if (h < y) col = vec3(0.015, 0.02, 0.045);
+        }
+
+        /* 7 — SNOWFIELD. Pale overcast, rolling hills, falling
+           snow in the air. */
+        else if (s < 7.5) {
+          col = mix(vec3(0.86, 0.89, 0.95), vec3(0.62, 0.70, 0.84), smoothstep(0.5, 1.0, h));
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float y = ridge(uv.x * 5.0, 5.0 + fi * 2.0, 0.018, 0.51 - fi * 0.016);
+            if (h < y) col = mix(vec3(0.95, 0.96, 0.99), vec3(0.72, 0.78, 0.88), fi / 2.0);
+          }
+          vec2 sp = uv * vec2(600.0, 160.0);
+          sp.y += uTime * 1.2;
+          sp.x += sin(sp.y * 0.6) * 0.5;
+          float flake = step(0.982, hash21(floor(sp)));
+          col = mix(col, vec3(1.0), flake * 0.8);
+        }
+
+        /* 8 — SUNSET. Banded cloud over a burning horizon. */
+        else if (s < 8.5) {
+          col = mix(vec3(1.0, 0.52, 0.26), vec3(0.22, 0.17, 0.44), smoothstep(0.5, 0.95, h));
+          float sun = smoothstep(0.04, 0.0, length((uv - vec2(0.5, 0.52)) * vec2(0.6, 1.4)));
+          col += vec3(1.0, 0.78, 0.4) * sun * 1.4;
+          for (int i = 0; i < 5; i++) {
+            float fi = float(i);
+            float cy = 0.52 + fi * 0.028;
+            float band = fbm(vec2(uv.x * 3.0 + fi * 4.0 + uTime * 0.02, fi * 2.0));
+            float d = abs(h - (cy + band * 0.012));
+            col = mix(col, vec3(0.5, 0.22, 0.3), smoothstep(0.008, 0.0, d) * 0.65);
+          }
+          if (h < 0.5) col = mix(vec3(0.12, 0.08, 0.2), col, smoothstep(0.4, 0.5, h));
+        }
+
+        /* 9 — STORM. Heavy cloud with lightning behind it. */
+        else {
+          col = mix(vec3(0.16, 0.18, 0.24), vec3(0.05, 0.06, 0.1), smoothstep(0.5, 1.0, h));
+          float cloud = fbm(uv * 3.2 + vec2(uTime * 0.03, 0.0));
+          col = mix(col, vec3(0.10, 0.11, 0.16), cloud);
+          col += vec3(0.5, 0.56, 0.7) * pow(cloud, 3.0) * 0.5;
+          // Flashes: rare, brief, and never on a tidy interval.
+          float cycle = floor(uTime * 0.42);
+          float within = fract(uTime * 0.42);
+          float fire = step(0.86, hash11(cycle));
+          float flash = fire * exp(-within * 22.0) * (0.6 + 0.4 * hash11(cycle + 3.0));
+          col += vec3(0.75, 0.8, 1.0) * flash * (0.4 + cloud);
+          float y = ridge(uv.x * 5.0, 9.0, 0.02, 0.5);
+          if (h < y) col = vec3(0.02, 0.025, 0.04);
+        }
 
         gl_FragColor = vec4(col, 1.0);
       }
@@ -1117,11 +1149,26 @@ export function buildRoom(): Built {
   /* Behind everything. At -90 the sky plane sat in the middle of
      the tower field and hid every building behind it, which is
      why the skyline had holes in it with blank sky showing. */
-  const sky = new THREE.Mesh(keep(new THREE.PlaneGeometry(2600, 1300)), skyMat);
-  sky.position.set(0, 180, -420);
+  skyMat.side = THREE.BackSide;
+  const sky = new THREE.Mesh(keep(new THREE.SphereGeometry(340, 64, 40)), skyMat);
+  sky.renderOrder = -1;
   outside.add(sky);
 
+  const vistaMat = skyMat.clone();
+  vistaMat.side = THREE.FrontSide;
+  vistaMat.uniforms.uMode.value = 1;
+  disposables.push(vistaMat);
+  // Generous, so no edge of it shows through the glass at an angle.
+  const vista = new THREE.Mesh(keep(new THREE.PlaneGeometry(13, 5.6)), vistaMat);
+  vista.position.set((WIN.x0 + WIN.x1) / 2, (WIN.y0 + WIN.y1) / 2, ROOM.backZ - 1.4);
+  vista.visible = false;
+  root.add(vista);
+
   const rC = rand(131);
+  /** The skyline as one group, so a window scene that is not a
+   *  city can take it out of the room entirely. */
+  const cityGroup = new THREE.Group();
+  outside.add(cityGroup);
   /** Every tower's material, so daylight can switch the city off. */
   const towerMats: THREE.MeshStandardMaterial[] = [];
   /** Neon signage, so the driver can make a few of them flicker. */
@@ -1178,7 +1225,7 @@ export function buildRoom(): Built {
 
     const tower = new THREE.Mesh(box(w, hgt, d), mat);
     tower.position.set(x, hgt / 2 - 2, z);
-    outside.add(tower);
+    cityGroup.add(tower);
 
     // Signage on the nearer towers. Vertical bars and blocks,
     // saturated, emissive — the thing that makes a skyline read
@@ -1201,7 +1248,7 @@ export function buildRoom(): Built {
       sign.userData.flicker = rC() > 0.72;
       sign.userData.phase = rC() * 6.28;
       signs.push(sign);
-      outside.add(sign);
+      cityGroup.add(sign);
     }
 
     if (hgt > 32 && rC() > 0.4) {
@@ -1211,7 +1258,7 @@ export function buildRoom(): Built {
       );
       // Towers now sit two metres lower, so the roof is hgt - 2.
       beacon.position.set(x, hgt - 2.2, z);
-      outside.add(beacon);
+      cityGroup.add(beacon);
     }
   }
 
@@ -1532,7 +1579,7 @@ export function buildRoom(): Built {
   root.add(screenLight);
 
   const tvLight = new THREE.PointLight(0x89c8ff, 0, 2.6, 2);
-  tvLight.position.set(tvX, tvY, tvZ + 0.5);
+  tvLight.position.copy(tvScreenPos).add(new THREE.Vector3(0.25, 0, 0.3));
   root.add(tvLight);
 
   return {
@@ -1542,7 +1589,7 @@ export function buildRoom(): Built {
       width: SCREEN_W,
       height: SCREEN_H,
     },
-    tv: { position: new THREE.Vector3(tvX, tvY, tvZ + 0.214), width: TV_W, height: TV_H },
+    tv: { position: tvScreenPos, width: TV_W, height: TV_H, rotationY: TV_YAW },
     targets,
     life,
     decor,
@@ -1569,6 +1616,9 @@ export function buildRoom(): Built {
       signs,
       ledGlowA,
       ledGlowB,
+      cityGroup,
+      vista,
+      vistaMat,
       ceiling: ceil,
       leftWall,
       rightWall,

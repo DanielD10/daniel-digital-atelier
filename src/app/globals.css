@@ -1334,7 +1334,7 @@ main { position: relative; z-index: 3; }
  */
 .atelier {
   margin: 0 0 clamp(40px, 6vw, 72px);
-  width: min(100vw - 20px, 1720px, (100svh - 190px) * 1.5789);
+  width: min(100vw - 20px, 1760px);
   margin-left: 50%;
   transform: translateX(-50%);
 }
@@ -2721,9 +2721,10 @@ main { position: relative; z-index: 3; }
    perspective. The CSS layer sits on top and is click-through
    everywhere except those screens, so the raycaster underneath
    still gets the rest of the room. */
+/* The room is the page here, not a panel on it. */
 .room3d-stage {
   position: relative;
-  aspect-ratio: 16 / 10;
+  height: min(86svh, 1020px);
   border: 1px solid rgba(74, 69, 62, 0.5);
   background: #06050d;
   overflow: hidden;
@@ -2802,7 +2803,7 @@ main { position: relative; z-index: 3; }
 }
 
 @media (max-width: 760px) {
-  .room3d-stage { aspect-ratio: 4 / 5; }
+  .room3d-stage { height: min(72svh, 620px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

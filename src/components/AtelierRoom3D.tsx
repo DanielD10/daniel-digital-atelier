@@ -97,7 +97,7 @@ const MOODS: Record<Phase, Mood> = {
   night: {
     sun: { color: 0x6f86ff, intensity: 0.3, pos: [-3, 6, -7] },
     fill: { color: 0x49b8ff, intensity: 2.1 },
-    ambient: { sky: 0x2f3a7a, ground: 0x240e2a, intensity: 0.42 },
+    ambient: { sky: 0x3a4a8c, ground: 0x2c1434, intensity: 0.62 },
     sky: { top: 0x04030c, mid: 0x1b0840, bot: 0x7a1d63, stars: 1 },
     lamp: 3.1,
     neon: 3.4,
@@ -142,6 +142,20 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
  */
 type Shot = { name: string; pos: [number, number, number]; aim: [number, number, number] };
 
+/** What is out of the window. Index matches uScene in the shader. */
+export const WINDOW_SCENES = [
+  "City",
+  "Deep space",
+  "Mountains",
+  "Ocean",
+  "Forest",
+  "Desert",
+  "Aurora",
+  "Snowfield",
+  "Sunset",
+  "Storm",
+] as const;
+
 const SHOTS: Shot[] = [
   { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6] },
   { name: "The desk", pos: [1.5, 2.15, 1.5], aim: [0.05, 1.05, -2.05] },
@@ -159,6 +173,7 @@ export default function AtelierRoom3D() {
   const [tvOn, setTvOn] = useState(false);
   const [hovered, setHovered] = useState<string | null>(null);
   const [shot, setShot] = useState(0);
+  const [view, setView] = useState(0);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -170,13 +185,14 @@ export default function AtelierRoom3D() {
 
   /* Mutable mirrors, so the render loop never closes over stale
      state and never has to be rebuilt when state changes. */
-  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false, shot: 0 });
+  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false, shot: 0, view: 0 });
   stateRef.current.awake = awake;
   stateRef.current.tvOn = tvOn;
   stateRef.current.phase = phase;
   stateRef.current.season = season;
   stateRef.current.playing = playing;
   stateRef.current.shot = shot;
+  stateRef.current.view = view;
 
   const osRootRef = useRef<Root | null>(null);
   const osHostRef = useRef<HTMLDivElement | null>(null);
@@ -303,6 +319,8 @@ export default function AtelierRoom3D() {
     tvHostRef.current = tvHost;
     const tvObject = new CSS3DObject(tvHost);
     tvObject.position.copy(built.tv.position);
+    // The set is turned toward the room; its picture has to turn with it.
+    tvObject.rotation.y = built.tv.rotationY;
     tvObject.scale.setScalar(built.tv.width / 480);
     scene.add(tvObject);
 
@@ -346,6 +364,16 @@ export default function AtelierRoom3D() {
     /* ── Camera rigs ───────────────────────────────────── */
     const IDLE_POS = new THREE.Vector3(...SHOTS[0].pos);
     const IDLE_AIM = new THREE.Vector3(...SHOTS[0].aim);
+
+    /**
+     * On a phone the frame is portrait, so the horizontal field of
+     * view is much narrower than on a desktop and anything against
+     * a side wall — the television, the shelving — falls straight
+     * off the edge. Every shot steps back from its own aim point
+     * by a fixed factor rather than being re-authored.
+     */
+    const narrow = window.matchMedia("(max-width: 860px)").matches;
+    const PULL = narrow ? 1.42 : 1;
     const WAKE_POS = new THREE.Vector3(
       built.screen.position.x,
       built.screen.position.y,
@@ -490,8 +518,23 @@ export default function AtelierRoom3D() {
       cur.exposure = lerp(cur.exposure, mood.exposure, k);
       cur.city = lerp(cur.city, mood.city, k);
       cur.rain = lerp(cur.rain, mood.rain, k);
+      /* The window scene. The skyline is geometry, so a scene
+         that is not a city has to take it out of the room, not
+         just stop drawing sky behind it. */
+      const cityOut = s.view === 0;
+      p.skyMat.uniforms.uScene.value = 0;
+      p.vistaMat.uniforms.uScene.value = s.view;
+      p.vistaMat.uniforms.uTime.value = reduced ? 0 : t;
+      p.vista.visible = !cityOut;
+      p.cityGroup.visible = cityOut;
+      p.ships.visible = cityOut || s.view === 1;
+      p.rift.visible = cityOut || s.view === 1;
+
       p.rainMat.uniforms.uTime.value = reduced ? 0 : t;
-      p.rainMat.uniforms.uAmount.value = cur.rain;
+      /* Weather belongs to the view. A mountain range behind a
+         pane streaming with rain just reads as a grey pane. */
+      p.rainMat.uniforms.uAmount.value =
+        s.view === 9 ? 1 : s.view === 0 ? cur.rain : s.view === 7 ? 0.25 : 0;
       p.ledGlowA.intensity = 0.55 + cur.neon * 0.22;
       p.ledGlowB.intensity = 0.5 + cur.neon * 0.2;
 
@@ -582,8 +625,12 @@ export default function AtelierRoom3D() {
         wantAim.copy(WAKE_AIM);
       } else {
         const sh = SHOTS[s.shot] ?? SHOTS[0];
-        wantPos.set(sh.pos[0], sh.pos[1], sh.pos[2]);
         wantAim.set(sh.aim[0], sh.aim[1], sh.aim[2]);
+        wantPos
+          .set(sh.pos[0], sh.pos[1], sh.pos[2])
+          .sub(wantAim)
+          .multiplyScalar(PULL)
+          .add(wantAim);
         if (!reduced) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
@@ -609,7 +656,7 @@ export default function AtelierRoom3D() {
       p.plinth.visible = !s.awake;
       // The overview needs a light of its own; sitting at the desk
       // does not, and keeping it on there flattens the lamp.
-      p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 3.4, Math.min(1, dt * 2));
+      p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 5.2, Math.min(1, dt * 2));
 
       composer.render();
       css.render(scene, camera);
@@ -809,6 +856,13 @@ export default function AtelierRoom3D() {
           </button>
           <button type="button" onClick={cycleDecor}>
             Decor
+          </button>
+          <button
+            type="button"
+            onClick={() => setView((v) => (v + 1) % WINDOW_SCENES.length)}
+            title="What is outside the window"
+          >
+            {WINDOW_SCENES[view]}
           </button>
           <button type="button" onClick={() => setAuto(true)} disabled={auto}>
             Back to now
