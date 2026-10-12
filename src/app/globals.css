@@ -1592,11 +1592,17 @@ main { position: relative; z-index: 3; }
    the screens themselves. That is what lets a click land on the
    room behind it — the raycast and the desktop share one surface
    and never fight over a click. */
+/* No `overflow` here, ever. An overflow other than visible forces
+   transform-style to flat, and CSS3DRenderer's container has to
+   stay preserve-3d — flattened, the desktop still *paints* in the
+   right place on the monitor but stops hit-testing there, so every
+   click on it fell straight through to the canvas behind. The
+   stage already clips, so there is nothing to gain by it either.
+   See the companion rule further down. */
 .room3d-css {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  overflow: hidden;
 }
 
 /**
@@ -3431,3 +3437,110 @@ main { position: relative; z-index: 3; }
   transition: opacity 320ms ease, visibility 0s linear 320ms;
 }
 .lab-intro { transition: opacity 320ms ease; }
+
+/* ── The desktop, flat ──────────────────────────────────────
+   Laid out at a fixed 780x464 because the window geometry inside
+   it is in pixels, then scaled to the stage with a plain 2D
+   transform. Plain is the point: the 3D version hit-tested in
+   the wrong place and swallowed every click. */
+.room3d-os {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  top: 50%;
+  width: 780px;
+  height: 464px;
+  overflow: hidden;
+  background: #07060f;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 40px 120px rgba(0, 0, 0, 0.7);
+  transform: translate(-50%, -50%) scale(var(--os-fit, 1));
+  transform-origin: 50% 50%;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 420ms ease, visibility 0s linear 420ms;
+}
+
+/* Arrives once the camera has actually got there. */
+.room3d-stage.is-awake .room3d-os {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 420ms ease 220ms, visibility 0s;
+}
+
+.room3d-os .os { width: 100%; height: 100%; transform: none; }
+
+/* The set's transport, drawn by the room rather than inside the
+   picture — see the note in AtelierTV for why it cannot live in
+   the picture. */
+.room3d-tvbar {
+  position: absolute;
+  z-index: 8;
+  left: 18px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  background: rgba(8, 6, 16, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+}
+.room3d-tvbar button {
+  padding: 5px 11px;
+  background: none;
+  border: 0;
+  border-radius: 999px;
+  color: #f3eee6;
+  font-family: var(--f-micro);
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.room3d-tvbar button:hover { background: rgba(255, 255, 255, 0.12); }
+
+/* ── The cursor, as a light ─────────────────────────────────
+   A soft halo with a small bright centre. The centre matters: a
+   pure glow with nothing in the middle looks good and is
+   impossible to aim with. Only where there is a real pointer —
+   a touch screen has no cursor to replace, and hiding one that
+   was never there strands the glow wherever the last tap was. */
+.room3d-torch {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 190px;
+  height: 190px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+  mix-blend-mode: screen;
+  transition: opacity 260ms ease;
+  background:
+    radial-gradient(circle, rgba(255, 236, 206, 0.5) 0%, rgba(255, 221, 180, 0.16) 26%, rgba(255, 210, 160, 0) 62%);
+}
+.room3d-torch::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: rgba(255, 246, 228, 0.92);
+  box-shadow: 0 0 7px rgba(255, 228, 180, 0.9);
+}
+
+/* The native arrow goes only once the light is standing in for it. */
+.room3d-host.has-torch { cursor: none; }
+.room3d-host.has-torch.is-pointing { cursor: none; }
+
+@media (hover: none), (prefers-reduced-motion: reduce) {
+  .room3d-torch { display: none; }
+}

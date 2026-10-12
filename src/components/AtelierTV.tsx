@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * The television.
@@ -82,7 +82,23 @@ function embedUrl(t: NonNullable<Tuned>): string {
   return `${base}/${t.id}?${common}${queue}`;
 }
 
-export default function AtelierTV() {
+export type TVApi = { step: (dir: 1 | -1) => void; retune: () => void; tuned: boolean };
+
+/**
+ * The set's controls do not live in the set.
+ *
+ * The picture is a CSS3D element so that it sits on the wall at
+ * the right angle, and a CSS3D element at this scale paints
+ * correctly but hit-tests somewhere else — buttons inside it
+ * cannot be pressed. So the transport is handed up to the room,
+ * which draws it as a flat chip over the stage.
+ *
+ * The same applies to YouTube's own controls, which are inside
+ * the same element and equally unreachable. That is why the
+ * player is started with autoplay rather than waiting to be
+ * pressed.
+ */
+export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => void }) {
   const [tuned, setTuned] = useState<Tuned>(null);
   const [entry, setEntry] = useState("");
   const [bad, setBad] = useState(false);
@@ -110,6 +126,15 @@ export default function AtelierTV() {
     }
   };
 
+  const retune = () => {
+    setTuned(null);
+    try {
+      window.localStorage.removeItem(STORE);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const tune = (raw: string) => {
     const next = parseYouTube(raw);
     if (!next) {
@@ -125,6 +150,25 @@ export default function AtelierTV() {
     }
   };
 
+  /* The room needs stable handlers, and it needs to know whether
+     the set is showing a picture or the tuning panel. */
+  const apiRef = useRef<((a: TVApi | null) => void) | undefined>(onApi);
+  apiRef.current = onApi;
+  const stepRef = useRef(step);
+  stepRef.current = step;
+  const retuneRef = useRef(retune);
+  retuneRef.current = retune;
+  const isTuned = Boolean(tuned);
+
+  useEffect(() => {
+    apiRef.current?.({
+      step: (d) => stepRef.current(d),
+      retune: () => retuneRef.current(),
+      tuned: isTuned,
+    });
+    return () => apiRef.current?.(null);
+  }, [isTuned]);
+
   if (tuned) {
     return (
       <div className="tv-set">
@@ -135,27 +179,6 @@ export default function AtelierTV() {
           allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowFullScreen
         />
-        <div className="tv-transport">
-          <button type="button" onClick={() => step(-1)} aria-label="Previous track">
-            ⏮
-          </button>
-          <button type="button" onClick={() => step(1)} aria-label="Skip">
-            ⏭
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTuned(null);
-              try {
-                window.localStorage.removeItem(STORE);
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            Tune
-          </button>
-        </div>
       </div>
     );
   }

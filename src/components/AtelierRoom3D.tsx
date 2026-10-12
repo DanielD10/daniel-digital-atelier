@@ -16,7 +16,7 @@ import { moodNow, PHASE_ORDER, SEASON_ORDER, type Phase, type Season } from "@/l
 import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-decor";
 import { useAmbient } from "@/lib/ambient";
 import AtelierOS from "./AtelierOS";
-import AtelierTV from "./AtelierTV";
+import AtelierTV, { type TVApi } from "./AtelierTV";
 import AtelierLibrary from "./AtelierLibrary";
 
 /**
@@ -275,6 +275,9 @@ export default function AtelierRoom3D() {
   const [shot, setShot] = useState(0);
   const [view, setView] = useState(0);
   const [library, setLibrary] = useState(false);
+  /* The set's controls are drawn by the room, because buttons
+     inside the 3D picture cannot be pressed. */
+  const [tvApi, setTvApi] = useState<TVApi | null>(null);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -397,20 +400,27 @@ export default function AtelierRoom3D() {
     css.domElement.classList.add("room3d-css");
     host.appendChild(css.domElement);
 
-    // The desktop. React renders into this element; CSS3D only
-    // ever moves it, so the OS keeps its own state across every
-    // camera move.
-    const osHost = document.createElement("div");
-    osHost.className = "room3d-screen";
-    osHost.style.width = "780px";
-    osHost.style.height = "464px";
-    osHostRef.current = osHost;
-
-    const osObject = new CSS3DObject(osHost);
-    osObject.position.copy(built.screen.position);
-    const osScale = built.screen.width / 780;
-    osObject.scale.setScalar(osScale);
-    scene.add(osObject);
+    /* The desktop.
+     *
+     * NOT a CSS3D object any more. It was, and the OS worked
+     * perfectly while being completely unclickable: a CSS3D
+     * element carries a matrix3d whose scale here is about
+     * 0.0008 (a 780px-wide element standing in for 62cm of
+     * world), and at that scale Chromium paints the element in
+     * the right place but hit-tests it somewhere else entirely.
+     * Every click on the screen fell through to the canvas
+     * behind it. Calling .click() on a button opened its window;
+     * a mouse could not.
+     *
+     * So while you are sitting at the machine it is a flat panel
+     * over the stage, scaled with a plain 2D transform, which
+     * hit-tests exactly and comes out pixel-crisp instead of
+     * resampled through a perspective matrix. The camera is
+     * square-on to the screen at that point, so it looks the
+     * same. Across the room there is nothing to show: the OS
+     * renders null and the dark screen in the model stands in.
+     */
+    const osHost = osHostRef.current;
 
     // The television.
     const tvHost = document.createElement("div");
@@ -444,14 +454,38 @@ export default function AtelierRoom3D() {
     let hoverName: string | null = null;
     let pointerInside = false;
 
+    /* The cursor, as a light.
+     *
+     * Two halves that have to agree. This one is DOM: a soft
+     * halo with a small bright centre, so there is still a
+     * precise point to aim with — a pure glow with no centre is
+     * pretty and unusable. The other half is a real light in the
+     * scene, below, so moving it actually lifts what it passes
+     * over rather than just drawing on top of the picture.
+     *
+     * Only where there is a pointer to replace. A touch screen
+     * has none, and hiding a cursor that was never there just
+     * leaves a glow stuck wherever the last tap landed.
+     */
+    const torch = document.createElement("div");
+    torch.className = "room3d-torch";
+    host.appendChild(torch);
+    const hasHover = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (hasHover) host.classList.add("has-torch");
+
     const onPointerMove = (e: PointerEvent) => {
       const rect = host.getBoundingClientRect();
       pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       pointerInside = true;
+      if (hasHover) {
+        torch.style.transform = `translate(${e.clientX - rect.left}px, ${e.clientY - rect.top}px) translate(-50%, -50%)`;
+        torch.style.opacity = "1";
+      }
     };
     const onPointerLeave = () => {
       pointerInside = false;
+      torch.style.opacity = "0";
     };
 
     /**
@@ -636,6 +670,13 @@ export default function AtelierRoom3D() {
     let vinylSpin = 0;
     let chairSpin = 0;
 
+    /* The scene half of the cursor light. Dim and short-range on
+       purpose — bright enough to lift the surface it is passing
+       over, not bright enough to light the room or to compete
+       with the lamp and the neon. */
+    const torchLight = new THREE.PointLight(0xffd9a8, 0, 1.5, 2.2);
+    scene.add(torchLight);
+
     const lifeCtx: LifeCtx = { focus: 0, cursor: cursorWorld, t: 0, dt: 0, reduced };
 
     const render = () => {
@@ -666,6 +707,14 @@ export default function AtelierRoom3D() {
         hoverName = null;
         setHovered(null);
       }
+
+      // Sits just off the surface, or it lights the inside of it.
+      torchLight.position.copy(cursorWorld).addScaledVector(camera.position.clone().sub(cursorWorld).normalize(), 0.22);
+      torchLight.intensity = lerp(
+        torchLight.intensity,
+        pointerInside && !s.awake ? 0.62 : 0,
+        Math.min(1, dt * 6),
+      );
 
       // Ease every focus value toward 0 or 1. Boolean hover makes
       // things snap; a living room never snaps.
@@ -850,12 +899,6 @@ export default function AtelierRoom3D() {
       (p.tvGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, cur.tvI * 0.45);
       p.tvOff.visible = !s.tvOn;
       tvHost.style.visibility = s.tvOn ? "visible" : "hidden";
-      /* The desktop is a real DOM element floating over the
-         canvas, so while it is on screen it swallows every click
-         that lands on the monitor — including the one that is
-         supposed to sit you down at it. Out of the way until you
-         are actually sitting there. */
-      osHost.style.visibility = s.awake ? "visible" : "hidden";
 
       /* Hotspots, projected to the canvas. */
       for (const spot of spots) {
@@ -979,6 +1022,13 @@ export default function AtelierRoom3D() {
       css.setSize(w, h);
       composer.setSize(w, h);
       bloom.setSize(w * 0.5, h * 0.5);
+      /* The OS panel is laid out at a fixed 780x464 because its
+         window geometry is in pixels; it is scaled to the stage
+         rather than reflowed. */
+      if (osHost) {
+        const fit = Math.min((w * 0.94) / 780, (h * 0.88) / 464);
+        osHost.style.setProperty("--os-fit", String(Math.max(0.2, fit)));
+      }
       camera.aspect = w / h;
       camera.fov = fitFov(w / h);
       camera.updateProjectionMatrix();
@@ -1009,13 +1059,13 @@ export default function AtelierRoom3D() {
       host.removeEventListener("pointerleave", onPointerLeave);
       host.removeEventListener("click", onClick);
       if (spotLayer.parentNode === host) host.removeChild(spotLayer);
+      if (torch.parentNode === host) host.removeChild(torch);
       composer.dispose();
       built.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       if (css.domElement.parentNode === host) host.removeChild(css.domElement);
       builtRef.current = null;
-      osHostRef.current = null;
       tvHostRef.current = null;
     };
     // Built once. Everything that changes is read through refs.
@@ -1048,7 +1098,7 @@ export default function AtelierRoom3D() {
     const el = tvHostRef.current;
     if (!el) return;
     if (!tvRootRef.current) tvRootRef.current = createRoot(el);
-    tvRootRef.current.render(tvOn ? <AtelierTV /> : null);
+    tvRootRef.current.render(tvOn ? <AtelierTV onApi={setTvApi} /> : null);
   }, [ready, tvOn]);
 
   // Unmount the React roots on teardown, on their own, because
@@ -1119,6 +1169,27 @@ export default function AtelierRoom3D() {
             not fit the frame the exit leaves with it. This one is
             part of the page, not part of the room, so it cannot
             go off the bottom of anything. */}
+        {/* The desktop, as a flat panel. See the note in the scene
+            effect for why this is not a CSS3D object. */}
+        <div className="room3d-os" ref={osHostRef} aria-hidden={!awake} />
+
+        {ready && tvOn && !awake && tvApi?.tuned ? (
+          <div className="room3d-tvbar">
+            <button type="button" onClick={() => tvApi.step(-1)} aria-label="Previous track">
+              ⏮
+            </button>
+            <button type="button" onClick={() => tvApi.step(1)} aria-label="Skip">
+              ⏭
+            </button>
+            <button type="button" onClick={() => tvApi.retune()}>
+              Tune
+            </button>
+            <button type="button" onClick={() => setTvOn(false)}>
+              Off
+            </button>
+          </div>
+        ) : null}
+
         {ready && awake ? (
           <button type="button" className="room3d-leave" onClick={sleep}>
             ← Back to the room

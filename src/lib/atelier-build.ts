@@ -859,21 +859,62 @@ export function buildRoom(): Built {
   root.add(p2);
   posters.push(p2);
 
-  /* ══ Neon sign ═══════════════════════════════════════════ */
+  /* ══ Neon sign ═══════════════════════════════════════════
+     D/D, bent out of glass tube.
+
+     Real neon is one continuous tube per colour, so the letters
+     are built the way a bender would build them: the straight
+     back of each D is a capsule, the bowl is a half torus, and
+     the slash between them is one more capsule on the diagonal.
+     Rounded caps matter — a tube cut square at the end reads as
+     a stick, and the whole point of neon is that it does not
+     have ends. */
   const neonSign = new THREE.Group();
   const neonMat = keep(new THREE.MeshBasicMaterial({ color: 0xff2f86 }));
-  // An abstract mark of its own: two arcs and a bar.
-  const arc1 = new THREE.Mesh(keep(new THREE.TorusGeometry(0.16, 0.012, 10, 40, Math.PI * 1.35)), neonMat);
-  arc1.rotation.z = -0.5;
-  neonSign.add(arc1);
-  const arc2 = new THREE.Mesh(keep(new THREE.TorusGeometry(0.09, 0.011, 10, 32, Math.PI * 1.1)), neonMat);
-  arc2.rotation.z = 2.3;
-  arc2.position.set(0.03, -0.02, 0.012);
-  neonSign.add(arc2);
-  const bar = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.011, 0.011, 0.3, 10)), neonMat);
-  bar.rotation.z = Math.PI / 2;
-  bar.position.set(0, -0.2, 0);
-  neonSign.add(bar);
+  const TUBE = 0.013;
+
+  /** A straight run of tube, with the ends rounded off. */
+  const run = (len: number, x: number, y: number, rot = 0) => {
+    const m = new THREE.Mesh(keep(new THREE.CapsuleGeometry(TUBE, len, 6, 12)), neonMat);
+    m.position.set(x, y, 0);
+    m.rotation.z = rot;
+    neonSign.add(m);
+    return m;
+  };
+
+  /** The bowl of a D: half a torus, open side to the stem. */
+  const bowl = (r: number, x: number, y: number) => {
+    const m = new THREE.Mesh(
+      keep(new THREE.TorusGeometry(r, TUBE, 8, 28, Math.PI)),
+      neonMat,
+    );
+    m.position.set(x, y, 0);
+    m.rotation.z = -Math.PI / 2;
+    neonSign.add(m);
+    return m;
+  };
+
+  const LETTER_H = 0.26;
+  const BOWL_R = LETTER_H / 2;
+
+  // First D.
+  run(LETTER_H, -0.17, 0);
+  bowl(BOWL_R, -0.17, 0);
+  // The slash.
+  run(LETTER_H * 1.12, 0, 0, 0.38);
+  // Second D.
+  run(LETTER_H, 0.17, 0);
+  bowl(BOWL_R, 0.17, 0);
+
+  /* The mounting bar the tube is clipped to, which is what makes
+     a sign look fixed to a wall rather than floating on it. */
+  const backBar = new THREE.Mesh(
+    keep(new THREE.BoxGeometry(0.46, 0.012, 0.012)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x1a1822, roughness: 0.7 })),
+  );
+  backBar.position.set(0, -LETTER_H / 2 - 0.035, -0.012);
+  neonSign.add(backBar);
+
   neonSign.position.set(ROOM.leftX + 0.08, 1.95, 0.35);
   neonSign.rotation.y = Math.PI / 2;
   root.add(neonSign);
@@ -2002,12 +2043,24 @@ export function buildRoom(): Built {
   /* The second cat walks a circuit across the front of the desk
      and settles on the left of the rug. The last point in the
      path is the one she sleeps on. */
+  /* Her round.
+   *
+   * The old route went straight through the sofa — a third of a
+   * metre inside its footprint — and passed within a hand's
+   * width of the chair's centre column. This one keeps to the
+   * open floor down the left of the room and the strip in front
+   * of the desk, and still finishes on the rug.
+   *
+   * scratchpad/pathcheck.mjs sweeps a route against every piece
+   * of furniture in here; re-run it if anything on the floor
+   * moves. */
   const walker = buildWalkingCat(
     [
-      new THREE.Vector3(1.78, 0, -0.15),
-      new THREE.Vector3(1.12, 0, -1.22),
-      new THREE.Vector3(0.1, 0, -1.42),
-      new THREE.Vector3(-0.82, 0, -1.18),
+      new THREE.Vector3(-0.3, 0, 0.95),
+      new THREE.Vector3(-1.65, 0, 0.6),
+      new THREE.Vector3(-2.0, 0, -0.3),
+      new THREE.Vector3(-1.45, 0, -1.25),
+      new THREE.Vector3(-0.55, 0, -1.52),
       new THREE.Vector3(-0.95, 0, -0.52),
     ],
     keep,
