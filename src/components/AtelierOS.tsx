@@ -13,6 +13,8 @@ import {
   useAmbient,
 } from "@/lib/ambient";
 import type { Phase, Season } from "@/lib/atelier-time";
+import AtelierArcade from "./AtelierArcade";
+import AtelierDocs from "./AtelierDocs";
 
 /**
  * ATELIER OS — the machine on the desk.
@@ -42,7 +44,7 @@ const DOCK_H = 44;
  */
 const DESK_H = OS_H - MENU_H - DOCK_H;
 
-type AppId = "web" | "work" | "readme" | "notes" | "player" | "mail" | "term";
+type AppId = "web" | "work" | "readme" | "notes" | "player" | "mail" | "term" | "arcade" | "docs";
 
 type AppDef = {
   id: AppId;
@@ -64,6 +66,11 @@ const APPS: AppDef[] = [
   { id: "player", name: "Player", x: 452, y: 230, w: 254, h: 142 },
   { id: "mail", name: "Mail", x: 262, y: 52, w: 312, h: 268 },
   { id: "term", name: "Terminal", x: 222, y: 110, w: 400, h: 246 },
+  /* The arcade wants room: the racer draws at 640x480 and 2048's
+     board is 500 across, and a game you have to squint at is not
+     a game. */
+  { id: "arcade", name: "Arcade", x: 172, y: 12, w: 596, h: 372 },
+  { id: "docs", name: "Docs", x: 210, y: 34, w: 452, h: 318 },
 ];
 
 const byId = (id: AppId) => APPS.find((a) => a.id === id) as AppDef;
@@ -112,6 +119,18 @@ function Icon({ id }: { id: AppId }) {
         <g {...common}>
           <path d="M3 6h18v12H3z" />
           <path d="m3 7 9 6 9-6" />
+        </g>
+      ) : null}
+      {id === "arcade" ? (
+        <g {...common}>
+          <path d="M6 8h12a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3z" />
+          <path d="M7 14h3M8.5 12.5v3M15 13.5h.01M17.5 15.5h.01M9 8V5h6" />
+        </g>
+      ) : null}
+      {id === "docs" ? (
+        <g {...common}>
+          <path d="M6 3h8l4 4v14H6z" />
+          <path d="M14 3v4h4M9 12h6M9 16h4" />
         </g>
       ) : null}
       {id === "term" ? (
@@ -1048,6 +1067,10 @@ export default function AtelierOS({
         return <PlayerApp />;
       case "mail":
         return <MailApp />;
+      case "arcade":
+        return <AtelierArcade />;
+      case "docs":
+        return <AtelierDocs />;
       case "term":
         return (
           <TerminalApp

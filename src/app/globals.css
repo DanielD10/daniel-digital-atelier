@@ -3544,3 +3544,120 @@ main { position: relative; z-index: 3; }
 @media (hover: none), (prefers-reduced-motion: reduce) {
   .room3d-torch { display: none; }
 }
+
+/* ── Arcade ─────────────────────────────────────────────────
+   The games are vendored into /public/games and served from
+   here, so none of this depends on another site's frame policy.
+   See public/games/NOTICE.md for licences. */
+.arc { display: flex; flex-direction: column; height: 100%; padding: 12px; }
+.arc-list { flex: 1; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
+.arc-list li + li { margin-top: 8px; }
+.arc-list button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  padding: 11px 13px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+}
+.arc-list button:hover { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 47, 134, 0.6); }
+.arc-name { font-size: 13px; letter-spacing: 0.04em; color: #f3eee6; }
+.arc-blurb { font-size: 11px; line-height: 1.45; color: rgba(243, 238, 230, 0.6); }
+.arc-by { font-size: 9.5px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(243, 238, 230, 0.34); }
+.arc-foot { margin: 10px 0 0; font-size: 9.5px; letter-spacing: 0.06em; color: rgba(243, 238, 230, 0.32); }
+
+.arc-play { display: flex; flex-direction: column; height: 100%; background: #05040b; }
+.arc-playbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 6px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+.arc-playbar button {
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0;
+  border-radius: 3px;
+  color: #f3eee6;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.arc-playname { font-size: 11px; color: #f3eee6; }
+.arc-keys { margin-left: auto; font-size: 9.5px; letter-spacing: 0.07em; color: rgba(243, 238, 230, 0.42); }
+.arc-play iframe { flex: 1; width: 100%; border: 0; background: #000; }
+
+/* ── Docs ───────────────────────────────────────────────────
+   Google refuses to be framed from the editor URL, so this
+   takes published links, and has a pad of its own for anything
+   else. */
+.doc { display: flex; flex-direction: column; height: 100%; gap: 8px; padding: 12px; }
+.doc form { display: flex; gap: 6px; }
+.doc input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 3px;
+  color: #f3eee6;
+  font-size: 11px;
+}
+.doc form button {
+  padding: 0 13px;
+  background: #ff2f86;
+  border: 0;
+  border-radius: 3px;
+  color: #0b0916;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.doc-note { margin: 0; font-size: 10.5px; line-height: 1.5; color: #e0b457; }
+.doc-hint { margin: 0; font-size: 10px; line-height: 1.5; color: rgba(243, 238, 230, 0.42); }
+.doc-pad-label {
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(243, 238, 230, 0.36);
+}
+.doc-pad {
+  flex: 1;
+  min-height: 70px;
+  padding: 9px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  color: #f3eee6;
+  font-family: var(--f-micro);
+  font-size: 11.5px;
+  line-height: 1.6;
+  resize: none;
+}
+.doc-open { display: flex; flex-direction: column; height: 100%; background: #fff; }
+.doc-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 6px 9px;
+  background: #0b0916;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.doc-bar button {
+  padding: 4px 9px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 0;
+  border-radius: 3px;
+  color: #f3eee6;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.doc-bar a { margin-left: auto; font-size: 10px; color: rgba(243, 238, 230, 0.6); }
+.doc-open iframe { flex: 1; width: 100%; border: 0; }

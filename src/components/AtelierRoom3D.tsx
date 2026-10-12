@@ -1136,7 +1136,7 @@ export default function AtelierRoom3D() {
 
   if (!supported) {
     return (
-      <div className={`atelier${awake ? " is-awake" : ""}`}>
+      <div className="atelier">
         <p className="micro">
           This room is drawn with WebGL, and this browser has it switched off.
         </p>
@@ -1147,7 +1147,7 @@ export default function AtelierRoom3D() {
   const decorNote = decorLabel(decor);
 
   return (
-    <div className="atelier">
+    <div className={`atelier${awake ? " is-awake" : ""}`}>
       <div className={`room3d-stage${awake ? " is-awake" : ""}`} ref={stageRef}>
         <div className={`room3d-host${hovered ? " is-pointing" : ""}`} ref={hostRef} />
 
