@@ -59,8 +59,12 @@ type GutenRaw = {
 };
 
 async function gutenberg(q: string): Promise<Book[]> {
+  /* English only. Gutenberg carries the same title in half a
+     dozen languages and ranks by download count, so an unfiltered
+     search for an English classic comes back with Spanish and
+     French editions scattered through it. */
   const data = (await getJSON(
-    `https://gutendex.com/books?search=${encodeURIComponent(q)}`,
+    `https://gutendex.com/books?languages=en&search=${encodeURIComponent(q)}`,
   )) as { results?: GutenRaw[] };
   const rows = Array.isArray(data?.results) ? data.results : [];
 
@@ -104,17 +108,28 @@ type OLRaw = {
   ia?: string[];
   ebook_access?: string;
   cover_i?: number;
+  language?: string[];
 };
 
 async function openLibrary(q: string): Promise<Book[]> {
-  const fields = "key,title,author_name,first_publish_year,ia,ebook_access,cover_i";
+  const fields = "key,title,author_name,first_publish_year,ia,ebook_access,cover_i,language";
+  /* Asked for in the query and checked again on the way out:
+     the filter is server-side and the field is advisory, so a
+     record with no language at all still gets through the first
+     and has to be judged on the second. */
   const data = (await getJSON(
-    `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=16&fields=${fields}`,
+    `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}` +
+      `&language=eng&limit=20&fields=${fields}`,
   )) as { docs?: OLRaw[] };
   const rows = Array.isArray(data?.docs) ? data.docs : [];
 
   return rows.flatMap((d): Book[] => {
     if (!d.key || !d.title) return [];
+    /* A record that states its languages and does not list
+       English is out. One that states none is kept — plenty of
+       older records have no language at all, and dropping those
+       would thin the shelf more than the odd stray adds to it. */
+    if (Array.isArray(d.language) && d.language.length && !d.language.includes("eng")) return [];
     const ia = Array.isArray(d.ia) ? d.ia[0] : null;
     const level = d.ebook_access;
 
