@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import {
   buildCat,
   buildWalkingCat,
@@ -102,7 +103,75 @@ function wallTexture(): THREE.Texture {
     g.fillStyle = `rgba(${v},${v},${v},0.25)`;
     g.fillRect(r() * 256, r() * 256, 1.4, 1.4);
   }
+  // Broad, very faint patches. Painted plaster is never one value,
+  // and a wall that is reads instantly as a polygon.
+  for (let i = 0; i < 90; i++) {
+    const rad = 20 + r() * 70;
+    const grad = g.createRadialGradient(r() * 256, r() * 256, 0, 128, 128, rad);
+    grad.addColorStop(0, `rgba(255,250,240,${0.05 + r() * 0.06})`);
+    grad.addColorStop(1, "rgba(255,250,240,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 256, 256);
+  }
   return finish(c, 3);
+}
+
+/**
+ * Woven cloth.
+ *
+ * A warp and a weft at right angles, plus slub — the slight
+ * thickening and thinning along a real thread. At this scale you
+ * never consciously see the weave; what you see is that the
+ * surface stops being a flat colour, which is the whole
+ * difference between upholstery and a painted box.
+ */
+function fabricTexture(): THREE.Texture {
+  const { c, g } = canvas(256, 256);
+  const r = rand(211);
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 256; i += 2) {
+    g.strokeStyle = `rgba(0,0,0,${0.05 + r() * 0.07})`;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(i, 0);
+    g.lineTo(i, 256);
+    g.stroke();
+    g.strokeStyle = `rgba(255,255,255,${0.05 + r() * 0.08})`;
+    g.beginPath();
+    g.moveTo(0, i + 1);
+    g.lineTo(256, i + 1);
+    g.stroke();
+  }
+  // Slub: a few hundred short thick threads.
+  for (let i = 0; i < 400; i++) {
+    const x = r() * 256;
+    const y = r() * 256;
+    g.strokeStyle = `rgba(${r() > 0.5 ? 255 : 0},${r() > 0.5 ? 255 : 0},${r() > 0.5 ? 255 : 0},0.05)`;
+    g.lineWidth = 1 + r();
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + (r() > 0.5 ? 6 + r() * 10 : 0), y + (r() > 0.5 ? 0 : 6 + r() * 10));
+    g.stroke();
+  }
+  return finish(c, 1);
+}
+
+/** Greyscale break-up, used as a roughness map so highlights are
+ *  never a single clean sheen across a whole surface. */
+function roughTexture(seed: number, contrast: number): THREE.Texture {
+  const { c, g } = canvas(256, 256);
+  const r = rand(seed);
+  const mid = 150;
+  g.fillStyle = `rgb(${mid},${mid},${mid})`;
+  g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i++) {
+    const v = mid + (r() - 0.5) * 2 * contrast;
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    const w = 2 + r() * 22;
+    g.fillRect(r() * 256, r() * 256, w, w * (0.3 + r()));
+  }
+  return finish(c, 1, false);
 }
 
 function rugTexture(): THREE.Texture {
@@ -255,6 +324,12 @@ export function buildRoom(): Built {
   const wallMap = keep(wallTexture());
   const woodMap = keep(woodTexture());
   const rugMap = keep(rugTexture());
+  const clothMap = keep(fabricTexture());
+  const woodRough = keep(roughTexture(301, 46));
+  const clothRough = keep(roughTexture(409, 30));
+  clothMap.repeat.set(5, 5);
+  woodRough.repeat.set(2, 2);
+  clothRough.repeat.set(4, 4);
 
   const wallMat = keep(new THREE.MeshStandardMaterial({ color: 0x6d6480, roughness: 0.94, map: wallMap }));
   const floorMat = keep(
@@ -263,12 +338,31 @@ export function buildRoom(): Built {
     new THREE.MeshStandardMaterial({ color: 0x6d5440, roughness: 0.24, map: woodMap, metalness: 0.22 }),
   );
   const deskMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x7a5538, roughness: 0.46, map: woodMap, metalness: 0.04 }),
+    new THREE.MeshStandardMaterial({ color: 0x8a6038, roughness: 0.5, map: woodMap, roughnessMap: woodRough, metalness: 0.05 }),
   );
-  const darkMetal = keep(new THREE.MeshStandardMaterial({ color: 0x1b1a22, roughness: 0.42, metalness: 0.68 }));
+  const darkMetal = keep(new THREE.MeshStandardMaterial({ color: 0x23222c, roughness: 0.38, roughnessMap: woodRough, metalness: 0.72 }));
   const plastic = keep(new THREE.MeshStandardMaterial({ color: 0x24222c, roughness: 0.56, metalness: 0.08 }));
+  /* Warm metal, for the few places a room has any: lamp joints,
+     the dials on the set. Everything else being cold metal is
+     part of what made the place feel like one material. */
+  const brass = keep(new THREE.MeshStandardMaterial({ color: 0xb08a4a, roughness: 0.3, metalness: 0.85 }));
 
   const box = (w: number, h: number, d: number) => keep(new THREE.BoxGeometry(w, h, d));
+
+  /**
+   * A box with its edges taken off.
+   *
+   * Nothing made by a person has a perfectly sharp arris, and a
+   * room built entirely from ones that do reads as a stack of
+   * primitives no matter how well it is lit — a bevel a couple of
+   * millimetres wide catches a highlight along every edge and the
+   * whole thing stops looking like geometry. Radius is clamped so
+   * a thin panel cannot invert itself.
+   */
+  const rbox = (w: number, h: number, d: number, radius = 0.014) => {
+    const r2 = Math.min(radius, Math.min(w, h, d) * 0.45);
+    return keep(new RoundedBoxGeometry(w, h, d, 2, r2));
+  };
 
   const add = (
     geo: THREE.BufferGeometry,
@@ -436,13 +530,13 @@ export function buildRoom(): Built {
   /* ══ Desk ════════════════════════════════════════════════ */
   const deskW = 2.7;
   const deskD = 0.72;
-  add(box(deskW, 0.045, deskD), deskMat, 0.1, DESK_Y, DESK_Z);
+  add(rbox(deskW, 0.045, deskD, 0.009), deskMat, 0.1, DESK_Y, DESK_Z);
   for (const lx of [0.1 - deskW / 2 + 0.07, 0.1 + deskW / 2 - 0.07]) {
     for (const lz of [DESK_Z - deskD / 2 + 0.06, DESK_Z + deskD / 2 - 0.06]) {
       add(box(0.05, DESK_Y, 0.05), darkMetal, lx, DESK_Y / 2, lz);
     }
   }
-  add(box(0.46, 0.6, 0.6), deskMat, 1.1, 0.3, DESK_Z);
+  add(rbox(0.46, 0.6, 0.6, 0.012), deskMat, 1.1, 0.3, DESK_Z);
   for (let i = 0; i < 3; i++) {
     add(box(0.4, 0.015, 0.02), darkMetal, 1.1, 0.12 + i * 0.18, DESK_Z + 0.31);
   }
@@ -471,7 +565,7 @@ export function buildRoom(): Built {
   const screenZ = DESK_Z - 0.19;
 
   const bodyMat = keep(new THREE.MeshStandardMaterial({ color: 0x2b2a33, roughness: 0.34, metalness: 0.55 }));
-  add(box(SCREEN_W + 0.05, SCREEN_H + 0.09, 0.035), bodyMat, 0, screenY - 0.015, screenZ - 0.022);
+  add(rbox(SCREEN_W + 0.05, SCREEN_H + 0.09, 0.035, 0.008), bodyMat, 0, screenY - 0.015, screenZ - 0.022);
   add(box(SCREEN_W + 0.05, 0.035, 0.04), bodyMat, 0, screenY - SCREEN_H / 2 - 0.042, screenZ - 0.02);
   add(box(0.09, 0.17, 0.05), bodyMat, 0, DESK_Y + 0.055 + 0.085, screenZ - 0.02);
   add(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.016, 32)), bodyMat, 0, DESK_Y + 0.03, screenZ - 0.02);
@@ -500,7 +594,7 @@ export function buildRoom(): Built {
   hitBox(SCREEN_W + 0.1, SCREEN_H + 0.1, 0.1, "monitor", new THREE.Vector3(0, screenY, screenZ));
 
   /* ══ Desk things ═════════════════════════════════════════ */
-  const kb = add(box(0.44, 0.015, 0.14), plastic, -0.06, DESK_Y + 0.03, DESK_Z + 0.19);
+  const kb = add(rbox(0.44, 0.015, 0.14, 0.004), plastic, -0.06, DESK_Y + 0.03, DESK_Z + 0.19);
   kb.rotation.y = 0.045;
   const keyMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.8 }));
   const keyGeo = box(0.026, 0.006, 0.024);
@@ -546,7 +640,7 @@ export function buildRoom(): Built {
   });
 
   // Speaker, with cones that pulse when the music is on.
-  add(box(0.11, 0.17, 0.1), plastic, 0.72, DESK_Y + 0.11, DESK_Z - 0.08);
+  add(rbox(0.11, 0.17, 0.1, 0.008), plastic, 0.72, DESK_Y + 0.11, DESK_Z - 0.08);
   const speakerCones: THREE.Mesh[] = [];
   for (const [sy, sr] of [
     [0.145, 0.032],
@@ -623,7 +717,7 @@ export function buildRoom(): Built {
   const JOINT_C = new THREE.Vector3(-0.3, 0.44, 0.19);
   lampGroup.add(strut(JOINT_A, JOINT_B, 0.012));
   lampGroup.add(strut(JOINT_B, JOINT_C, 0.011));
-  const elbow = new THREE.Mesh(keep(new THREE.SphereGeometry(0.022, 14, 12)), lampMat);
+  const elbow = new THREE.Mesh(keep(new THREE.SphereGeometry(0.022, 14, 12)), brass);
   elbow.position.copy(JOINT_B);
   lampGroup.add(elbow);
 
@@ -666,11 +760,11 @@ export function buildRoom(): Built {
   /* ══ Chair ═══════════════════════════════════════════════ */
   const chair = new THREE.Group();
   const chairMat = keep(new THREE.MeshStandardMaterial({ color: 0x23202e, roughness: 0.78 }));
-  const seat = new THREE.Mesh(box(0.5, 0.07, 0.48), chairMat);
+  const seat = new THREE.Mesh(rbox(0.5, 0.07, 0.48, 0.02), chairMat);
   seat.position.set(0, 0.46, 0);
   seat.castShadow = true;
   chair.add(seat);
-  const backRest = new THREE.Mesh(box(0.48, 0.58, 0.06), chairMat);
+  const backRest = new THREE.Mesh(rbox(0.48, 0.58, 0.06, 0.025), chairMat);
   backRest.position.set(0, 0.78, -0.21);
   backRest.rotation.x = -0.14;
   backRest.castShadow = true;
@@ -809,18 +903,18 @@ export function buildRoom(): Built {
 
   // Cabinet: a frame around the picture, deeper at the back the
   // way a tube set is.
-  addTo(tvSet, box(TV_W + 0.18, 0.08, 0.34), tvShell, 0, TV_H / 2 + 0.04, -0.1);
-  addTo(tvSet, box(TV_W + 0.18, 0.08, 0.34), tvShell, 0, -TV_H / 2 - 0.04, -0.1);
-  addTo(tvSet, box(0.09, TV_H, 0.34), tvShell, -TV_W / 2 - 0.045, 0, -0.1);
-  addTo(tvSet, box(0.26, TV_H, 0.34), tvShell, TV_W / 2 + 0.13, 0, -0.1);
+  addTo(tvSet, rbox(TV_W + 0.18, 0.08, 0.34, 0.016), tvShell, 0, TV_H / 2 + 0.04, -0.1);
+  addTo(tvSet, rbox(TV_W + 0.18, 0.08, 0.34, 0.016), tvShell, 0, -TV_H / 2 - 0.04, -0.1);
+  addTo(tvSet, rbox(0.09, TV_H, 0.34, 0.016), tvShell, -TV_W / 2 - 0.045, 0, -0.1);
+  addTo(tvSet, rbox(0.26, TV_H, 0.34, 0.016), tvShell, TV_W / 2 + 0.13, 0, -0.1);
   addTo(tvSet, box(TV_W + 0.44, TV_H + 0.16, 0.05), tvShell, 0.07, 0, -0.26);
   // The back taper.
-  const taper = addTo(tvSet, box(TV_W * 0.6, TV_H * 0.6, 0.18), tvShell, 0, 0, -0.36);
+  const taper = addTo(tvSet, rbox(TV_W * 0.6, TV_H * 0.6, 0.18, 0.03), tvShell, 0, 0, -0.36);
   void taper;
 
   // Dials and a speaker grille on the fascia.
   for (let i = 0; i < 3; i++) {
-    const d = addTo(tvSet, keep(new THREE.CylinderGeometry(0.028, 0.028, 0.024, 20)), tvTrim, TV_W / 2 + 0.13, 0.11 - i * 0.105, 0.075);
+    const d = addTo(tvSet, keep(new THREE.CylinderGeometry(0.028, 0.028, 0.024, 20)), brass, TV_W / 2 + 0.13, 0.11 - i * 0.105, 0.075);
     d.rotation.x = Math.PI / 2;
   }
   for (let i = 0; i < 5; i++) {
@@ -871,6 +965,283 @@ export function buildRoom(): Built {
 
   // Where the CSS3D picture goes, in world space.
   const tvScreenPos = new THREE.Vector3(0, 0, 0.076).applyAxisAngle(new THREE.Vector3(0, 1, 0), TV_YAW).add(TV_ANCHOR);
+
+  /* ══ Living half ═════════════════════════════════════════
+     The room had one occupied corner and three empty walls,
+     which is why it read as a diorama of a desk rather than
+     somewhere anyone lives. Everything below is built from the
+     same primitives and designed here — no borrowed forms. */
+
+  /* Teal, deliberately. The room had gone monochrome purple and
+     upholstery is the largest single surface available to argue
+     with it. */
+  const fabric = keep(
+    new THREE.MeshStandardMaterial({
+      color: 0x2f5f64,
+      roughness: 0.96,
+      map: clothMap,
+      roughnessMap: clothRough,
+    }),
+  );
+  const fabricB = keep(
+    new THREE.MeshStandardMaterial({
+      color: 0x3d7a7e,
+      roughness: 0.96,
+      map: clothMap,
+      roughnessMap: clothRough,
+    }),
+  );
+  const paleWood = keep(
+    new THREE.MeshStandardMaterial({
+      color: 0xa07d55,
+      roughness: 0.58,
+      map: woodMap,
+      roughnessMap: woodRough,
+    }),
+  );
+
+
+  /* Sofa, back to the right wall, facing into the room. */
+  const sofa = new THREE.Group();
+  {
+    const baseM = new THREE.Mesh(rbox(0.9, 0.26, 1.9, 0.04), fabric);
+    baseM.position.y = 0.26;
+    baseM.castShadow = true;
+    baseM.receiveShadow = true;
+    sofa.add(baseM);
+    const backM = new THREE.Mesh(rbox(0.22, 0.52, 1.9, 0.05), fabric);
+    backM.position.set(0.34, 0.5, 0);
+    backM.castShadow = true;
+    sofa.add(backM);
+    for (const az of [-0.86, 0.86]) {
+      const arm = new THREE.Mesh(rbox(0.9, 0.2, 0.18, 0.055), fabricB);
+      arm.position.set(0, 0.48, az);
+      arm.castShadow = true;
+      sofa.add(arm);
+    }
+    for (const cz of [-0.46, 0.46]) {
+      const cushion = new THREE.Mesh(rbox(0.84, 0.14, 0.82, 0.05), fabricB);
+      cushion.position.set(-0.02, 0.45, cz);
+      cushion.castShadow = true;
+      sofa.add(cushion);
+    }
+    // Throw cushions, tipped over as they always are.
+    const cols = [0xff6f9d, 0x49e8ff, 0xf0c05a];
+    cols.forEach((c, i) => {
+      const m = keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+      const cu = new THREE.Mesh(rbox(0.3, 0.3, 0.1, 0.045), m);
+      cu.position.set(0.12, 0.66, -0.62 + i * 0.6);
+      cu.rotation.x = 0.4 + i * 0.2;
+      cu.castShadow = true;
+      sofa.add(cu);
+    });
+    for (const lz of [-0.78, 0.78]) {
+      for (const lx of [-0.34, 0.34]) {
+        const leg = new THREE.Mesh(box(0.06, 0.14, 0.06), darkMetal);
+        leg.position.set(lx, 0.07, lz);
+        sofa.add(leg);
+      }
+    }
+    sofa.position.set(2.2, 0, 0.5);
+    root.add(sofa);
+    hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
+  }
+
+  /* Shelving against the right wall, behind the sofa. */
+  {
+    const shelfUnit = new THREE.Group();
+    const H = 1.95;
+    const WD = 1.6;
+    for (const uz of [-WD / 2, WD / 2]) {
+      const upright = new THREE.Mesh(rbox(0.33, H, 0.05, 0.008), paleWood);
+      upright.position.set(0, H / 2, uz);
+      upright.castShadow = true;
+      shelfUnit.add(upright);
+    }
+    const rS = rand(601);
+    for (let i = 0; i < 5; i++) {
+      const y = 0.18 + i * 0.42;
+      const plank = new THREE.Mesh(rbox(0.33, 0.035, WD, 0.007), paleWood);
+      plank.position.y = y;
+      plank.castShadow = true;
+      plank.receiveShadow = true;
+      shelfUnit.add(plank);
+
+      // What is on the shelf: books, a box, sometimes a bowl.
+      let z = -WD / 2 + 0.12;
+      while (z < WD / 2 - 0.16) {
+        const roll = rS();
+        if (roll < 0.55) {
+          const n = 3 + Math.floor(rS() * 6);
+          for (let k = 0; k < n && z < WD / 2 - 0.12; k++) {
+            const bh = 0.18 + rS() * 0.1;
+            const bk = new THREE.Mesh(
+              box(0.16, bh, 0.034),
+              keep(
+                new THREE.MeshStandardMaterial({
+                  color: new THREE.Color().setHSL(rS(), 0.3, 0.38),
+                  roughness: 0.88,
+                }),
+              ),
+            );
+            bk.position.set(0, y + 0.018 + bh / 2, z);
+            bk.castShadow = true;
+            shelfUnit.add(bk);
+            z += 0.04;
+          }
+          z += 0.07;
+        } else if (roll < 0.8) {
+          const bx = new THREE.Mesh(
+            box(0.24, 0.18, 0.3),
+            keep(new THREE.MeshStandardMaterial({ color: 0x6a5f7f, roughness: 0.9 })),
+          );
+          bx.position.set(0, y + 0.108, z + 0.15);
+          bx.castShadow = true;
+          shelfUnit.add(bx);
+          z += 0.4;
+        } else {
+          const bowl = new THREE.Mesh(
+            keep(new THREE.CylinderGeometry(0.09, 0.06, 0.09, 18, 1, true)),
+            keep(new THREE.MeshStandardMaterial({ color: 0xc08a5a, roughness: 0.5, side: THREE.DoubleSide })),
+          );
+          bowl.position.set(0, y + 0.063, z + 0.11);
+          shelfUnit.add(bowl);
+          z += 0.3;
+        }
+      }
+    }
+    shelfUnit.position.set(2.78, 0, -1.25);
+    root.add(shelfUnit);
+    hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(2.78, 1, -1.25));
+  }
+
+  /* Coffee table, with the things that live on one. */
+  {
+    const top = add(rbox(0.62, 0.04, 1.0, 0.009), paleWood, 1.0, 0.38, 0.62);
+    void top;
+    for (const lz of [0.24, 1.0]) {
+      for (const lx of [0.78, 1.22]) {
+        add(box(0.05, 0.38, 0.05), darkMetal, lx, 0.19, lz);
+      }
+    }
+    // A tray, two cups and a short stack of magazines.
+    add(box(0.3, 0.02, 0.22), keep(new THREE.MeshStandardMaterial({ color: 0x2a2436, roughness: 0.6 })), 1.0, 0.41, 0.4);
+    for (const cz of [0.34, 0.46]) {
+      add(keep(new THREE.CylinderGeometry(0.035, 0.03, 0.08, 18)), keep(new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.3 })), 0.96, 0.46, cz);
+    }
+    [0xb4476a, 0x3f6ea8, 0xd8a53a].forEach((c, i) => {
+      const mag = add(
+        box(0.26, 0.012, 0.34),
+        keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.85 })),
+        1.02,
+        0.41 + i * 0.014,
+        0.88,
+      );
+      mag.rotation.y = (i - 1) * 0.12;
+    });
+    hitBox(0.8, 0.5, 1.1, "table", new THREE.Vector3(1.0, 0.3, 0.62));
+  }
+
+  /* Floor lamp in the corner behind the sofa. */
+  {
+    const lampG = new THREE.Group();
+    const foot = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 24)), darkMetal);
+    foot.castShadow = true;
+    lampG.add(foot);
+    const pole = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.018, 0.018, 1.5, 12)), darkMetal);
+    pole.position.y = 0.76;
+    pole.castShadow = true;
+    lampG.add(pole);
+    /* A pale shade lit from the inside at point-blank range, with
+       a bloom pass on top, is not a lamp — it is a white hole in
+       the middle of the room. The shade is dark and single-sided
+       so you never see its lit interior, and the light is a spot
+       pointing at the floor, which is what a shade is for. */
+    const dome = new THREE.Mesh(
+      keep(new THREE.SphereGeometry(0.19, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x332f42, roughness: 0.55, metalness: 0.3 })),
+    );
+    dome.rotation.x = Math.PI;
+    dome.position.y = 1.52;
+    dome.castShadow = true;
+    lampG.add(dome);
+
+    const warm = new THREE.SpotLight(0xffc98a, 2.4, 3.6, 0.9, 0.7, 1.4);
+    warm.position.set(0, 1.42, 0);
+    warm.target.position.set(0, 0, 0.15);
+    lampG.add(warm);
+    lampG.add(warm.target);
+    lampG.position.set(2.62, 0, 1.75);
+    root.add(lampG);
+    hitBox(0.44, 1.7, 0.44, "floorlamp", new THREE.Vector3(2.62, 0.85, 1.75));
+  }
+
+  /* Crates by the left wall, and a board leaning on them. */
+  {
+    const crateMat = keep(new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, map: woodMap }));
+    const stack = [
+      [0.46, 0.34, 0.4, -2.5, 0.17, 0.9, 0.1],
+      [0.42, 0.3, 0.38, -2.46, 0.49, 0.84, -0.18],
+      [0.3, 0.24, 0.3, -2.56, 0.76, 0.96, 0.3],
+    ] as const;
+    for (const [cw, ch, cd, cx2, cy2, cz2, rot] of stack) {
+      const c = add(rbox(cw, ch, cd, 0.012), crateMat, cx2, cy2, cz2);
+      c.rotation.y = rot;
+    }
+    const board = add(box(0.22, 0.9, 0.035), keep(new THREE.MeshStandardMaterial({ color: 0x2f3a58, roughness: 0.6 })), -2.82, 0.45, 0.2);
+    board.rotation.z = 0.16;
+    board.rotation.y = 0.5;
+    hitBox(0.7, 1.1, 0.7, "crates", new THREE.Vector3(-2.5, 0.5, 0.9));
+  }
+
+  /* A pouffe, because the floor needs something soft on it. */
+  {
+    const pouf = add(keep(new THREE.SphereGeometry(0.26, 20, 14)), fabricB, 0.2, 0.19, 1.25);
+    pouf.scale.set(1, 0.72, 1);
+  }
+
+  /* A second rug under the sitting half. */
+  {
+    const rug2 = new THREE.Mesh(
+      keep(new THREE.PlaneGeometry(1.9, 2.4)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x2c2440, roughness: 0.98 })),
+    );
+    rug2.rotation.x = -Math.PI / 2;
+    rug2.position.set(1.5, 0.003, 0.7);
+    rug2.receiveShadow = true;
+    root.add(rug2);
+  }
+
+  /* A cluster of small frames on the left wall. Abstract colour
+     fields of their own — nothing reproduced. */
+  {
+    const frames: Array<[number, number, number, number, number]> = [
+      [0.3, 0.22, 1.62, 0.42, 0x4a6f8a],
+      [0.22, 0.3, 1.95, 0.24, 0x8a4a6f],
+      [0.26, 0.2, 1.42, 0.78, 0x6f8a4a],
+    ];
+    for (const [fwid, fhgt, fy, fz, col] of frames) {
+      const fr = new THREE.Mesh(
+        keep(new THREE.PlaneGeometry(fwid, fhgt)),
+        keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.9, emissive: col, emissiveIntensity: 0.12 })),
+      );
+      fr.rotation.y = Math.PI / 2;
+      fr.position.set(ROOM.leftX + 0.02, fy, fz);
+      root.add(fr);
+    }
+  }
+
+  /* Wastebasket under the desk, and a cable reaching the wall. */
+  {
+    const bin = add(
+      keep(new THREE.CylinderGeometry(0.11, 0.09, 0.26, 18, 1, true)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x2a2634, roughness: 0.6, side: THREE.DoubleSide })),
+      -0.95,
+      0.13,
+      DESK_Z + 0.1,
+    );
+    void bin;
+  }
 
   /* ══ Outside ═════════════════════════════════════════════ */
   const outside = new THREE.Group();
