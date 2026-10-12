@@ -140,7 +140,51 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
  * than free orbit — free orbit in a room with three walls mostly
  * shows you the back of a wall. Arrows step between them.
  */
-type Shot = { name: string; pos: [number, number, number]; aim: [number, number, number] };
+type Triple = [number, number, number];
+type Shot = {
+  name: string;
+  pos: Triple;
+  aim: Triple;
+  /* A portrait frame is roughly a third as wide as a desktop one,
+     and some framings cannot be rescued by stepping back — the
+     television is mounted on the left wall, so from the desk
+     framing it sits about two frame-widths off the left edge no
+     matter how far back the camera goes along that same line. Those
+     shots get their own portrait framing rather than a fudge
+     factor. */
+  narrowPos?: Triple;
+  narrowAim?: Triple;
+};
+
+/**
+ * The lens.
+ *
+ * three.js takes a *vertical* field of view, so a portrait frame
+ * silently throws away horizontal view — a 50° lens that sees 72°
+ * across on a laptop sees 31° across on a phone. This widens the
+ * vertical angle on narrow frames only as far as it takes to hold
+ * a horizontal floor, and leaves desktop exactly as authored.
+ */
+const BASE_FOV = 50;
+const HALF_H_TAN_FLOOR = 0.33; // ~36.5 degrees across
+const rad = (d: number) => (d * Math.PI) / 180;
+const deg = (r: number) => (r * 180) / Math.PI;
+const BASE_HALF_V_TAN = Math.tan(rad(BASE_FOV / 2));
+
+function fitFov(aspect: number): number {
+  const need = HALF_H_TAN_FLOOR / Math.max(aspect, 0.3);
+  const capped = Math.min(need, Math.tan(rad(70 / 2)));
+  return deg(Math.atan(Math.max(BASE_HALF_V_TAN, capped)) * 2);
+}
+
+/**
+ * A frame counts as narrow at exactly the point the lens has to
+ * widen to hold the horizontal floor — about 0.71. Deriving both
+ * from one number means the alternate framings can never be used
+ * with the lens they were not drawn for, and there is no media
+ * query to disagree with the canvas.
+ */
+const isNarrow = (aspect: number) => HALF_H_TAN_FLOOR / Math.max(aspect, 0.3) > BASE_HALF_V_TAN;
 
 /** What is out of the window. Index matches uScene in the shader. */
 export const WINDOW_SCENES = [
@@ -158,8 +202,26 @@ export const WINDOW_SCENES = [
 
 const SHOTS: Shot[] = [
   { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6] },
-  { name: "The desk", pos: [1.5, 2.15, 1.5], aim: [0.05, 1.05, -2.05] },
-  { name: "The window", pos: [-2.3, 2.6, 3.0], aim: [0.3, 1.45, -2.3] },
+  {
+    name: "The desk",
+    pos: [1.5, 2.15, 1.5],
+    aim: [0.05, 1.05, -2.05],
+    /* Swung right and aimed between the two things that matter, so
+       the desk sits right of centre and the television left of it.
+       Both are in frame; the desk is smaller than on a laptop,
+       which is the price of a portrait window. Tapping the screen
+       still flies you into it. */
+    narrowPos: [3.39, 2.35, 1.83],
+    narrowAim: [-0.7, 1.32, -1.4],
+  },
+  {
+    name: "The window",
+    pos: [-2.3, 2.6, 3.0],
+    aim: [0.3, 1.45, -2.3],
+    // Centres the glass, which the desktop framing holds off to one side.
+    narrowPos: [-2.95, 2.9, 4.2],
+    narrowAim: [0.1, 1.5, -2.3],
+  },
   { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7] },
 ];
 
@@ -283,7 +345,7 @@ export default function AtelierRoom3D() {
     scene.fog = new THREE.FogExp2(0x0b0720, 0.011);
     // 42 degrees framed the desk and cropped both corners of the
     // room off the sides, which is where most of the furniture is.
-    const camera = new THREE.PerspectiveCamera(50, w / h, 0.05, 400);
+    const camera = new THREE.PerspectiveCamera(fitFov(w / h), w / h, 0.05, 400);
     camera.position.set(0.35, 1.6, 1.6);
 
     const built = buildRoom();
@@ -372,8 +434,14 @@ export default function AtelierRoom3D() {
      * off the edge. Every shot steps back from its own aim point
      * by a fixed factor rather than being re-authored.
      */
-    const narrow = window.matchMedia("(max-width: 860px)").matches;
-    const PULL = narrow ? 1.42 : 1;
+    /* Measured from the canvas, not from a media query, so it
+       survives rotating the phone and resizing a window. */
+    const rig = { narrow: false, pull: 1 };
+    const measure = () => {
+      rig.narrow = isNarrow(w / h);
+      rig.pull = rig.narrow ? 1.18 : 1;
+    };
+    measure();
     const WAKE_POS = new THREE.Vector3(
       built.screen.position.x,
       built.screen.position.y,
@@ -628,12 +696,16 @@ export default function AtelierRoom3D() {
         wantAim.copy(WAKE_AIM);
       } else {
         const sh = SHOTS[s.shot] ?? SHOTS[0];
-        wantAim.set(sh.aim[0], sh.aim[1], sh.aim[2]);
-        wantPos
-          .set(sh.pos[0], sh.pos[1], sh.pos[2])
-          .sub(wantAim)
-          .multiplyScalar(PULL)
-          .add(wantAim);
+        const useNarrow = rig.narrow && sh.narrowPos && sh.narrowAim;
+        const aim = useNarrow ? sh.narrowAim! : sh.aim;
+        const pos = useNarrow ? sh.narrowPos! : sh.pos;
+        wantAim.set(aim[0], aim[1], aim[2]);
+        wantPos.set(pos[0], pos[1], pos[2]);
+        /* A shot with its own portrait framing is already where it
+           wants to be; the rest step back from their aim point. */
+        if (!useNarrow) {
+          wantPos.sub(wantAim).multiplyScalar(rig.pull).add(wantAim);
+        }
         if (!reduced) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
@@ -688,7 +760,9 @@ export default function AtelierRoom3D() {
       composer.setSize(w, h);
       bloom.setSize(w * 0.5, h * 0.5);
       camera.aspect = w / h;
+      camera.fov = fitFov(w / h);
       camera.updateProjectionMatrix();
+      measure();
     };
     const ro = new ResizeObserver(resize);
     ro.observe(host);
