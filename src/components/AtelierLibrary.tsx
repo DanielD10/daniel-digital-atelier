@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Book } from "@/app/api/library/route";
 
 /**
@@ -10,6 +11,13 @@ import type { Book } from "@/app/api/library/route";
  * honesty is the whole point: each result says what the link gets
  * you — read free, or borrow free with an Archive account — and
  * nothing that needs buying is listed at all.
+ *
+ * Portalled to the body. Left in place it renders inside the
+ * stage, which is clipped and sits under a fixed masthead, so the
+ * top of the panel disappeared behind the navigation; and the
+ * stage's wrapper carries a transform, which makes it the
+ * containing block for anything fixed, so `position: fixed` would
+ * not have escaped it either.
  */
 
 const VERDICT: Record<Book["access"], string> = {
@@ -24,6 +32,8 @@ export default function AtelierLibrary({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [thin, setThin] = useState(false);
+  /* Portals need a DOM to land in, which the server render has not got. */
+  const [mounted, setMounted] = useState(false);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -31,14 +41,20 @@ export default function AtelierLibrary({ onClose }: { onClose: () => void }) {
      fast second one. */
   const runRef = useRef(0);
 
+  useEffect(() => setMounted(true), []);
+
+  /* Separate, and keyed on `mounted`: the first pass renders
+     nothing at all, so there is no input to put the caret in
+     until the portal exists. */
   useEffect(() => {
+    if (!mounted) return;
     inputRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [mounted, onClose]);
 
   const search = useCallback(async (term: string) => {
     const text = term.trim();
@@ -62,7 +78,7 @@ export default function AtelierLibrary({ onClose }: { onClose: () => void }) {
     }
   }, []);
 
-  return (
+  const panel = (
     <div
       className="lib-scrim"
       role="dialog"
@@ -145,4 +161,6 @@ export default function AtelierLibrary({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+
+  return mounted ? createPortal(panel, document.body) : null;
 }

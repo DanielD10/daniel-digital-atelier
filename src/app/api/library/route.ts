@@ -116,14 +116,21 @@ async function openLibrary(q: string): Promise<Book[]> {
   return rows.flatMap((d): Book[] => {
     if (!d.key || !d.title) return [];
     const ia = Array.isArray(d.ia) ? d.ia[0] : null;
-    const level = d.ebook_access ?? "no_ebook";
+    const level = d.ebook_access;
 
     /* printdisabled copies need a qualifying account, so calling
-       them free to a general reader would be a lie. */
-    let access: Access = "info";
+       them free to a general reader would be a lie.
+     *
+     * An Archive id with no access level is the one ambiguous
+     * case — either the field moved or the record is incomplete —
+     * and it is called borrowable, which is the weaker of the two
+     * honest claims. Everything unrecognised drops out, so if
+     * this field ever changes shape the shelf gets shorter rather
+     * than wrong. */
+    let access: Access;
     if (ia && level === "public") access = "read";
-    else if (ia && level === "borrowable") access = "borrow";
-    else if (level === "printdisabled" || level === "no_ebook") return [];
+    else if (ia && (level === "borrowable" || level === undefined)) access = "borrow";
+    else return [];
 
     return [
       {
