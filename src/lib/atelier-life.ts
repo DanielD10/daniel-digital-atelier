@@ -488,6 +488,118 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
 
 export type PlantKind = "monstera" | "snake" | "pothos" | "succulent";
 
+/**
+ * Veins.
+ *
+ * A leaf with no vein structure is a green shape, and ten green
+ * shapes on a stem is a houseplant-shaped object. The midrib and
+ * the laterals are most of what the eye uses to decide something
+ * grew rather than was drawn.
+ *
+ * Deliberately near-white with darker veining rather than green:
+ * the material's own colour is what the calendar repaints as the
+ * seasons turn, and a coloured map would fight it. This supplies
+ * the structure, the material supplies the hue.
+ *
+ * ExtrudeGeometry takes its uv straight from the shape's own
+ * coordinates, and leafShape runs x over -wide..+wide and y over
+ * 0..len — so the caller scales the map to its own leaf and the
+ * midrib lands exactly down the middle every time.
+ */
+function leafTexture(): { map: THREE.Texture; rough: THREE.Texture } {
+  const W = 192;
+  const H = 384;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d") as CanvasRenderingContext2D;
+  const r = rand(9021);
+
+  g.fillStyle = "#e9e9e9";
+  g.fillRect(0, 0, W, H);
+
+  // Blotching, so the surface is not uniform before the veins go on.
+  for (let i = 0; i < 260; i++) {
+    const x = r() * W;
+    const y = r() * H;
+    const rad = 6 + r() * 26;
+    g.fillStyle = `rgba(${r() < 0.5 ? "255,255,255" : "150,160,140"},${0.03 + r() * 0.05})`;
+    g.beginPath();
+    g.arc(x, y, rad, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  // The midrib: thick at the stem, tapering to the tip.
+  g.strokeStyle = "rgba(120,132,110,0.55)";
+  g.lineCap = "round";
+  for (let i = 0; i < 24; i++) {
+    const t = i / 24;
+    g.lineWidth = 7 * (1 - t) + 1.2;
+    g.beginPath();
+    g.moveTo(W / 2, H * t);
+    g.lineTo(W / 2, H * (t + 1 / 24));
+    g.stroke();
+  }
+  // A highlight just off the rib, which is what makes it read as raised.
+  g.strokeStyle = "rgba(255,255,255,0.4)";
+  g.lineWidth = 2;
+  g.beginPath();
+  g.moveTo(W / 2 + 4, H * 0.04);
+  g.lineTo(W / 2 + 2.5, H * 0.95);
+  g.stroke();
+
+  // Laterals, swept toward the tip, each with a few branchlets.
+  g.strokeStyle = "rgba(126,138,116,0.42)";
+  for (let i = 1; i <= 11; i++) {
+    const t = i / 12;
+    const y = H * t;
+    const reach = Math.sin(t * Math.PI) * (W / 2) * 0.86;
+    const rise = H * 0.085 * (1 - t * 0.4);
+    for (const dir of [-1, 1]) {
+      g.lineWidth = 2.6 * (1 - t * 0.5) + 0.5;
+      g.beginPath();
+      g.moveTo(W / 2, y);
+      g.quadraticCurveTo(W / 2 + dir * reach * 0.55, y + rise * 0.4, W / 2 + dir * reach, y + rise);
+      g.stroke();
+      // Branchlets off each lateral.
+      g.lineWidth = 0.9;
+      for (let b = 1; b <= 2; b++) {
+        const f = b / 3;
+        const bx = W / 2 + dir * reach * f;
+        const by = y + rise * f * 0.8;
+        g.beginPath();
+        g.moveTo(bx, by);
+        g.lineTo(bx + dir * reach * 0.16, by + rise * 0.5);
+        g.stroke();
+      }
+    }
+  }
+
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+  map.wrapS = THREE.ClampToEdgeWrapping;
+  map.wrapT = THREE.ClampToEdgeWrapping;
+
+  /* The same drawing read as roughness: the veins sit slightly
+     glossier than the blade, which is how a real leaf catches a
+     window. */
+  const rc = document.createElement("canvas");
+  rc.width = W;
+  rc.height = H;
+  const rg = rc.getContext("2d") as CanvasRenderingContext2D;
+  rg.fillStyle = "#b4b4b4";
+  rg.fillRect(0, 0, W, H);
+  rg.globalAlpha = 0.75;
+  rg.drawImage(c, 0, 0);
+  const rough = new THREE.CanvasTexture(rc);
+  rough.anisotropy = 4;
+  rough.wrapS = THREE.ClampToEdgeWrapping;
+  rough.wrapT = THREE.ClampToEdgeWrapping;
+
+  return { map, rough };
+}
+
 /** A leaf as real geometry: an outline, extruded thin. */
 function leafShape(len: number, wide: number, notched: boolean): THREE.Shape {
   const s = new THREE.Shape();
@@ -849,16 +961,26 @@ export function buildPlant(
 
   const potMat = new THREE.MeshStandardMaterial({ color: 0xa4663f, roughness: 0.88 });
   const soilMat = new THREE.MeshStandardMaterial({ color: 0x241a14, roughness: 1 });
+  const veins = leafTexture();
+  keep(veins.map);
+  keep(veins.rough);
   const leafA = new THREE.MeshStandardMaterial({
     color: 0x3f7a42,
     roughness: 0.58,
     side: THREE.DoubleSide,
+    map: veins.map,
+    roughnessMap: veins.rough,
   });
   const leafB = new THREE.MeshStandardMaterial({
     color: 0x5a9e4f,
     roughness: 0.58,
     side: THREE.DoubleSide,
+    map: veins.map.clone(),
+    roughnessMap: veins.rough,
   });
+  keep(leafB.map!);
+  // Flipped, so the two materials are not the same leaf twice.
+  leafB.map!.repeat.x = -1;
   // Tagged so the season can repaint every plant in the room by
   // walking the graph once, rather than each plant having to hold
   // its own reference back up to the driver.
@@ -875,6 +997,20 @@ export function buildPlant(
     pothos: { pot: 0.085, potH: 0.11, count: 0, len: 0.07, wide: 0.045, notched: false, stem: false },
     succulent: { pot: 0.05, potH: 0.065, count: 14, len: 0.075, wide: 0.026, notched: false, stem: false },
   }[kind];
+
+  /* Fit the vein map to this plant's leaf. leafShape runs x over
+     -wide..+wide and y over 0..len, and ExtrudeGeometry hands
+     those straight through as uv, so this puts the midrib down
+     the centre of the blade whatever size it is. */
+  for (const m of [leafA, leafB]) {
+    const t = m.map!;
+    t.repeat.set((t.repeat.x < 0 ? -1 : 1) / (spec.wide * 2), 1 / spec.len);
+    t.offset.set(0.5, 0);
+    t.needsUpdate = true;
+  }
+  veins.rough.repeat.set(1 / (spec.wide * 2), 1 / spec.len);
+  veins.rough.offset.set(0.5, 0);
+  veins.rough.needsUpdate = true;
 
   const potGeo = new THREE.CylinderGeometry(spec.pot, spec.pot * 0.76, spec.potH, 28);
   keep(potGeo);

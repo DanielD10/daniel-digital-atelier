@@ -51,6 +51,121 @@ function finish(c: HTMLCanvasElement, repeat = 1, srgb = true): THREE.Texture {
   return t;
 }
 
+/**
+ * Book spines, as one atlas.
+ *
+ * A shelf of plain coloured blocks is the clearest tell that a
+ * room was built rather than furnished. Real spines have a
+ * cloth, two rules stamped near the head and tail, a title
+ * running up the length and a publisher's mark at the foot — and
+ * crucially they are all slightly different heights, colours and
+ * typographic habits.
+ *
+ * One canvas with every spine side by side, so twenty books cost
+ * one texture upload; each book takes its slice by offsetting
+ * the map. The titles are legible only up close, which is
+ * correct: from across the room you should read "a shelf of
+ * books with writing on them", not a list.
+ */
+const SPINE_TITLES: Array<[string, string]> = [
+  ["THE TIMELESS WAY", "ALEXANDER"],
+  ["UNDERSTANDING MEDIA", "McLUHAN"],
+  ["GODEL ESCHER BACH", "HOFSTADTER"],
+  ["THE DESIGN OF THINGS", "NORMAN"],
+  ["NEUROMANCER", "GIBSON"],
+  ["SNOW CRASH", "STEPHENSON"],
+  ["THE DISPOSSESSED", "LE GUIN"],
+  ["GRID SYSTEMS", "MULLER-BROCKMANN"],
+  ["ON GROWTH AND FORM", "THOMPSON"],
+  ["THE SOUL OF A MACHINE", "KIDDER"],
+  ["PATTERNS", "GAMMA"],
+  ["A PATTERN LANGUAGE", "ALEXANDER"],
+  ["INVISIBLE CITIES", "CALVINO"],
+  ["THE ELEMENTS", "BRINGHURST"],
+  ["STRUCTURES", "GORDON"],
+  ["HOW BUILDINGS LEARN", "BRAND"],
+];
+
+const SPINE_COLS = SPINE_TITLES.length;
+const SPINE_W = 72;
+const SPINE_H = 460;
+
+function spineAtlas(): THREE.Texture {
+  const { c, g } = canvas(SPINE_W * SPINE_COLS, SPINE_H);
+  const r = rand(4411);
+
+  SPINE_TITLES.forEach(([title, author], i) => {
+    const x0 = i * SPINE_W;
+    const hue = r();
+    const dark = r() < 0.45;
+    const base = new THREE.Color().setHSL(hue, 0.22 + r() * 0.3, dark ? 0.16 + r() * 0.1 : 0.34 + r() * 0.16);
+    g.fillStyle = `#${base.getHexString()}`;
+    g.fillRect(x0, 0, SPINE_W, SPINE_H);
+
+    // Cloth tooth, so it is not a flat fill.
+    for (let n = 0; n < 900; n++) {
+      g.fillStyle = `rgba(0,0,0,${0.04 + r() * 0.07})`;
+      g.fillRect(x0 + r() * SPINE_W, r() * SPINE_H, 1, 1 + r());
+    }
+    // A little wear down both folded edges.
+    const edge = g.createLinearGradient(x0, 0, x0 + SPINE_W, 0);
+    edge.addColorStop(0, "rgba(0,0,0,0.38)");
+    edge.addColorStop(0.14, "rgba(0,0,0,0)");
+    edge.addColorStop(0.86, "rgba(0,0,0,0)");
+    edge.addColorStop(1, "rgba(0,0,0,0.42)");
+    g.fillStyle = edge;
+    g.fillRect(x0, 0, SPINE_W, SPINE_H);
+
+    // Foil: warm on dark cloth, near-black on pale.
+    const ink = dark ? `rgba(226,198,142,0.92)` : `rgba(26,22,20,0.86)`;
+
+    // Rules at head and tail, the way a bound book is stamped.
+    g.fillStyle = ink;
+    for (const y of [54, 62, SPINE_H - 96, SPINE_H - 88]) g.fillRect(x0 + 12, y, SPINE_W - 24, 2);
+
+    // Title, running up the spine.
+    g.save();
+    g.translate(x0 + SPINE_W / 2, SPINE_H - 128);
+    g.rotate(-Math.PI / 2);
+    g.fillStyle = ink;
+    g.textAlign = "left";
+    g.textBaseline = "middle";
+    let size = 27;
+    g.font = `600 ${size}px Georgia, "Times New Roman", serif`;
+    // Shrink until the longest titles fit between the rules.
+    const room = SPINE_H - 128 - 80;
+    while (g.measureText(title).width > room && size > 12) {
+      size -= 1;
+      g.font = `600 ${size}px Georgia, "Times New Roman", serif`;
+    }
+    g.fillText(title, 0, 0);
+    g.restore();
+
+    // Author at the foot, smaller and across.
+    g.save();
+    g.translate(x0 + SPINE_W / 2, SPINE_H - 48);
+    g.rotate(-Math.PI / 2);
+    g.fillStyle = ink;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    let asz = 15;
+    g.font = `500 ${asz}px Georgia, serif`;
+    while (g.measureText(author).width > 150 && asz > 8) {
+      asz -= 1;
+      g.font = `500 ${asz}px Georgia, serif`;
+    }
+    g.fillText(author, 0, 0);
+    g.restore();
+  });
+
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.ClampToEdgeWrapping;
+  t.wrapT = THREE.ClampToEdgeWrapping;
+  t.anisotropy = 8;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 /** Deterministic noise, so the room is the same room every load. */
 function rand(seed: number): () => number {
   let s = seed >>> 0;
@@ -353,6 +468,48 @@ export function buildRoom(): Built {
   const brass = keep(new THREE.MeshStandardMaterial({ color: 0xb08a4a, roughness: 0.3, metalness: 0.85 }));
 
   const box = (w: number, h: number, d: number) => keep(new THREE.BoxGeometry(w, h, d));
+
+  /* One atlas for every spine in the room; a book takes its
+     slice by offsetting the map, so a shelf of twenty costs one
+     texture. */
+  const spineMap = keep(spineAtlas());
+  let spineTurn = 0;
+
+  /**
+   * The six faces of a book.
+   *
+   * Only the spine is printed. The fore-edge is paper, the
+   * boards are the cloth again but plain, and the head and tail
+   * are the page block — which is what stops a shelf looking
+   * like a row of identically wrapped bricks.
+   */
+  const bookFaces = (r: () => number): THREE.Material[] => {
+    const i = spineTurn++ % SPINE_COLS;
+    const spine = keep(
+      new THREE.MeshStandardMaterial({ roughness: 0.86, map: spineMap.clone() }),
+    );
+    spine.map!.repeat.set(1 / SPINE_COLS, 1);
+    spine.map!.offset.set(i / SPINE_COLS, 0);
+    spine.map!.needsUpdate = true;
+    keep(spine.map!);
+
+    const cloth = keep(
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color().setHSL(r(), 0.24, 0.2 + r() * 0.16),
+        roughness: 0.9,
+      }),
+    );
+    const paper = keep(
+      new THREE.MeshStandardMaterial({ color: 0xcfc4ad, roughness: 0.95 }),
+    );
+    /* Spine on BOTH ends. The shelf stands against the right
+       wall and that wall is cut away in the overview, so the
+       shot people see most looks at it from behind — where a
+       strictly correct book would show its fore-edge and the
+       titles would never be visible at all. Head and tail stay
+       page block, the boards stay cloth. */
+    return [spine, spine, paper, paper, cloth, cloth];
+  };
 
   /**
    * A box with its edges taken off.
@@ -1121,19 +1278,18 @@ export function buildRoom(): Built {
           const n = 3 + Math.floor(rS() * 6);
           for (let k = 0; k < n && z < WD / 2 - 0.12; k++) {
             const bh = 0.18 + rS() * 0.1;
-            const bk = new THREE.Mesh(
-              box(0.16, bh, 0.034),
-              keep(
-                new THREE.MeshStandardMaterial({
-                  color: new THREE.Color().setHSL(rS(), 0.3, 0.38),
-                  roughness: 0.88,
-                }),
-              ),
-            );
+            const thick = 0.026 + rS() * 0.018;
+            /* The spine is the -x face: the shelf stands against
+               the right wall, so that is the one pointing into
+               the room. Only that face gets the printed slice;
+               the rest is the page block and the boards. */
+            const bk = new THREE.Mesh(box(0.16, bh, thick), bookFaces(rS));
             bk.position.set(0, y + 0.018 + bh / 2, z);
+            // Nothing on a real shelf is perfectly upright.
+            bk.rotation.x = (rS() - 0.5) * 0.03;
             bk.castShadow = true;
             shelfUnit.add(bk);
-            z += 0.04;
+            z += thick + 0.004;
           }
           z += 0.07;
         } else if (roll < 0.8) {
