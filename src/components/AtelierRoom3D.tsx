@@ -521,14 +521,10 @@ export default function AtelierRoom3D() {
       /* The window scene. The skyline is geometry, so a scene
          that is not a city has to take it out of the room, not
          just stop drawing sky behind it. */
-      const cityOut = s.view === 0;
-      p.skyMat.uniforms.uScene.value = 0;
+      /* Every view is painted on the pane now, the city included. */
       p.vistaMat.uniforms.uScene.value = s.view;
       p.vistaMat.uniforms.uTime.value = reduced ? 0 : t;
-      p.vista.visible = !cityOut;
-      p.cityGroup.visible = cityOut;
-      p.ships.visible = cityOut || s.view === 1;
-      p.rift.visible = cityOut || s.view === 1;
+      p.vista.visible = true;
 
       p.rainMat.uniforms.uTime.value = reduced ? 0 : t;
       /* Weather belongs to the view. A mountain range behind a
@@ -588,6 +584,13 @@ export default function AtelierRoom3D() {
       (u.uBot.value as THREE.Color).lerp(skyBot, k);
       starAmt = lerp(starAmt, mood.sky.stars, k);
       u.uStars.value = starAmt;
+      // The pane carries the view now, so the hour has to reach it
+      // as well as the dome behind it.
+      const vu = p.vistaMat.uniforms;
+      (vu.uTop.value as THREE.Color).lerp(skyTop, k);
+      (vu.uMid.value as THREE.Color).lerp(skyMid, k);
+      (vu.uBot.value as THREE.Color).lerp(skyBot, k);
+      vu.uStars.value = starAmt;
       u.uTime.value = reduced ? 0 : t;
 
       // Screens.
@@ -876,6 +879,7 @@ export default function AtelierRoom3D() {
 /** What the room says about itself when you point at something. */
 const TIPS: Record<string, string> = {
   cat: "She has noticed you.",
+  cat2: "Doing laps. Will stop if you look.",
   monitor: "Click to sit down at it",
   tv: "Click to switch it on",
   lamp: "The lamp",

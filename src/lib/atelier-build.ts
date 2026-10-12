@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import {
   buildCat,
+  buildWalkingCat,
   buildClock,
   buildDecor,
   buildPlant,
@@ -985,13 +986,93 @@ export function buildRoom(): Built {
 
         float s = uScene;
 
-        /* 0 — CITY. The towers are real geometry; this is only the
-           sky they stand against. */
+        /**
+         * 0 — CITY.
+         *
+         * Painted, like the other nine, and it has to be. The
+         * skyline used to be real geometry out past the glass,
+         * which looks superb from a chair at the desk and falls
+         * apart the moment the camera lifts: from up there the
+         * line of sight through the window passes under the
+         * towers entirely — thirty metres out it is already five
+         * metres below their bases — so the window filled with
+         * bare horizon. A view on the pane is framed the same way
+         * from everywhere in the room.
+         */
         if (s < 0.5) {
-          vec2 cell = floor(uv * vec2(260.0, 170.0));
+          vec2 cell = floor(uv * vec2(300.0, 200.0));
           float hh = hash21(cell);
-          float star = step(0.9962, hh) * smoothstep(0.5, 0.75, h);
+          float star = step(0.9965, hh) * smoothstep(0.52, 0.8, h);
           col += vec3(0.85, 0.9, 1.0) * star * (0.65 + 0.35 * sin(uTime * 1.7 + hh * 90.0)) * uStars;
+
+          // Moon.
+          float moon = smoothstep(0.022, 0.0, length((uv - vec2(0.76, 0.72)) * vec2(1.0, 1.0)));
+          col += vec3(0.86, 0.9, 1.0) * moon * 1.1 * uStars;
+
+          // Three ranks of towers, nearest last and darkest.
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            // Far rank many and small, near rank few and wide.
+            float cols = 13.0 - fi * 4.0;
+            float gx = uv.x * cols;
+            float id = floor(gx);
+            float fx = fract(gx);
+            float top = 0.5 + (0.05 + fi * 0.09) * (0.3 + hash11(id + fi * 23.0) * 1.4);
+            if (fx > 0.08 && fx < 0.92 && h < top) {
+              vec3 slab = mix(vec3(0.13, 0.12, 0.22), vec3(0.03, 0.03, 0.07), fi / 2.0);
+              col = slab;
+              // Lit windows, on a grid, most of them out.
+              vec2 wcell = vec2(floor(fx * (2.0 + fi)), floor((top - h) * (62.0 - fi * 13.0)));
+              float wh = hash21(wcell + id * 17.0 + fi * 101.0);
+              if (wh > 0.68) {
+                vec3 warm = wh > 0.93 ? vec3(0.62, 0.86, 1.0) : vec3(1.0, 0.78, 0.45);
+                col += warm * (0.42 + 0.38 * step(0.7, hash11(floor(uTime * 0.4) + wh * 50.0))) * (0.62 - fi * 0.14);
+              }
+              // Roof beacon on some of them.
+              if (hash11(id + fi * 7.0) > 0.72 && abs(h - top) < 0.004 && abs(fx - 0.5) < 0.08) {
+                col += vec3(1.0, 0.2, 0.2) * (0.4 + 0.6 * step(0.5, fract(uTime * 0.6)));
+              }
+            }
+          }
+
+          // Signage: tall thin bars on the near rank.
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float sx = 0.12 + hash11(fi * 13.0) * 0.76;
+            float sy = 0.52 + hash11(fi * 29.0) * 0.1;
+            vec2 d = (uv - vec2(sx, sy)) / vec2(0.006, 0.05);
+            if (abs(d.x) < 1.0 && abs(d.y) < 1.0) {
+              vec3 neon = fi < 1.0 ? vec3(1.0, 0.18, 0.52)
+                        : fi < 2.0 ? vec3(0.29, 0.91, 1.0)
+                        : fi < 3.0 ? vec3(0.70, 0.30, 1.0)
+                                   : vec3(1.0, 0.76, 0.28);
+              float fail = hash11(fi * 3.0) > 0.7 ? step(0.5, fract(uTime * 7.0 + fi)) : 1.0;
+              col = mix(col, neon, 0.9 * fail);
+            }
+          }
+
+          // Traffic: craft crossing above the roofline, each a hull
+          // and a light, wrapping round on its own clock.
+          for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float sp = 0.035 + fi * 0.02;
+            float cx2 = fract(uTime * sp + hash11(fi * 41.0));
+            float cy2 = 0.68 + fi * 0.055;
+            vec2 d = (uv - vec2(cx2, cy2)) / vec2(0.022, 0.0035);
+            if (dot(d, d) < 1.0) col = vec3(0.1, 0.11, 0.2);
+            float lamp = smoothstep(0.004, 0.0, length((uv - vec2(cx2 - 0.021, cy2)) * vec2(1.0, 2.2)));
+            col += vec3(0.6, 0.92, 1.0) * lamp * 1.4;
+          }
+
+          // The fold, still out there.
+          vec2 rp = (uv - vec2(0.3, 0.74)) / vec2(0.07, 0.075);
+          float rr = length(rp);
+          if (rr < 1.0) {
+            float inv = 1.0 / max(rr, 0.1);
+            float rings = sin(atan(rp.y, rp.x) * 1.6 + inv * 2.4 - uTime * 0.3) * 0.5 + 0.5;
+            col = mix(vec3(0.02, 0.01, 0.06), vec3(0.16, 0.82, 0.74), rings * smoothstep(1.0, 0.3, rr));
+            col = mix(col, vec3(1.0, 0.18, 0.52), smoothstep(0.84, 1.0, rr) * 0.9);
+          }
         }
 
         /* 1 — SPACE. Nebula banding, a dense star field and one
@@ -1196,7 +1277,7 @@ export function buildRoom(): Built {
    * a long way off; the depth is most of what makes it a view
    * rather than a wall.
    */
-  for (let i = 0; i < 95; i++) {
+  for (let i = 0; i < 0; i++) {
     const f = facades[Math.floor(rC() * facades.length)];
     const w = 4 + rC() * 10;
     const d = 4 + rC() * 9;
@@ -1327,7 +1408,7 @@ export function buildRoom(): Built {
     { kind: 1 as const, y: 5, z: -13, speed: 9, t: 0.2, s: 0.7 },
   ];
 
-  for (const plan of SHIP_PLAN) {
+  for (const plan of [] as typeof SHIP_PLAN) {
     const s = makeShip(plan.kind);
     s.position.set(0, plan.y, plan.z);
     s.scale.setScalar(plan.s);
@@ -1391,7 +1472,7 @@ export function buildRoom(): Built {
   disposables.push(riftMat);
   const rift = new THREE.Mesh(keep(new THREE.PlaneGeometry(13, 13)), riftMat);
   rift.position.set(5.5, 13, -27);
-  outside.add(rift);
+  rift.visible = false;
 
   /**
    * Rain, on the inside face of the glass.
@@ -1473,6 +1554,23 @@ export function buildRoom(): Built {
   root.add(cat.group);
   life.push(cat);
   if (cat.hit) targets.push(cat.hit);
+
+  /* The second cat walks a circuit across the front of the desk
+     and settles on the left of the rug. The last point in the
+     path is the one she sleeps on. */
+  const walker = buildWalkingCat(
+    [
+      new THREE.Vector3(1.78, 0, -0.15),
+      new THREE.Vector3(1.12, 0, -1.22),
+      new THREE.Vector3(0.1, 0, -1.42),
+      new THREE.Vector3(-0.82, 0, -1.18),
+      new THREE.Vector3(-0.95, 0, -0.52),
+    ],
+    keep,
+  );
+  root.add(walker.group);
+  life.push(walker);
+  if (walker.hit) targets.push(walker.hit);
 
   const plantSpecs: Array<[Parameters<typeof buildPlant>[0], number, THREE.Vector3]> = [
     ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],

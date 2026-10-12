@@ -445,6 +445,325 @@ function leafShape(len: number, wide: number, notched: boolean): THREE.Shape {
   return s;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   THE OTHER CAT — the one that does laps
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * A cat on a circuit.
+ *
+ * She walks the room, settles in her corner, sleeps for a while,
+ * gets up and walks it the other way. The states are a small
+ * machine rather than a timeline, because a timeline has to be
+ * kept in step with the frame rate and a machine does not — and
+ * because stopping to look at someone has to be able to happen in
+ * the middle of any of it.
+ *
+ * The gait is a diagonal one: front-left swings with back-right.
+ * That is what cats actually do at a walk, and it is also the
+ * thing your eye notices immediately when it is wrong.
+ */
+export function buildWalkingCat(
+  path: THREE.Vector3[],
+  keep: (x: { dispose: () => void }) => void,
+): Life {
+  const group = new THREE.Group();
+  const rig = new THREE.Group();
+  group.add(rig);
+
+  const fur = new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 0.93 });
+  const furPale = new THREE.MeshStandardMaterial({ color: 0xb49070, roughness: 0.93 });
+  const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
+  keep(fur);
+  keep(furPale);
+  keep(innerEar);
+
+  /* Body, slung between the shoulders and the hips. */
+  const bodyPivot = new THREE.Group();
+  const bodyGeo = new THREE.CapsuleGeometry(0.062, 0.17, 8, 18);
+  keep(bodyGeo);
+  const body = new THREE.Mesh(bodyGeo, fur);
+  body.rotation.z = Math.PI / 2;
+  body.castShadow = true;
+  bodyPivot.add(body);
+
+  const chestGeo = new THREE.SphereGeometry(0.058, 16, 12);
+  keep(chestGeo);
+  const chest = new THREE.Mesh(chestGeo, fur);
+  chest.position.set(0.09, -0.004, 0);
+  chest.castShadow = true;
+  bodyPivot.add(chest);
+  const rump = new THREE.Mesh(chestGeo, fur);
+  rump.position.set(-0.1, 0.004, 0);
+  rump.scale.setScalar(1.05);
+  rump.castShadow = true;
+  bodyPivot.add(rump);
+  bodyPivot.position.y = 0.17;
+  rig.add(bodyPivot);
+
+  /* Head on its own pivot at the neck. */
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0.17, 0.215, 0);
+  const headGeo = new THREE.SphereGeometry(0.055, 22, 16);
+  keep(headGeo);
+  const head = new THREE.Mesh(headGeo, fur);
+  head.castShadow = true;
+  headPivot.add(head);
+  const muzzleGeo = new THREE.SphereGeometry(0.028, 14, 10);
+  keep(muzzleGeo);
+  const muzzle = new THREE.Mesh(muzzleGeo, furPale);
+  muzzle.position.set(0.042, -0.013, 0);
+  muzzle.scale.set(0.85, 0.7, 1.1);
+  headPivot.add(muzzle);
+
+  const earGeo = new THREE.ConeGeometry(0.024, 0.046, 10);
+  keep(earGeo);
+  const earInGeo = new THREE.ConeGeometry(0.013, 0.028, 8);
+  keep(earInGeo);
+  const ears: THREE.Group[] = [];
+  for (const ez of [-0.03, 0.03]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(-0.006, 0.04, ez);
+    const ear = new THREE.Mesh(earGeo, fur);
+    ear.position.y = 0.022;
+    ear.castShadow = true;
+    pivot.add(ear);
+    const inner = new THREE.Mesh(earInGeo, innerEar);
+    inner.position.set(0.005, 0.02, 0);
+    pivot.add(inner);
+    pivot.rotation.x = ez > 0 ? 0.2 : -0.2;
+    headPivot.add(pivot);
+    ears.push(pivot);
+  }
+
+  const eyeGeo = new THREE.SphereGeometry(0.0105, 12, 10);
+  keep(eyeGeo);
+  const eyeMat = new THREE.MeshStandardMaterial({
+    color: 0x6fd8e8,
+    emissive: 0x1d5a66,
+    emissiveIntensity: 0.6,
+    roughness: 0.3,
+  });
+  keep(eyeMat);
+  const eyes: THREE.Mesh[] = [];
+  for (const ez of [-0.023, 0.023]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(0.042, 0.01, ez);
+    headPivot.add(eye);
+    eyes.push(eye);
+  }
+  rig.add(headPivot);
+
+  /* Four legs. Each is one pivot at the shoulder or hip with a
+     single segment hanging off it — at this size a second joint
+     costs geometry and buys nothing you can see. */
+  const legGeo = new THREE.CapsuleGeometry(0.016, 0.1, 6, 10);
+  keep(legGeo);
+  const pawGeo = new THREE.SphereGeometry(0.021, 10, 8);
+  keep(pawGeo);
+  type Leg = { pivot: THREE.Group; phase: number };
+  const legs: Leg[] = [];
+  // Diagonal gait: front-left with back-right.
+  const legSpec: Array<[number, number, number]> = [
+    [0.085, -0.045, 0],
+    [0.085, 0.045, Math.PI],
+    [-0.095, -0.045, Math.PI],
+    [-0.095, 0.045, 0],
+  ];
+  for (const [lx, lz, phase] of legSpec) {
+    const pivot = new THREE.Group();
+    pivot.position.set(lx, 0.155, lz);
+    const seg = new THREE.Mesh(legGeo, fur);
+    seg.position.y = -0.055;
+    seg.castShadow = true;
+    pivot.add(seg);
+    const paw = new THREE.Mesh(pawGeo, furPale);
+    paw.position.y = -0.112;
+    paw.scale.set(1, 0.7, 1.1);
+    pivot.add(paw);
+    rig.add(pivot);
+    legs.push({ pivot, phase });
+  }
+
+  /* Tail, three segments chained so it curls. */
+  const tailRoot = new THREE.Group();
+  tailRoot.position.set(-0.15, 0.185, 0);
+  const tailSegs: THREE.Group[] = [];
+  let parent: THREE.Object3D = tailRoot;
+  for (let i = 0; i < 3; i++) {
+    const seg = new THREE.Group();
+    seg.position.x = i === 0 ? 0 : -0.06;
+    const g = new THREE.CapsuleGeometry(0.013 - i * 0.003, 0.05, 6, 8);
+    keep(g);
+    const mesh = new THREE.Mesh(g, fur);
+    mesh.rotation.z = Math.PI / 2;
+    mesh.position.x = -0.03;
+    mesh.castShadow = true;
+    seg.add(mesh);
+    parent.add(seg);
+    parent = seg;
+    tailSegs.push(seg);
+  }
+  rig.add(tailRoot);
+
+  const hit = hitBox(0.44, 0.36, 0.3, "cat2", keep);
+  hit.position.set(0, 0.18, 0);
+  rig.add(hit);
+
+  /* ── The circuit ───────────────────────────────────────── */
+  const r = rand(5150);
+  type Mode = "walk" | "settle" | "rest" | "rise";
+  let mode: Mode = "walk";
+  let leg = 0;          // which segment of the path
+  let along = 0;        // 0..1 through that segment
+  let dir: 1 | -1 = 1;  // which way round
+  let down = 0;         // 0 standing, 1 lying
+  let restLeft = 0;
+  let stride = 0;
+  let blinkAt = 3;
+  let blinkPhase = -1;
+
+  const SPEED = 0.34;   // metres a second
+  const pos = new THREE.Vector3().copy(path[0]);
+  const look = new THREE.Vector3();
+  const seg = new THREE.Vector3();
+  let yaw = 0;
+
+  const update = ({ focus, cursor, t, dt, reduced }: LifeCtx) => {
+    if (reduced) {
+      group.position.copy(path[path.length - 1]);
+      return;
+    }
+
+    /* Pausing to look at someone can interrupt any state, which is
+       why the gait is driven by distance travelled rather than by
+       the clock — stop moving and the legs stop with you. */
+    const attention = focus;
+    const pace = mode === "walk" ? (1 - attention * 0.92) : 0;
+
+    if (mode === "walk") {
+      const a = path[leg];
+      const b = path[leg + dir] ?? path[leg];
+      seg.subVectors(b, a);
+      const len = Math.max(0.0001, seg.length());
+      along += (SPEED * pace * dt) / len;
+
+      if (along >= 1) {
+        along = 0;
+        leg += dir;
+        const atEnd = dir === 1 ? leg >= path.length - 1 : leg <= 0;
+        if (atEnd) {
+          leg = Math.max(0, Math.min(path.length - 1, leg));
+          // The far end of the circuit is the corner she sleeps in.
+          if (dir === 1) {
+            mode = "settle";
+          } else {
+            dir = 1;
+          }
+        }
+      }
+      pos.copy(a).addScaledVector(seg, along);
+      if (len > 0.0001 && pace > 0.01) {
+        const d = seg.clone().normalize();
+        yaw = Math.atan2(-d.z, d.x);
+      }
+      stride += SPEED * pace * dt * 11;
+    } else if (mode === "settle") {
+      down = Math.min(1, down + dt * 1.5);
+      if (down >= 1) {
+        mode = "rest";
+        restLeft = 14 + r() * 18;
+      }
+    } else if (mode === "rest") {
+      restLeft -= dt;
+      // Someone paying attention is worth getting up for.
+      if (restLeft <= 0 || attention > 0.75) mode = "rise";
+    } else {
+      down = Math.max(0, down - dt * 1.1);
+      if (down <= 0) {
+        mode = "walk";
+        dir = -1;
+        leg = path.length - 1;
+        along = 0;
+      }
+    }
+
+    group.position.copy(pos);
+    group.rotation.y += (yaw - group.rotation.y) * Math.min(1, dt * 4);
+
+    /* Gait. Legs swing, the body rises on each pair of steps, and
+       all of it folds away as she lies down. */
+    const stand = 1 - down;
+    for (const l of legs) {
+      const swing = Math.sin(stride + l.phase) * 0.5 * stand;
+      // Tucked under her when lying.
+      l.pivot.rotation.z = swing;
+      l.pivot.rotation.x = down * (l.pivot.position.z > 0 ? -1.25 : 1.25);
+      l.pivot.position.y = 0.155 - down * 0.1;
+    }
+    bodyPivot.position.y = 0.17 - down * 0.098 + Math.sin(stride * 2) * 0.006 * stand;
+    bodyPivot.rotation.z = Math.sin(stride * 2 + 0.6) * 0.03 * stand;
+
+    /* Head: bobs with the walk, turns to whoever is looking. */
+    headPivot.position.set(
+      0.17 - down * 0.02,
+      0.215 - down * 0.112 + Math.sin(stride * 2 + 1.2) * 0.005 * stand,
+      0,
+    );
+    let wantPitch = -down * 0.25;
+    let wantYaw = 0;
+    if (attention > 0.02) {
+      look.copy(cursor).sub(group.getWorldPosition(new THREE.Vector3()));
+      const localYaw = Math.atan2(-look.z, look.x) - group.rotation.y;
+      wantYaw = clamp(Math.atan2(Math.sin(localYaw), Math.cos(localYaw)), -1.1, 1.1) * attention;
+      wantPitch += clamp(Math.atan2(look.y - 0.2, Math.hypot(look.x, look.z)), -0.3, 0.6) * attention;
+    }
+    headPivot.rotation.y += (wantYaw - headPivot.rotation.y) * Math.min(1, dt * 4);
+    headPivot.rotation.z += (wantPitch - headPivot.rotation.z) * Math.min(1, dt * 4);
+
+    for (const [i, ear] of ears.entries()) {
+      const sign = i === 0 ? -1 : 1;
+      ear.rotation.x = sign * (0.2 - attention * 0.14) - down * 0.1;
+    }
+
+    if (blinkPhase < 0 && t > blinkAt) {
+      blinkPhase = 0;
+      blinkAt = t + 2.5 + r() * 4;
+    }
+    let lid = 1;
+    if (blinkPhase >= 0) {
+      blinkPhase += dt / 0.15;
+      lid = 0.08 + Math.abs(Math.cos(Math.min(1, blinkPhase) * Math.PI)) * 0.92;
+      if (blinkPhase >= 1) blinkPhase = -1;
+    }
+    // Asleep, the eyes stay shut.
+    const open = lid * (1 - down * 0.86);
+    for (const e of eyes) e.scale.set(1, Math.max(0.05, open), 1);
+
+    /* Tail. Counterweight at a walk, curled around her at rest. */
+    tailSegs.forEach((s2, i) => {
+      const swish = Math.sin(stride * 0.5 - i * 0.6) * (0.12 + attention * 0.3) * stand;
+      s2.rotation.y = swish + down * 0.55;
+      s2.rotation.z =
+        i === 0
+          ? (0.5 + attention * 0.7) * stand - down * 0.5
+          : -0.1 + Math.cos(stride * 0.5 - i * 0.6) * 0.08 * stand + down * 0.35;
+    });
+  };
+
+  return {
+    name: "cat2",
+    group,
+    hit,
+    update,
+    poke: () => {
+      // Woken, or at least acknowledged.
+      if (mode === "rest") mode = "rise";
+      blinkAt = 0;
+    },
+  };
+}
+
 export function buildPlant(
   kind: PlantKind,
   seed: number,
