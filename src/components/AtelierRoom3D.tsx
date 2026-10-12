@@ -17,6 +17,7 @@ import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-dec
 import { useAmbient } from "@/lib/ambient";
 import AtelierOS from "./AtelierOS";
 import AtelierTV from "./AtelierTV";
+import AtelierLibrary from "./AtelierLibrary";
 
 /**
  * The Lab, in three dimensions.
@@ -236,6 +237,7 @@ export default function AtelierRoom3D() {
   const [hovered, setHovered] = useState<string | null>(null);
   const [shot, setShot] = useState(0);
   const [view, setView] = useState(0);
+  const [library, setLibrary] = useState(false);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -414,14 +416,105 @@ export default function AtelierRoom3D() {
     const onPointerLeave = () => {
       pointerInside = false;
     };
-    const onClick = () => {
-      if (!hoverName) return;
-      pokeRef.current?.(hoverName);
+
+    /**
+     * What is under a given point on the canvas.
+     *
+     * The click handler used to read whatever the hover raycast
+     * had last found, which is fine with a mouse and useless with
+     * a finger: a tap fires pointerleave *before* click, so the
+     * loop had already cleared the hover and every tap on the
+     * monitor or the set went nowhere. Raycasting from the event's
+     * own coordinates needs no hover to have happened first.
+     */
+    const pickV = new THREE.Vector2();
+    const pick = (clientX: number, clientY: number): string | null => {
+      const rect = host.getBoundingClientRect();
+      pickV.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        -((clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      ray.setFromCamera(pickV, camera);
+      const live = built.targets.filter((o) => o.visible && !o.userData.inactive);
+      const hits = ray.intersectObjects(live, false);
+      return hits.length ? hits[0].object.name : null;
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const name = pick(e.clientX, e.clientY);
+      if (name) pokeRef.current?.(name);
     };
 
     host.addEventListener("pointermove", onPointerMove);
     host.addEventListener("pointerleave", onPointerLeave);
     host.addEventListener("click", onClick);
+
+    /* ── Hotspots ──────────────────────────────────────── */
+    /**
+     * Three dots that say "this one does something".
+     *
+     * Nothing in a rendered room announces that it is clickable,
+     * and on a phone there is no cursor to change shape and no
+     * hover to discover it with. These are DOM, not geometry, so
+     * they stay a legible size whatever the camera is doing, and
+     * they are buttons, so a tap on the dot works as well as a tap
+     * on the object.
+     *
+     * `shown` is per-object, and the two cases are not symmetric.
+     * The set is bolted to the left wall and faces into the room,
+     * so once the camera walks past that wall you are looking at
+     * its back and the dot has to go. The shelving only stands
+     * against the right wall — dropping that wall reveals it
+     * rather than hiding it — so it is visible from everywhere,
+     * and the frame test below is all it needs.
+     */
+    type Spot = {
+      name: string;
+      label: string;
+      anchor: THREE.Vector3;
+      shown: (camX: number) => boolean;
+      el: HTMLButtonElement;
+    };
+
+    const spotLayer = document.createElement("div");
+    spotLayer.className = "room3d-spots";
+    host.appendChild(spotLayer);
+
+    const makeSpot = (
+      name: string,
+      label: string,
+      anchor: THREE.Vector3,
+      shown: (camX: number) => boolean,
+    ): Spot => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = "room3d-spot";
+      el.setAttribute("aria-label", label);
+      el.innerHTML = `<i aria-hidden="true"></i><span>${label}</span>`;
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        pokeRef.current?.(name);
+      });
+      spotLayer.appendChild(el);
+      return { name, label, anchor, shown, el };
+    };
+
+    const spots: Spot[] = [
+      makeSpot(
+        "monitor",
+        "Sit down",
+        built.screen.position.clone().add(new THREE.Vector3(0, 0.27, 0.02)),
+        () => true,
+      ),
+      makeSpot(
+        "tv",
+        "Turn it on",
+        built.tv.position.clone().add(new THREE.Vector3(0, 0.3, 0)),
+        (x) => x > -2.4,
+      ),
+      makeSpot("shelf", "Find a book", new THREE.Vector3(2.62, 1.72, -1.25), () => true),
+    ];
+    const projV = new THREE.Vector3();
 
     /* ── Camera rigs ───────────────────────────────────── */
     const IDLE_POS = new THREE.Vector3(...SHOTS[0].pos);
@@ -594,6 +687,7 @@ export default function AtelierRoom3D() {
       /* Every view is painted on the pane, the city included —
          unless the scene has photographs behind the glass, in
          which case the pane gets out of their way. */
+      built.vistas.prime(s.view);
       const photo = built.vistas.ready(s.view);
       built.vistas.show(photo ? s.view : -1);
       if (!reduced) built.vistas.tick(t);
@@ -692,6 +786,30 @@ export default function AtelierRoom3D() {
       (p.tvGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, cur.tvI * 0.45);
       p.tvOff.visible = !s.tvOn;
       tvHost.style.visibility = s.tvOn ? "visible" : "hidden";
+      /* The desktop is a real DOM element floating over the
+         canvas, so while it is on screen it swallows every click
+         that lands on the monitor — including the one that is
+         supposed to sit you down at it. Out of the way until you
+         are actually sitting there. */
+      osHost.style.visibility = s.awake ? "visible" : "hidden";
+
+      /* Hotspots, projected to the canvas. */
+      for (const spot of spots) {
+        projV.copy(spot.anchor).project(camera);
+        /* Behind the camera, or off the side of the frame — a dot
+           pinned to the edge for something you cannot see reads
+           as a bug. */
+        const onFrame =
+          projV.z < 1 && Math.abs(projV.x) < 0.94 && Math.abs(projV.y) < 0.94;
+        const live = !s.awake && onFrame && spot.shown(camPos.x);
+        spot.el.style.opacity = live ? "1" : "0";
+        spot.el.style.pointerEvents = live ? "auto" : "none";
+        if (!live) continue;
+        const sx = (projV.x * 0.5 + 0.5) * w;
+        const sy = (-projV.y * 0.5 + 0.5) * h;
+        spot.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -50%)`;
+        spot.el.classList.toggle("is-near", hoverName === spot.name);
+      }
 
       // Ships cross the window and wrap round.
       if (!reduced) {
@@ -764,6 +882,10 @@ export default function AtelierRoom3D() {
         setTvOn((v) => !v);
         return;
       }
+      if (name === "shelf") {
+        setLibrary(true);
+        return;
+      }
       const item = built.life.find((l) => l.name === name);
       item?.poke?.();
     };
@@ -805,6 +927,7 @@ export default function AtelierRoom3D() {
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerleave", onPointerLeave);
       host.removeEventListener("click", onClick);
+      if (spotLayer.parentNode === host) host.removeChild(spotLayer);
       composer.dispose();
       built.dispose();
       renderer.dispose();
@@ -927,6 +1050,8 @@ export default function AtelierRoom3D() {
             </button>
           </div>
         ) : null}
+
+        {library ? <AtelierLibrary onClose={() => setLibrary(false)} /> : null}
       </div>
 
       <div className="atelier-bar">

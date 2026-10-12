@@ -78,8 +78,17 @@ type Live = {
 
 export type VistaSet = {
   group: THREE.Group;
-  /** True once at least one layer of this scene has decoded. */
+  /** True once this scene's backdrop has decoded. */
   ready: (scene: number) => boolean;
+  /**
+   * Begin fetching a scene's layers. Safe to call every frame;
+   * it does the work once. Nothing is requested until a scene is
+   * actually looked at, which keeps a scene with no files from
+   * throwing 404s at every visitor and keeps a scene with large
+   * files from being downloaded by people who never switch the
+   * window.
+   */
+  prime: (scene: number) => void;
   /** Show one scene and hide the rest; -1 hides everything. */
   show: (scene: number) => void;
   /** Per-frame sway. Camera parallax needs no help; it is geometry. */
@@ -109,12 +118,19 @@ export function buildVistas(specs: VistaSpec[]): VistaSet {
   group.name = "photo-vistas";
 
   const loader = new THREE.TextureLoader();
+  /** Which scene is on screen; read by deferred loads that finish late. */
+  let shown = -1;
   const byScene = new Map<number, Live[]>();
   const decoded = new Set<number>();
   const owned: Array<THREE.Texture | THREE.Material | THREE.BufferGeometry> = [];
 
+  /** Fetches not yet started, by scene. */
+  const primes = new Map<number, Array<() => void>>();
+
   for (const spec of specs) {
     const live: Live[] = [];
+    const pending: Array<() => void> = [];
+    primes.set(spec.scene, pending);
     byScene.set(spec.scene, live);
 
     spec.layers.forEach((layer, i) => {
@@ -141,43 +157,51 @@ export function buildVistas(specs: VistaSpec[]): VistaSet {
 
       live.push({ mesh, mat, depth, sway: layer.sway ?? 0, homeX: mesh.position.x });
 
-      loader.load(
-        layer.src,
-        (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.anisotropy = 8;
-          tex.wrapS = THREE.ClampToEdgeWrapping;
-          tex.wrapT = THREE.ClampToEdgeWrapping;
-          tex.needsUpdate = true;
-          owned.push(tex);
+      /* Deferred until the scene is first looked at. */
+      pending.push(() => {
+        loader.load(
+          layer.src,
+          (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.anisotropy = 8;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
+            tex.needsUpdate = true;
+            owned.push(tex);
 
-          const img = tex.image as { width: number; height: number };
-          const aspect = img && img.height ? img.width / img.height : 16 / 9;
-          const { w, h } = fitPlane(depth, aspect);
-          mesh.scale.set(w, h, 1);
+            const img = tex.image as { width: number; height: number };
+            const aspect = img && img.height ? img.width / img.height : 16 / 9;
+            const { w, h } = fitPlane(depth, aspect);
+            mesh.scale.set(w, h, 1);
 
-          mat.map = tex;
-          mat.needsUpdate = true;
-          /* Only the backdrop counts. The nearer layers are alpha
-             cutouts, so a scene that had those and not the base
-             would switch the shader off and leave you looking
-             through a few branches at nothing. */
-          if (i === 0) decoded.add(spec.scene);
-        },
-        undefined,
-        () => {
-          /* No file there. The shader vista stays on for this
-             scene and nothing in the room notices. */
-        },
-      );
+            mat.map = tex;
+            mat.needsUpdate = true;
+            /* Only the backdrop counts. The nearer layers are
+               alpha cutouts, so a scene that had those and not
+               the base would switch the shader off and leave you
+               looking through a few branches at nothing. */
+            if (i === 0) decoded.add(spec.scene);
+            if (shown === spec.scene) mesh.visible = true;
+          },
+          undefined,
+          () => {
+            /* No file there. The shader vista stays on for this
+               scene and nothing in the room notices. */
+          },
+        );
+      });
     });
   }
-
-  let shown = -1;
 
   return {
     group,
     ready: (scene) => decoded.has(scene),
+    prime: (scene) => {
+      const jobs = primes.get(scene);
+      if (!jobs || !jobs.length) return;
+      primes.set(scene, []);
+      for (const run of jobs) run();
+    },
     show: (scene) => {
       if (shown === scene) return;
       shown = scene;

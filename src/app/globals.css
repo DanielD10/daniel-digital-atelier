@@ -2975,3 +2975,319 @@ main { position: relative; z-index: 3; }
   .room3d-nav { right: 10px; bottom: 10px; gap: 6px; }
   .room3d-shot { min-width: 8ch; font-size: 10px; }
 }
+
+/* ── Hotspots ───────────────────────────────────────────────
+   Dots over the three things in the room that do something.
+   The layer is inert; only the dots take a pointer, so the
+   raycast under them is never blocked except where a tap on the
+   dot means the same thing anyway. */
+.room3d-spots {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.room3d-spot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #f3eee6;
+  font-family: var(--f-micro);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 260ms ease;
+  will-change: transform, opacity;
+}
+
+.room3d-spot i {
+  position: relative;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.85);
+}
+
+/* The ring is a second element's worth of chrome without a
+   second element: a pseudo that breathes outward on a loop. */
+.room3d-spot i::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: spot-pulse 2.4s ease-out infinite;
+}
+
+.room3d-spot span {
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.9);
+}
+
+.room3d-spot:hover span,
+.room3d-spot:focus-visible span,
+.room3d-spot.is-near span {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.room3d-spot:hover i,
+.room3d-spot.is-near i {
+  background: var(--accent, #ff2f86);
+  box-shadow: 0 0 16px rgba(255, 47, 134, 0.9);
+}
+
+.room3d-spot:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.7);
+  outline-offset: 6px;
+  border-radius: 4px;
+}
+
+@keyframes spot-pulse {
+  0% { transform: scale(0.7); opacity: 0.9; }
+  70% { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .room3d-spot i::after { animation: none; opacity: 0.5; }
+  /* No hover on a touch screen, so the labels just stay up. */
+}
+
+@media (hover: none) {
+  .room3d-spot span { opacity: 1; transform: none; }
+}
+
+/* ── The shelf ──────────────────────────────────────────── */
+.lib-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(4, 3, 10, 0.78);
+  backdrop-filter: blur(10px);
+  animation: lib-in 220ms ease both;
+}
+
+@keyframes lib-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.lib-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(620px, 100%);
+  max-height: 100%;
+  padding: 22px;
+  background: #0b0916;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.7);
+}
+
+.lib-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.lib-kicker {
+  margin: 0 0 4px;
+  font-family: var(--f-micro);
+  font-size: 0.6rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(243, 238, 230, 0.5);
+}
+
+.lib-head h2 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: 1.5rem;
+  font-weight: 400;
+  color: #f3eee6;
+}
+
+.lib-x {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 50%;
+  color: #f3eee6;
+  cursor: pointer;
+}
+.lib-x:hover { border-color: rgba(255, 255, 255, 0.6); }
+
+.lib-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.lib-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 11px 13px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  color: #f3eee6;
+  font-family: var(--f-micro);
+  font-size: 0.9rem;
+}
+.lib-form input:focus {
+  outline: none;
+  border-color: rgba(255, 47, 134, 0.8);
+}
+
+.lib-form button {
+  flex: none;
+  padding: 0 18px;
+  background: #ff2f86;
+  border: 0;
+  border-radius: 3px;
+  color: #0b0916;
+  font-family: var(--f-micro);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.lib-form button:disabled { opacity: 0.4; cursor: default; }
+
+.lib-note {
+  margin: 10px 0 0;
+  font-family: var(--f-micro);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: rgba(243, 238, 230, 0.45);
+}
+
+.lib-body {
+  flex: 1;
+  min-height: 0;
+  margin-top: 14px;
+  overflow-y: auto;
+}
+
+.lib-empty {
+  margin: 18px 0;
+  font-family: var(--f-micro);
+  font-size: 0.78rem;
+  color: rgba(243, 238, 230, 0.6);
+}
+
+.lib-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lib-list a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  text-decoration: none;
+  color: inherit;
+}
+.lib-list a:hover { background: rgba(255, 255, 255, 0.05); }
+
+.lib-cover {
+  flex: none;
+  width: 34px;
+  height: 48px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lib-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.lib-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lib-meta strong {
+  font-family: var(--f-micro);
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: #f3eee6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lib-meta em {
+  font-family: var(--f-micro);
+  font-size: 0.68rem;
+  font-style: normal;
+  color: rgba(243, 238, 230, 0.5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-tag {
+  flex: none;
+  padding: 4px 9px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-family: var(--f-micro);
+  font-size: 0.56rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.lib-tag.is-read { color: #5fd3a0; }
+.lib-tag.is-borrow { color: #e0b457; }
+.lib-tag.is-info { color: rgba(243, 238, 230, 0.4); }
+
+@media (max-width: 560px) {
+  .lib-panel { padding: 16px; }
+  .lib-head h2 { font-size: 1.2rem; }
+  .lib-form { flex-wrap: wrap; }
+  .lib-form button { width: 100%; padding: 11px; }
+}
+
+/* Once the page has moved under it, the bar needs something
+   behind it. Difference blending has to go at the same time:
+   against a backdrop of its own it just inverts the backdrop. */
+.mast.is-stuck {
+  mix-blend-mode: normal;
+  padding-bottom: 10px;
+  background: rgba(7, 6, 10, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.mast.is-stuck .monogram,
+.mast.is-stuck .nav a,
+.mast.is-stuck .mast-end { color: #f3eee6; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .mast { transition: background 220ms ease, padding-bottom 220ms ease; }
+}
