@@ -155,6 +155,23 @@ type Shot = {
      factor. */
   narrowPos?: Triple;
   narrowAim?: Triple;
+  /**
+   * Radius, in metres, of the sphere around the aim point that
+   * this shot is actually about — the desk and the set for the
+   * desk shot, the whole room for the overview.
+   *
+   * The camera backs off along its own axis until that sphere
+   * fills the tighter of the two half-angles. That is what stops
+   * the black: a fixed camera position has to be authored for one
+   * frame shape, and the moment the frame is taller or wider than
+   * that one, the slack turns into empty room. Fitting instead of
+   * placing means a phone, a laptop and a full-screen ultrawide
+   * all get a full frame.
+   */
+  fit: number;
+  /** The same, for the portrait framing, which usually has to
+   *  hold more of the room in a much narrower frame. */
+  narrowFit?: number;
 };
 
 /**
@@ -202,18 +219,21 @@ export const WINDOW_SCENES = [
 ] as const;
 
 const SHOTS: Shot[] = [
-  { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6] },
+  { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6], fit: 3.35 },
   {
     name: "The desk",
     pos: [1.5, 2.15, 1.5],
     aim: [0.05, 1.05, -2.05],
     /* Swung right and aimed between the two things that matter, so
        the desk sits right of centre and the television left of it.
-       Both are in frame; the desk is smaller than on a laptop,
-       which is the price of a portrait window. Tapping the screen
-       still flies you into it. */
+       Tapping the screen still flies you into it. */
     narrowPos: [3.39, 2.35, 1.83],
     narrowAim: [-0.7, 1.32, -1.4],
+    /* On a laptop this shot is about the desk, so it holds the
+       desk. The portrait framing has to carry the television on
+       the opposite wall as well, which is a much bigger circle. */
+    fit: 1.9,
+    narrowFit: 1.78,
   },
   {
     name: "The window",
@@ -222,8 +242,11 @@ const SHOTS: Shot[] = [
     // Centres the glass, which the desktop framing holds off to one side.
     narrowPos: [-2.95, 2.9, 4.2],
     narrowAim: [0.1, 1.5, -2.3],
+    // The glass is 3.6 across, so a touch under two from the middle.
+    fit: 1.95,
+    narrowFit: 1.72,
   },
-  { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7] },
+  { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7], fit: 2.95 },
 ];
 
 export default function AtelierRoom3D() {
@@ -529,10 +552,12 @@ export default function AtelierRoom3D() {
      */
     /* Measured from the canvas, not from a media query, so it
        survives rotating the phone and resizing a window. */
-    const rig = { narrow: false, pull: 1 };
+    const rig = { narrow: false, tanV: BASE_HALF_V_TAN, tanH: BASE_HALF_V_TAN };
     const measure = () => {
-      rig.narrow = isNarrow(w / h);
-      rig.pull = rig.narrow ? 1.18 : 1;
+      const aspect = w / h;
+      rig.narrow = isNarrow(aspect);
+      rig.tanV = Math.tan(rad(fitFov(aspect) / 2));
+      rig.tanH = rig.tanV * aspect;
     };
     measure();
     const WAKE_POS = new THREE.Vector3(
@@ -649,6 +674,15 @@ export default function AtelierRoom3D() {
       const chairFocus = touch("chair");
       chairSpin += dt * chairFocus * 1.6;
       p.chair.rotation.y = 0.22 + Math.sin(chairSpin) * 0.5 * chairFocus;
+      /* The underglow. Off in daylight, up with the rest of the
+         neon after dark, and brighter when the chair is touched —
+         it is the one thing in the room that answers back
+         immediately. */
+      const glowMat = p.chairGlowRing.material as THREE.MeshBasicMaterial;
+      glowMat.opacity = Math.min(
+        0.95,
+        cur.neon * (0.5 + chairFocus * 0.45) * (reduced ? 1 : 0.88 + Math.sin(t * 1.7) * 0.12),
+      );
 
       // Speaker cones breathe with the music.
       const beat = s.playing && !reduced ? 1 + Math.sin(t * 7.5) * 0.09 + Math.sin(t * 3.1) * 0.05 : 1;
@@ -836,11 +870,22 @@ export default function AtelierRoom3D() {
         const pos = useNarrow ? sh.narrowPos! : sh.pos;
         wantAim.set(aim[0], aim[1], aim[2]);
         wantPos.set(pos[0], pos[1], pos[2]);
-        /* A shot with its own portrait framing is already where it
-           wants to be; the rest step back from their aim point. */
-        if (!useNarrow) {
-          wantPos.sub(wantAim).multiplyScalar(rig.pull).add(wantAim);
-        }
+
+        /* Fit, rather than place.
+         *
+         * The authored position only fixes the *direction* the
+         * camera looks from; how far back it stands is solved
+         * each frame from the frame's own shape. Back off until a
+         * sphere of `fit` metres around the aim point fills the
+         * tighter of the two half-angles, and the picture is full
+         * on a phone, a laptop and a full-screen ultrawide alike
+         * — instead of being right on one of them and ringed with
+         * empty room on the others. */
+        wantPos.sub(wantAim);
+        const reach = Math.max(0.001, wantPos.length());
+        const radius = (useNarrow && sh.narrowFit) || sh.fit;
+        const want = radius / Math.min(rig.tanV, rig.tanH);
+        wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 1.6, 14) / reach).add(wantAim);
         if (!reduced) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.

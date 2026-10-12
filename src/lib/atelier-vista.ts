@@ -239,9 +239,14 @@ export const VISTA_SPECS: VistaSpec[] = [
   {
     scene: 4, // Forest
     layers: [
-      { src: "/images/vista/forest/far.webp", depth: 6.0 },
-      { src: "/images/vista/forest/mid.webp", depth: 2.2, sway: 0.015 },
-      { src: "/images/vista/forest/near.webp", depth: 0.7, sway: 0.045 },
+      /* 1.8m back is the trade. Further gives stronger parallax
+         but the plane grows linearly with depth, and a photograph
+         spread over a wider plane shows fewer of its own pixels
+         through the same 3.6m of glass. Here it lands at roughly
+         250 pixels per metre — crisp at any screen size — and
+         still slides a fifth of the camera's travel against the
+         window frame, which is plenty to read as distance. */
+      { src: "/images/vista/forest/far.webp", depth: 1.8, sway: 0.01 },
     ],
   },
 ];

@@ -3292,3 +3292,98 @@ main { position: relative; z-index: 3; }
 @media (prefers-reduced-motion: no-preference) {
   .mast { transition: background 220ms ease, padding-bottom 220ms ease; }
 }
+
+/* ── The room owns the page ─────────────────────────────────
+   The stage used to be a framed panel floating in a column, with
+   page background above, below and down both sides — and because
+   the room never filled the frame vertically either, the result
+   was black around black. Full bleed, full height, no border:
+   the room is the content of this page, not an illustration on
+   it. The camera does the other half of the job by fitting the
+   framing to whatever shape the frame turns out to be. */
+.atelier {
+  /* Same centre-and-pull-back trick as before, just widened to
+     the whole viewport. `html { overflow-x: clip }` upstream is
+     what stops 100vw from inventing a horizontal scrollbar. */
+  width: 100vw;
+  margin-bottom: 0;
+}
+
+.room3d-stage {
+  height: 100svh;
+  border-left: 0;
+  border-right: 0;
+  /* A cutaway box seen from outside always leaves corners empty.
+     Flat black makes those read as a hole in the page; a very
+     dark bloom behind the model makes the same pixels read as the
+     dark of a room the model is sitting in. */
+  background:
+    radial-gradient(118% 92% at 50% 44%, #15102b 0%, #0a0718 46%, #050410 100%);
+}
+
+@media (max-width: 760px) {
+  .room3d-stage { height: 100svh; }
+}
+
+/* ── The lab page ───────────────────────────────────────────
+   No page gutters and no heading block above the stage: a
+   100svh room under a tall header is a room you only ever see
+   half of. The heading goes over the frame instead, in the dark
+   band at the top where the ceiling void is. */
+.lab-full {
+  min-height: 100svh;
+  padding: 0;
+  max-width: none;
+  margin: 0;
+}
+
+.lab-room {
+  position: relative;
+  isolation: isolate;
+}
+
+.lab-intro {
+  position: absolute;
+  z-index: 6;
+  top: clamp(84px, 11svh, 150px);
+  left: var(--gut);
+  right: var(--gut);
+  pointer-events: none;
+}
+/* The one thing in here anybody needs to click. */
+.lab-intro .back { pointer-events: auto; }
+
+.lab-intro h1 {
+  /* The page's heading scale lives under `.page`, which this one
+     is not inside any more. */
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(42px, 8vw, 104px);
+  line-height: 0.9;
+  letter-spacing: -0.01em;
+  color: #f6f2ea;
+  margin: 10px 0 0;
+  /* Over a photograph of a room rather than a flat page, so it
+     needs the shadow to stay readable whatever is behind it. */
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.85);
+}
+
+.lab-intro .lede {
+  font-size: clamp(16px, 1.5vw, 21px);
+  line-height: 1.5;
+  color: rgba(246, 242, 234, 0.74);
+  margin: 14px 0 0;
+  max-width: 34ch;
+  text-shadow: 0 1px 20px rgba(0, 0, 0, 0.9);
+}
+
+.lab-note {
+  max-width: 62ch;
+  margin: clamp(28px, 5vw, 56px) auto clamp(60px, 9vw, 110px);
+  padding: 0 var(--gut);
+}
+
+@media (max-width: 760px) {
+  .lab-intro { top: clamp(96px, 13svh, 170px); }
+  .lab-intro .lede { max-width: 26ch; }
+}

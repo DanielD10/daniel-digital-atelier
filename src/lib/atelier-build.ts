@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { buildGamingChair } from "./atelier-chair";
 import { buildVistas, VISTA_SPECS, type VistaSet } from "./atelier-vista";
 import {
   buildCat,
@@ -273,6 +274,7 @@ export type Built = {
     riftMat: THREE.ShaderMaterial;
     rift: THREE.Mesh;
     chair: THREE.Group;
+    chairGlowRing: THREE.Mesh;
     vinyl: THREE.Mesh;
     lampBulb: THREE.Mesh;
     lampHead: THREE.Group;
@@ -761,32 +763,32 @@ export function buildRoom(): Built {
   hitBox(0.3, 0.3, 0.3, "lamp", lampWorld.clone());
 
   /* ══ Chair ═══════════════════════════════════════════════ */
-  const chair = new THREE.Group();
-  const chairMat = keep(new THREE.MeshStandardMaterial({ color: 0x23202e, roughness: 0.78 }));
-  const seat = new THREE.Mesh(rbox(0.5, 0.07, 0.48, 0.02), chairMat);
-  seat.position.set(0, 0.46, 0);
-  seat.castShadow = true;
-  chair.add(seat);
-  const backRest = new THREE.Mesh(rbox(0.48, 0.58, 0.06, 0.025), chairMat);
-  backRest.position.set(0, 0.78, -0.21);
-  backRest.rotation.x = -0.14;
-  backRest.castShadow = true;
-  chair.add(backRest);
-  const post = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.035, 0.035, 0.42, 16)), darkMetal);
-  post.position.set(0, 0.22, 0);
-  post.castShadow = true;
-  chair.add(post);
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    const leg = new THREE.Mesh(box(0.26, 0.025, 0.04), darkMetal);
-    leg.position.set(Math.cos(a) * 0.13, 0.04, Math.sin(a) * 0.13);
-    leg.rotation.y = -a;
-    leg.castShadow = true;
-    chair.add(leg);
-    const caster = new THREE.Mesh(keep(new THREE.SphereGeometry(0.025, 12, 10)), darkMetal);
-    caster.position.set(Math.cos(a) * 0.25, 0.025, Math.sin(a) * 0.25);
-    chair.add(caster);
-  }
+  /* Modelled properly in its own module — see atelier-chair.ts.
+     The materials come from here so it shares the room's palette
+     rather than bringing its own. */
+  const hide = keep(
+    new THREE.MeshStandardMaterial({
+      color: 0x1b1926,
+      roughness: 0.42,
+      metalness: 0.06,
+      map: clothMap,
+      roughnessMap: clothRough,
+    }),
+  );
+  const chairAccent = keep(
+    new THREE.MeshStandardMaterial({ color: 0xff2f86, roughness: 0.46, metalness: 0.1 }),
+  );
+  const chrome = keep(new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.26, metalness: 0.88 }));
+  const chairGlow = keep(new THREE.MeshBasicMaterial({ color: 0xff2f86, transparent: true, opacity: 0.85 }));
+  const built = buildGamingChair(keep, {
+    hide,
+    accent: chairAccent,
+    metal: chrome,
+    plastic,
+    glow: chairGlow,
+  });
+  const chair = built.group;
+  const chairGlowRing = built.glowRing;
   // Pushed right and turned: dead centre it is a slab between
   // the camera and the one thing you are meant to click.
   chair.position.set(0.88, 0, DESK_Z + 0.95);
@@ -1607,6 +1609,18 @@ export function buildRoom(): Built {
   skyMat.side = THREE.BackSide;
   const sky = new THREE.Mesh(keep(new THREE.SphereGeometry(340, 64, 40)), skyMat);
   sky.renderOrder = -1;
+  /* Off.
+   *
+   * Every window scene is painted on the pane behind the glass
+   * now, so the dome has nothing left to show through the window
+   * — but it was still wrapped around the whole model, and the
+   * void shell only blocks the direction *behind* the room. A
+   * sight line that went down and sideways past the model missed
+   * the shell entirely and landed on the underside of the dome,
+   * which is why a hard-edged magenta wedge sat in the corner of
+   * the overview. Gone, and the stage's own backdrop shows
+   * through instead. */
+  sky.visible = false;
   outside.add(sky);
 
   const vistaMat = skyMat.clone();
@@ -2078,6 +2092,7 @@ export function buildRoom(): Built {
       riftMat,
       rift,
       chair,
+      chairGlowRing,
       vinyl,
       lampBulb,
       lampHead,

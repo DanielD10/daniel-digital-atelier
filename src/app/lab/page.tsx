@@ -22,21 +22,27 @@ export default function Lab() {
   return (
     <>
       <Masthead />
-      <main className="page" id="main">
-        <Link className="back" href="/">
-          Home
-        </Link>
-
-        <h1>The lab</h1>
-
-        <p className="lede">The room, as it is right now. Have a look around.</p>
-
-        <AtelierRoom3D />
+      {/* The room is the page, not an illustration on it. The
+          heading sits over the top of the frame — where the
+          ceiling void is anyway — rather than pushing a
+          full-height stage below the fold. */}
+      <main className="lab-full" id="main">
+        <div className="lab-room">
+          <AtelierRoom3D />
+          <div className="lab-intro">
+            <Link className="back" href="/">
+              Home
+            </Link>
+            <h1>The lab</h1>
+            <p className="lede">The room, as it is right now. Have a look around.</p>
+          </div>
+        </div>
 
         <p className="micro lab-note">
           The light follows your clock, the plants follow the season and the
           corner follows the calendar. Point at anything. Click the monitor to
-          sit down at it, or the television to switch it on.
+          sit down at it, the television to switch it on, or the shelf to find
+          something to read.
         </p>
       </main>
     </>

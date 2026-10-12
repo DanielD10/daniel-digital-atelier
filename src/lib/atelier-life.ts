@@ -54,6 +54,54 @@ function wobble(t: number, a: number, b: number): number {
   return Math.sin(t * a) * 0.65 + Math.sin(t * b + 1.7) * 0.35;
 }
 
+/**
+ * How a chain of bones shares one bend.
+ *
+ * Every segment of a tail is parented to the one before it, so
+ * equal angles do not hold steady — they accumulate. Three
+ * segments given 0.6 radians each put the tip 1.8 radians over,
+ * which is how a tail ends up swinging through a window.
+ *
+ * These weights sum to one, so the number passed in is the total
+ * sweep from root to tip and the base carries most of it, which
+ * is also how a real tail bends.
+ */
+const TAIL_W = [0.5, 0.31, 0.19];
+
+/**
+ * Three sines whose periods do not divide each other, so the sum
+ * never repeats on any timescale a person watches for.
+ *
+ * A single sine is the thing that makes procedural motion read as
+ * a machine: it is perfectly symmetric, it peaks on a beat, and
+ * once the eye catches the beat it cannot unsee it. Beating a few
+ * together costs nothing and the pattern stops being findable.
+ */
+function drift(t: number, speed = 1): number {
+  return (
+    Math.sin(t * 0.37 * speed) * 0.5 +
+    Math.sin(t * 0.83 * speed + 2.1) * 0.33 +
+    Math.sin(t * 1.61 * speed + 4.7) * 0.17
+  );
+}
+
+/**
+ * A thing that fires at uneven intervals.
+ *
+ * Twitches on a timer are the other tell. This holds a countdown
+ * and rolls a fresh, randomly-sized gap each time it fires, so
+ * ears flick and eyes blink on no schedule at all.
+ */
+function ticker(next: () => number, lo: number, hi: number) {
+  let left = lo + next() * (hi - lo);
+  return (dt: number): boolean => {
+    left -= dt;
+    if (left > 0) return false;
+    left = lo + next() * (hi - lo);
+    return true;
+  };
+}
+
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
 function hitBox(
@@ -238,6 +286,10 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
      rather than swinging as a rigid stick. */
   const tailRoot = new THREE.Group();
   tailRoot.position.set(-0.11, 0.075, 0);
+  /* Cancels the yaw the whole cat is given when she is placed, so
+     the tail runs along the sill rather than into the glass 10cm
+     behind her. */
+  tailRoot.rotation.y = 0.55;
   const tailSegs: THREE.Group[] = [];
   let parent: THREE.Object3D = tailRoot;
   for (let i = 0; i < 3; i++) {
@@ -380,13 +432,28 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     headQuat.copy(tmp.quaternion);
     headPivot.quaternion.slerp(headQuat, Math.min(1, dt * 3.4));
 
-    /* Tail. Slow S-curve at rest, faster and wider when happy. */
-    const speed = 1.1 + focus * 2.6;
-    const amp = 0.18 + focus * 0.5;
+    /* Tail.
+     *
+     * She is sitting on a sill 30cm deep with glass directly
+     * behind her, and the tail is 32cm from root to tip — so it
+     * cannot go backwards and it cannot go forwards. It lies
+     * along the sill instead, which is what a cat on a ledge
+     * actually does, and sways in that plane.
+     *
+     * `amp` is now the whole sweep rather than the angle given to
+     * each segment; TAIL_W shares it out. The old code handed the
+     * same angle to all three and they compounded, which is what
+     * put the tip through the window. */
+    const speed = 0.8 + focus * 1.5;
+    const amp = 0.26 + focus * 0.4;
     tailSegs.forEach((seg, i) => {
-      const phase = t * speed - i * 0.5;
-      seg.rotation.y = Math.sin(phase) * amp;
-      seg.rotation.z = i === 0 ? 0.75 + focus * 0.5 : -0.12 + Math.cos(phase) * 0.1;
+      // A wave travelling outward, not three segments on one beat.
+      const phase = t * speed - i * 0.55;
+      const w = TAIL_W[i];
+      seg.rotation.y = (Math.sin(phase) * amp + drift(t + i, 0.6) * 0.1) * w;
+      /* A shallow arc along the ledge: lifted a little at the
+         base, settling toward the tip. */
+      seg.rotation.z = i === 0 ? 0.2 + focus * 0.22 : -0.14 + Math.cos(phase) * 0.07;
     });
 
     /* Blush and the stretch she does when poked. */
@@ -740,14 +807,22 @@ export function buildWalkingCat(
     const open = lid * (1 - down * 0.86);
     for (const e of eyes) e.scale.set(1, Math.max(0.05, open), 1);
 
-    /* Tail. Counterweight at a walk, curled around her at rest. */
+    /* Tail. Counterweight at a walk, curled around her at rest.
+     *
+     * Same fix as the sitting cat: these angles are shares of one
+     * total, not three copies of it. Handing every segment
+     * `down * 0.55` meant the curl reached 1.65 radians at the
+     * tip and wrapped the tail through her own flank. */
     tailSegs.forEach((s2, i) => {
-      const swish = Math.sin(stride * 0.5 - i * 0.6) * (0.12 + attention * 0.3) * stand;
-      s2.rotation.y = swish + down * 0.55;
+      const phase = stride * 0.5 - i * 0.6;
+      const w = TAIL_W[i];
+      // Swings with the gait, plus a slow wander that is not on the beat.
+      const swish = (Math.sin(phase) * (0.3 + attention * 0.5) + drift(t + i * 1.7, 0.8) * 0.18) * stand;
+      s2.rotation.y = (swish + down * 0.9) * w;
       s2.rotation.z =
         i === 0
-          ? (0.5 + attention * 0.7) * stand - down * 0.5
-          : -0.1 + Math.cos(stride * 0.5 - i * 0.6) * 0.08 * stand + down * 0.35;
+          ? (0.42 + attention * 0.5) * stand - down * 0.42
+          : (-0.1 + Math.cos(phase) * 0.08 * stand + down * 0.3) * w * 2;
     });
   };
 
