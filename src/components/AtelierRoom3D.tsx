@@ -479,6 +479,8 @@ export default function AtelierRoom3D() {
     const skyTop = new THREE.Color();
     const skyMid = new THREE.Color();
     const skyBot = new THREE.Color();
+    const vistaTint = new THREE.Color();
+    const WHITE = new THREE.Color(0xffffff);
     const sunPos = new THREE.Vector3();
     const cityCol = new THREE.Color();
     const fogCol = new THREE.Color();
@@ -589,10 +591,15 @@ export default function AtelierRoom3D() {
       /* The window scene. The skyline is geometry, so a scene
          that is not a city has to take it out of the room, not
          just stop drawing sky behind it. */
-      /* Every view is painted on the pane now, the city included. */
+      /* Every view is painted on the pane, the city included —
+         unless the scene has photographs behind the glass, in
+         which case the pane gets out of their way. */
+      const photo = built.vistas.ready(s.view);
+      built.vistas.show(photo ? s.view : -1);
+      if (!reduced) built.vistas.tick(t);
       p.vistaMat.uniforms.uScene.value = s.view;
       p.vistaMat.uniforms.uTime.value = reduced ? 0 : t;
-      p.vista.visible = true;
+      p.vista.visible = !photo;
 
       p.rainMat.uniforms.uTime.value = reduced ? 0 : t;
       /* Weather belongs to the view. A mountain range behind a
@@ -660,6 +667,16 @@ export default function AtelierRoom3D() {
       (vu.uBot.value as THREE.Color).lerp(skyBot, k);
       vu.uStars.value = starAmt;
       u.uTime.value = reduced ? 0 : t;
+
+      /* A photograph was taken under whatever light it was taken
+         under, which at three in the morning is the wrong light.
+         Grading it toward the hour's sky — hard at night, barely
+         at all at midday — is what stops it reading as a poster
+         taped over the window. */
+      const night = 1 - Math.min(1, mood.ambient.intensity / 1.5);
+      vistaTint.copy(skyMid).lerp(WHITE, 0.55).multiplyScalar(0.45 + 0.55 * (1 - night));
+      vistaTint.lerp(WHITE, 1 - night);
+      built.vistas.tint(vistaTint);
 
       // Screens.
       const monitorFocus = touch("monitor");

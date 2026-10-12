@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { buildVistas, VISTA_SPECS, type VistaSet } from "./atelier-vista";
 import {
   buildCat,
   buildWalkingCat,
@@ -255,6 +256,8 @@ export type Built = {
   /** Objects with their own idle and reaction behaviour. */
   life: Life[];
   decor: DecorSet;
+  /** Photographic window scenes, when their files are present. */
+  vistas: VistaSet;
   lamps: {
     sun: THREE.DirectionalLight;
     windowFill: THREE.RectAreaLight;
@@ -1616,6 +1619,11 @@ export function buildRoom(): Built {
   vista.visible = false;
   root.add(vista);
 
+  /* Photographs, for the scenes that have them. They hang behind
+     the void shell, so they are only ever seen through the glass. */
+  const vistas = buildVistas(VISTA_SPECS);
+  root.add(vistas.group);
+
   const rC = rand(131);
   /** The skyline as one group, so a window scene that is not a
    *  city can take it out of the room entirely. */
@@ -2062,6 +2070,7 @@ export function buildRoom(): Built {
     targets,
     life,
     decor,
+    vistas,
     lamps: { sun, windowFill, desk: deskLamp, neon: neonLight, screen: screenLight, tv: tvLight, ambient },
     props: {
       skyMat,
@@ -2095,6 +2104,7 @@ export function buildRoom(): Built {
       modelFill,
     },
     dispose: () => {
+      vistas.dispose();
       for (const d of disposables) d.dispose();
     },
   };
