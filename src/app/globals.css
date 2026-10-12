@@ -3387,3 +3387,47 @@ main { position: relative; z-index: 3; }
   .lab-intro { top: clamp(96px, 13svh, 170px); }
   .lab-intro .lede { max-width: 26ch; }
 }
+
+/* The way out of the desk. Part of the page rather than part of
+   the 3D screen, so it is reachable whatever the desktop inside
+   the monitor is doing. */
+.room3d-leave {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  background: rgba(8, 6, 16, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  backdrop-filter: blur(8px);
+  color: #f3eee6;
+  font-family: var(--f-micro);
+  font-size: 0.66rem;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.room3d-leave:hover,
+.room3d-leave:focus-visible { border-color: rgba(255, 255, 255, 0.6); }
+
+/* A hotspot in the right of the frame hangs its label inward, or
+   it runs off the edge. */
+.room3d-spot.is-flipped { flex-direction: row-reverse; }
+.room3d-spot.is-flipped span { transform: translateX(4px); }
+.room3d-spot.is-flipped:hover span,
+.room3d-spot.is-flipped:focus-visible span,
+.room3d-spot.is-flipped.is-near span { transform: translateX(0); }
+@media (hover: none) {
+  .room3d-spot.is-flipped span { transform: none; }
+}
+
+/* Sitting at the machine, the page heading is just something in
+   front of the screen. It goes while you are down there. */
+.atelier.is-awake + .lab-intro {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 320ms ease, visibility 0s linear 320ms;
+}
+.lab-intro { transition: opacity 320ms ease; }

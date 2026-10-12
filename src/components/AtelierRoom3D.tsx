@@ -219,7 +219,21 @@ export const WINDOW_SCENES = [
 ] as const;
 
 const SHOTS: Shot[] = [
-  { name: "The studio", pos: [5.6, 4.7, 5.4], aim: [0.1, 0.8, -0.6], fit: 3.35 },
+  {
+    name: "The studio",
+    pos: [5.6, 4.7, 5.4],
+    aim: [0.1, 0.8, -0.6],
+    fit: 3.35,
+    /* A 6m-wide room in a portrait frame fills the width and
+       leaves half the height empty — that is geometry, not a bad
+       number. So the portrait overview aims at the middle of the
+       room rather than the floor, which centres what there is,
+       and swings right so the shelving against the far wall is
+       inside the frame instead of sliced off by it. */
+    narrowPos: [6.1, 4.6, 4.4],
+    narrowAim: [0.55, 1.5, -0.95],
+    narrowFit: 2.9,
+  },
   {
     name: "The desk",
     pos: [1.5, 2.15, 1.5],
@@ -535,7 +549,7 @@ export default function AtelierRoom3D() {
         built.tv.position.clone().add(new THREE.Vector3(0, 0.3, 0)),
         (x) => x > -2.4,
       ),
-      makeSpot("shelf", "Find a book", new THREE.Vector3(2.62, 1.72, -1.25), () => true),
+      makeSpot("shelf", "Find a book", new THREE.Vector3(2.6, 1.5, -1.25), () => true),
     ];
     const projV = new THREE.Vector3();
 
@@ -560,12 +574,28 @@ export default function AtelierRoom3D() {
       rig.tanH = rig.tanV * aspect;
     };
     measure();
-    const WAKE_POS = new THREE.Vector3(
-      built.screen.position.x,
-      built.screen.position.y,
-      built.screen.position.z + 0.58,
-    );
     const WAKE_AIM = built.screen.position.clone();
+    const WAKE_POS = new THREE.Vector3();
+    /**
+     * How far back to sit.
+     *
+     * A fixed 0.58m was authored against a landscape frame. On a
+     * phone the horizontal half-angle is less than half of that,
+     * so the 62cm screen overflowed the frame in every direction
+     * — the desktop filled the viewport, the dock went off the
+     * bottom, and with it the only way out.
+     *
+     * Solved from the frame instead: back off until the screen
+     * fits both axes, with a little air so it is framed rather
+     * than wedged in.
+     */
+    const seat = () => {
+      const half = built.screen.width / 2;
+      const halfH = built.screen.height / 2;
+      const d = Math.max(half / rig.tanH, halfH / rig.tanV) * 1.16;
+      WAKE_POS.set(WAKE_AIM.x, WAKE_AIM.y, WAKE_AIM.z + Math.max(0.45, d));
+    };
+    seat();
 
     const camPos = IDLE_POS.clone();
     const camAim = IDLE_AIM.clone();
@@ -842,6 +872,11 @@ export default function AtelierRoom3D() {
         const sx = (projV.x * 0.5 + 0.5) * w;
         const sy = (-projV.y * 0.5 + 0.5) * h;
         spot.el.style.transform = `translate(${sx}px, ${sy}px) translate(-50%, -50%)`;
+        /* The label sits to the right of its dot, which runs it
+           off the edge for anything in the right of the frame —
+           on a phone that is most of "FIND A BOOK". Past the
+           two-thirds mark it hangs off the other side instead. */
+        spot.el.classList.toggle("is-flipped", projV.x > 0.3);
         spot.el.classList.toggle("is-near", hoverName === spot.name);
       }
 
@@ -861,6 +896,7 @@ export default function AtelierRoom3D() {
 
       /* Camera. */
       if (s.awake) {
+        seat();
         wantPos.copy(WAKE_POS);
         wantAim.copy(WAKE_AIM);
       } else {
@@ -1050,7 +1086,7 @@ export default function AtelierRoom3D() {
 
   if (!supported) {
     return (
-      <div className="atelier">
+      <div className={`atelier${awake ? " is-awake" : ""}`}>
         <p className="micro">
           This room is drawn with WebGL, and this browser has it switched off.
         </p>
@@ -1076,6 +1112,19 @@ export default function AtelierRoom3D() {
         {/* Move around the model. Arrows rather than free orbit,
             because a cutaway room has three walls and free orbit
             spends half its time behind one of them. */}
+        {/* The way out.
+            Sitting down at the machine, the only exit used to be
+            a Sleep button in the desktop's own dock — which is
+            inside the 3D screen, so the moment that screen does
+            not fit the frame the exit leaves with it. This one is
+            part of the page, not part of the room, so it cannot
+            go off the bottom of anything. */}
+        {ready && awake ? (
+          <button type="button" className="room3d-leave" onClick={sleep}>
+            ← Back to the room
+          </button>
+        ) : null}
+
         {ready && !awake ? (
           <div className="room3d-nav">
             <button

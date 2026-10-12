@@ -1292,6 +1292,10 @@ export function buildRoom(): Built {
       varying vec3 vDir;
       varying vec2 vUv;
 
+      // The pane's own proportions, for anything that has to
+      // come out round on it.
+      const float PANE_A = 13.0 / 5.6;
+
       // ALU-only hash. A sin-based one costs a transcendental per
       // sample, which a phone notices.
       float hash21(vec2 p) {
@@ -1308,6 +1312,53 @@ export function buildRoom(): Built {
         float c = hash21(i + vec2(0.0, 1.0)), d = hash21(i + vec2(1.0, 1.0));
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
       }
+      /**
+       * Stars, the way the globe on the home page draws them.
+       *
+       * A star used to be a step() threshold on a 300x200 grid
+       * — a single hard pixel, every one the same size and the
+       * same colour, which at any zoom reads as grid noise rather
+       * than as a sky.
+       *
+       * This places one jittered point per cell and gives it a
+       * smooth core, a magnitude and a tint, which is what the
+       * home page's point sprites do. The cool/warm scatter is
+       * the part that matters most: a field of identical white
+       * dots looks printed on.
+       *
+       * Neighbouring cells are sampled too, or a star sitting near
+       * a cell edge gets cut in half by it.
+       */
+      vec3 starField(vec2 uv, float scale, float density, float sizeMul, float seed, float time) {
+        /* The pane is a good deal wider than it is tall, and its
+           uv runs 0..1 on both axes, so a square grid in uv space
+           is a stretched grid in the world — which came out as a
+           sky full of horizontal ovals. PANE_A squares the cells
+           up again. */
+        vec2 g = vec2(uv.x * PANE_A, uv.y) * scale;
+        vec2 id = floor(g);
+        vec2 f = fract(g);
+        vec3 acc = vec3(0.0);
+        for (int y = -1; y <= 1; y++) {
+          for (int x = -1; x <= 1; x++) {
+            vec2 o = vec2(float(x), float(y));
+            vec2 cid = id + o;
+            float h = hash21(cid + seed);
+            if (h > density) continue;
+            vec2 at = o + vec2(hash21(cid + seed + 11.7), hash21(cid + seed + 27.3));
+            float mag = hash21(cid + seed + 53.1);
+            float r = length(f - at);
+            // Most stars faint and small, a few bright and wide.
+            float size = (0.035 + pow(mag, 3.0) * 0.30) * sizeMul;
+            float core = smoothstep(size, 0.0, r);
+            float tw = 0.70 + 0.30 * sin(time * 1.6 + mag * 41.0);
+            vec3 tint = mix(vec3(0.72, 0.80, 1.00), vec3(1.00, 0.93, 0.82), fract(mag * 7.3));
+            acc += tint * core * core * tw * (0.25 + mag * 0.95);
+          }
+        }
+        return acc;
+      }
+
       float fbm(vec2 p) {
         float v = 0.0, a = 0.5;
         for (int i = 0; i < 4; i++) { v += a * vnoise(p); p *= 2.02; a *= 0.5; }
@@ -1376,13 +1427,13 @@ export function buildRoom(): Built {
          * from everywhere in the room.
          */
         if (s < 0.5) {
-          vec2 cell = floor(uv * vec2(300.0, 200.0));
-          float hh = hash21(cell);
-          float star = step(0.9965, hh) * smoothstep(0.52, 0.8, h);
-          col += vec3(0.85, 0.9, 1.0) * star * (0.65 + 0.35 * sin(uTime * 1.7 + hh * 90.0)) * uStars;
+          // Only above the skyline, and thinner near it.
+          float sky = smoothstep(0.52, 0.82, h);
+          col += starField(uv, 46.0, 0.30, 1.0, 3.0, uTime) * sky * uStars * 0.9;
+          col += starField(uv, 92.0, 0.22, 0.7, 61.0, uTime) * sky * uStars * 0.5;
 
           // Moon.
-          float moon = smoothstep(0.022, 0.0, length((uv - vec2(0.76, 0.72)) * vec2(1.0, 1.0)));
+          float moon = smoothstep(0.022, 0.0, length((uv - vec2(0.76, 0.72)) * vec2(PANE_A, 1.0)));
           col += vec3(0.86, 0.9, 1.0) * moon * 1.1 * uStars;
 
           // Three ranks of towers, nearest last and darkest.
@@ -1459,12 +1510,12 @@ export function buildRoom(): Built {
           float n2 = fbm(uv * 4.1 - vec2(0.0, uTime * 0.008));
           col += vec3(0.42, 0.10, 0.52) * pow(n1, 2.2) * 0.85;
           col += vec3(0.08, 0.30, 0.62) * pow(n2, 2.6) * 0.7;
-          vec2 cell = floor(uv * vec2(420.0, 300.0));
-          float hh = hash21(cell);
-          col += vec3(1.0) * step(0.988, hh) * (0.5 + 0.5 * sin(uTime * 2.0 + hh * 60.0));
+          // Denser out here, and in two ranks so it has depth.
+          col += starField(uv, 40.0, 0.46, 1.15, 7.0, uTime) * 1.15;
+          col += starField(uv, 88.0, 0.34, 0.75, 131.0, uTime) * 0.65;
           // The planet.
           vec2 pc = uv - vec2(0.27, 0.34);
-          pc.x *= 1.0;
+          pc.x *= PANE_A;
           float pr = length(pc);
           if (pr < 0.14) {
             vec3 pn = normalize(vec3(pc / 0.14, sqrt(max(0.0, 1.0 - pow(pr / 0.14, 2.0)))));
