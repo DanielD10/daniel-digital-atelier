@@ -79,11 +79,44 @@ export function parseYouTube(raw: string): Tuned {
   return null;
 }
 
+/**
+ * An in-app browser: Instagram, Facebook, TikTok, Threads.
+ *
+ * These are WKWebViews with the host app's user agent bolted on,
+ * and YouTube treats them differently from a real browser —
+ * partitioned storage, no sign-in, and for a good share of
+ * videos a flat "An error occurred (Playback ID: …)" instead of
+ * a picture. Nothing on this side fixes that; the only honest
+ * answer is to notice and offer the way out.
+ */
+function inAppBrowser(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /\b(Instagram|FBAN|FBAV|FB_IAB|Threads|TikTok|Line\/|Snapchat)\b/i.test(
+    navigator.userAgent,
+  );
+}
+
+function watchUrl(t: NonNullable<Tuned>): string {
+  return t.kind === "list"
+    ? `https://www.youtube.com/playlist?list=${t.id}`
+    : `https://www.youtube.com/watch?v=${t.id}`;
+}
+
 function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string }>): string {
-  // nocookie, because a television in someone's portfolio has no
-  // business setting tracking cookies on their visitors.
-  const base = "https://www.youtube-nocookie.com/embed";
-  const common = "autoplay=1&rel=0&modestbranding=1&playsinline=1";
+  /* nocookie, because a television in someone's portfolio has no
+     business setting tracking cookies on their visitors — except
+     inside an in-app browser, where the nocookie domain is one
+     more partitioned origin for the webview to refuse and the
+     normal one is measurably more likely to play. */
+  const base = inAppBrowser()
+    ? "https://www.youtube.com/embed"
+    : "https://www.youtube-nocookie.com/embed";
+  /* enablejsapi, so the player posts its state back and a
+     playback failure can be caught rather than left as a grey
+     rectangle. origin is required alongside it. */
+  const origin =
+    typeof window !== "undefined" ? `&origin=${encodeURIComponent(window.location.origin)}` : "";
+  const common = `autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${origin}`;
   if (t.kind === "list") return `${base}/videoseries?list=${t.id}&${common}`;
 
   /* Handing the player the whole dial as `playlist` gives its own
@@ -129,6 +162,45 @@ export default function AtelierTV({
   const [tuned, setTuned] = useState<Tuned>(null);
   const [entry, setEntry] = useState("");
   const [bad, setBad] = useState(false);
+  /* Null until the player says something. "error" once YouTube
+     reports one, "ok" once it reports anything else. */
+  const [signal, setSignal] = useState<null | "error" | "ok">(null);
+  const [webview, setWebview] = useState(false);
+
+  useEffect(() => setWebview(inAppBrowser()), []);
+
+  /* Listen to the player.
+   *
+   * With enablejsapi the embed posts JSON back on every state
+   * change, including `onError`. Without this the failure is
+   * invisible to us: the iframe loads fine, YouTube paints its
+   * own apology inside it, and as far as the page is concerned
+   * the television is working. */
+  useEffect(() => {
+    const onMsg = (e: MessageEvent) => {
+      if (!/youtube(-nocookie)?\.com$/.test(new URL(e.origin).hostname.replace(/^www\./, ""))) {
+        return;
+      }
+      let data: unknown = e.data;
+      if (typeof data === "string") {
+        try {
+          data = JSON.parse(data);
+        } catch {
+          return;
+        }
+      }
+      const ev = (data as { event?: string } | null)?.event;
+      if (ev === "onError") setSignal("error");
+      else if (ev === "onReady" || ev === "onStateChange" || ev === "infoDelivery") {
+        setSignal((p) => (p === "error" ? p : "ok"));
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
+
+  // A fresh channel deserves a fresh verdict.
+  useEffect(() => setSignal(null), [tuned?.id]);
 
   useEffect(() => {
     let saved: Stored | null = null;
@@ -205,6 +277,7 @@ export default function AtelierTV({
   }, [isTuned]);
 
   if (tuned) {
+    const out = watchUrl(tuned);
     return (
       <div className="tv-set">
         <iframe
@@ -214,6 +287,29 @@ export default function AtelierTV({
           allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowFullScreen
         />
+        {/* The escape hatch.
+            YouTube refuses plenty of videos inside an embed —
+            age-restricted ones everywhere, and a much wider set
+            inside an app's built-in browser. When the player
+            reports a failure, say so in plain words and hand
+            over a link that opens on YouTube proper, where it
+            will play. */}
+        {signal === "error" ? (
+          <div className="tv-fail">
+            <p>This one will not play inside an embed.</p>
+            <a href={out} target="_blank" rel="noopener noreferrer">
+              Watch it on YouTube
+            </a>
+            <button type="button" onClick={() => setSignal(null)}>
+              Try again
+            </button>
+          </div>
+        ) : null}
+        {signal !== "error" && webview ? (
+          <a className="tv-escape" href={out} target="_blank" rel="noopener noreferrer">
+            Open on YouTube
+          </a>
+        ) : null}
       </div>
     );
   }

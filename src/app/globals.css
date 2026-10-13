@@ -2830,6 +2830,61 @@ main { position: relative; z-index: 3; }
   height: 100%;
   border: 0;
 }
+
+/* When the player reports it cannot play this one. Sits over
+   YouTube's own apology, which says nothing useful and offers
+   nowhere to go. */
+.tv-fail {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  background: #0b0a10;
+}
+.tv-fail p {
+  margin: 0;
+  font-size: clamp(13px, 2.4vw, 16px);
+  letter-spacing: 0.02em;
+  color: #cfd8e8;
+}
+.tv-fail a,
+.tv-fail button,
+.tv-escape {
+  font: inherit;
+  font-size: clamp(12px, 2.1vw, 14px);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e8f2ff;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  padding: 9px 20px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.tv-fail a:hover,
+.tv-fail button:hover,
+.tv-escape:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* The standing way out, shown only inside an app's built-in
+   browser — where plenty of videos that play fine everywhere
+   else will not play here. */
+.tv-escape {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  font-size: 11px;
+  background: rgba(8, 8, 14, 0.76);
+}
 .tv-transport {
   position: absolute;
   right: 8px;

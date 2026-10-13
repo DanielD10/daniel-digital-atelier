@@ -680,6 +680,7 @@ export default function AtelierRoom3D() {
         (x) => x > -2.4,
       ),
       makeSpot("shelf", "Find a book", new THREE.Vector3(2.6, 1.5, -1.25), () => true),
+      makeSpot("sofa", "Take a seat", new THREE.Vector3(2.08, 1.05, 0.5), () => true),
       makeSpot(
         "flat",
         "Put a film on",
@@ -760,6 +761,7 @@ export default function AtelierRoom3D() {
       tvI: 0,
       flatI: 0,
       fireI: 0,
+      coalI: 0,
       city: 1,
       rain: 1,
     fog: 0x0b0720,
@@ -1074,7 +1076,27 @@ export default function AtelierRoom3D() {
         fm.uniforms.uHue.value = reduced ? 0.04 : (t * 0.021) % 1;
         fm.uniforms.uLevel.value = fireLevel;
       }
+      /* The bed and the sparks run off the same level, so
+         putting the fire out takes the coals and the embers
+         with it rather than leaving them hanging in the dark.
+         The coals lag, though — they are the last thing to go
+         cold and the slowest to come back. */
+      cur.coalI = lerp(cur.coalI, s.fireOn ? 1 : 0, Math.min(1, dt * 0.7));
+      p.coalMat.uniforms.uTime.value = reduced ? 0 : t;
+      p.coalMat.uniforms.uLevel.value = cur.coalI;
+      p.sparkMat.uniforms.uTime.value = reduced ? 0 : t;
+      p.sparkMat.uniforms.uLevel.value = cur.fireI;
       built.lamps.fire.intensity = cur.fireI * gutter * (0.85 + fireFocus * 0.3);
+
+      /* The candle. Its own flicker, faster and shallower than
+         the hearth's — a small flame reacts to air the big one
+         does not notice. */
+      const cflick = reduced
+        ? 1
+        : 0.86 + Math.sin(t * 7.7) * 0.07 + Math.sin(t * 2.9 + 1.4) * 0.07;
+      p.candleMat.uniforms.uTime.value = reduced ? 0 : t;
+      p.candleMat.uniforms.uLevel.value = cflick;
+      built.lamps.candle.intensity = cflick * 0.55;
 
       p.tvOff.visible = !s.tvOn;
       /* The picture is a CSS3D element, which the browser sizes
@@ -1214,6 +1236,14 @@ export default function AtelierRoom3D() {
       }
       if (name === "hearth") {
         setFireOn((v) => !v);
+        return;
+      }
+      if (name === "sofa") {
+        /* Sitting down, without starting anything. The film is
+           a separate decision — clicking the screen makes it,
+           clicking the sofa just moves you there. */
+        setAwake(false);
+        setShot(SOFA_SHOT);
         return;
       }
       if (name === "flat") {

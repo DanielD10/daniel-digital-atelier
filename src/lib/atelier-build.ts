@@ -7,6 +7,7 @@ import {
   buildWalkingCat,
   buildClock,
   buildDecor,
+  buildMotes,
   buildPlant,
   buildSteam,
   type DecorSet,
@@ -403,6 +404,7 @@ export type Built = {
     tv: THREE.PointLight;
     flat: THREE.PointLight;
     fire: THREE.PointLight;
+    candle: THREE.PointLight;
     ambient: THREE.HemisphereLight;
   };
   props: {
@@ -426,6 +428,9 @@ export type Built = {
     flatOff: THREE.Mesh;
     flatLed: THREE.Mesh;
     fireMats: THREE.ShaderMaterial[];
+    coalMat: THREE.ShaderMaterial;
+    sparkMat: THREE.ShaderMaterial;
+    candleMat: THREE.ShaderMaterial;
     speakerCones: THREE.Mesh[];
     posters: THREE.Mesh[];
     towerMats: THREE.MeshStandardMaterial[];
@@ -1317,8 +1322,13 @@ export function buildRoom(): Built {
   addTo(hearth, rbox(FIRE_W, UNIT_H - FIRE_H - 0.11, UNIT_D, 0.01), caseMat,
     0, UNIT_H - (UNIT_H - FIRE_H - 0.11) / 2 - 0.02, 0);
 
-  // The firebox: black inside, so the flame has nothing behind it.
-  const boxMat = keep(new THREE.MeshBasicMaterial({ color: 0x07060a }));
+  /* The firebox. Dark, but lit — a MeshBasic void behind the
+     flame takes none of its light and reads as a hole cut in
+     the wall. A rough dark metal catches the point light in
+     front of it and gives the fire something to sit against. */
+  const boxMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0x1c1310, roughness: 0.62, metalness: 0.45 }),
+  );
   addTo(hearth, box(FIRE_W, FIRE_H + 0.02, 0.02), boxMat, 0, 0.1 + FIRE_H / 2, -0.1);
 
   const FIRE_VERT = `
@@ -1372,7 +1382,7 @@ export function buildRoom(): Built {
       // Wide at the bed, narrow at the tip.
       float taper = 1.0 - smoothstep(0.15, 1.15, uv.y);
       float sides = smoothstep(0.5, 0.2, abs(uv.x - 0.5));
-      float body = n * taper * sides * uLevel * 1.55;
+      float body = n * taper * sides * uLevel * 1.95;
       body -= uv.y * 0.42;
       /* Deliberately short of saturation over most of the
          sheet. Three of these add together and the bloom pass
@@ -1408,9 +1418,9 @@ export function buildRoom(): Built {
      reaches, the tip stays thin. */
   const fireMats: THREE.ShaderMaterial[] = [];
   const FIRE_LAYERS: Array<[seed: number, rise: number, z: number, gain: number, w: number]> = [
-    [0.0, 1.05, -0.07, 0.3, 1.0],
-    [23.7, 1.5, -0.025, 0.45, 0.97],
-    [51.3, 1.95, 0.025, 0.26, 0.9],
+    [0.0, 1.05, -0.07, 0.34, 1.0],
+    [23.7, 1.5, -0.025, 0.52, 0.97],
+    [51.3, 1.95, 0.025, 0.3, 0.9],
   ];
   for (const [seed, rise, fz, gain, wScale] of FIRE_LAYERS) {
     const m = keep(
@@ -1441,11 +1451,148 @@ export function buildRoom(): Built {
     hearth.add(sheet);
   }
 
-  /* A bed of embers under it. Dark enough to read as coals
-     rather than a painted red bar — the flame above supplies
-     the light. */
-  const emberMat = keep(new THREE.MeshBasicMaterial({ color: 0x2a0a02 }));
-  addTo(hearth, rbox(FIRE_W - 0.12, 0.025, 0.14, 0.008), emberMat, 0, 0.108, -0.03);
+  /* ── The bed ──────────────────────────────────────────────
+     Cold, dark lumps of glass media, lit only by what is above
+     them, with a separate additive layer of coals breathing
+     underneath. A fire bed that does not have its own slow
+     pulse reads as a painted strip however good the flame is. */
+  const mediaMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0x15121a, roughness: 0.35, metalness: 0.1 }),
+  );
+  {
+    const rb = rand(911);
+    // Four shapes, scaled — not forty-six geometries.
+    const shapes = [0, 1, 2, 3].map(() => keep(new THREE.DodecahedronGeometry(1, 0)));
+    for (let i = 0; i < 46; i++) {
+      const sz = 0.022 + rb() * 0.028;
+      const lump = new THREE.Mesh(shapes[i & 3], mediaMat);
+      lump.scale.set(sz, sz * 0.7, sz);
+      lump.position.set(
+        (rb() - 0.5) * (FIRE_W - 0.14),
+        0.102 + rb() * 0.016,
+        -0.06 + (rb() - 0.5) * 0.11,
+      );
+      lump.rotation.set(rb() * 3, rb() * 3, rb() * 3);
+      hearth.add(lump);
+    }
+  }
+
+  /* Coals. Same noise machinery as the flame, but squat and
+     almost static — it glows through the gaps in the media
+     rather than rising. */
+  const coalMat = keep(
+    new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uLevel: { value: 1 } },
+      vertexShader: FIRE_VERT,
+      fragmentShader: `
+        uniform float uTime; uniform float uLevel;
+        varying vec2 vUv;
+        float hash(vec2 p) {
+          p = fract(p * vec2(123.34, 456.21));
+          p += dot(p, p + 45.32);
+          return fract(p.x * p.y);
+        }
+        float vnoise(vec2 p) {
+          vec2 i = floor(p), f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          float a = hash(i), b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+        void main() {
+          vec2 uv = vUv;
+          /* Barely moving. Coals brighten and dim in patches;
+             they do not flow. */
+          float n = vnoise(vec2(uv.x * 26.0, uv.y * 4.0 + uTime * 0.07));
+          n = n * 0.7 + vnoise(vec2(uv.x * 61.0 + 9.0, uv.y * 7.0 - uTime * 0.05)) * 0.3;
+          float breathe = 0.72 + 0.28 * sin(uTime * 0.6 + uv.x * 9.0);
+          float edge = smoothstep(0.0, 0.3, uv.y) * smoothstep(1.0, 0.72, uv.y)
+                     * smoothstep(0.0, 0.1, uv.x) * smoothstep(1.0, 0.9, uv.x);
+          float f = smoothstep(0.42, 0.95, n * breathe) * edge * uLevel;
+          if (f <= 0.002) discard;
+          vec3 c = mix(vec3(0.5, 0.06, 0.01), vec3(1.0, 0.46, 0.1), smoothstep(0.1, 0.9, f));
+          gl_FragColor = vec4(c, f * 0.55);
+        }
+      `,
+    }),
+  );
+  {
+    const coals = new THREE.Mesh(keep(new THREE.PlaneGeometry(FIRE_W - 0.1, 0.17)), coalMat);
+    /* Tilted toward the opening rather than flat. A fire bed
+       lying dead level is edge-on from anywhere you would
+       actually stand. */
+    coals.rotation.x = -1.12;
+    coals.position.set(0, 0.122, -0.045);
+    coals.renderOrder = 3;
+    hearth.add(coals);
+  }
+
+  /* ── Sparks ───────────────────────────────────────────────
+     Two dozen embers lifting off the bed and going out. They do
+     more for the realism than another flame sheet would: fire
+     is a thing that throws pieces of itself upward, and nothing
+     static ever looks like one. */
+  const sparkMat = keep(
+    new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uTime: { value: 0 }, uLevel: { value: 1 } },
+      vertexShader: `
+        attribute float aSeed;
+        uniform float uTime; uniform float uLevel;
+        varying float vFade;
+        void main() {
+          float sp = 0.1 + aSeed * 0.13;
+          float life = fract(uTime * sp + aSeed * 7.13);
+          vec3 p = position;
+          p.y += life * (0.3 + aSeed * 0.5);
+          // Sideways wander that grows as it loses its heat.
+          p.x += sin(life * 7.0 + aSeed * 31.0) * 0.09 * life;
+          p.z += cos(life * 5.3 + aSeed * 17.0) * 0.03 * life;
+          /* Up fast, out slow — and the whole thing scaled by
+             how hard the fire is burning, so blowing it out
+             takes the sparks with it. */
+          vFade = smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.25, 1.0, life)) * uLevel;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          gl_PointSize = (1.4 + aSeed * 2.2) * (10.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying float vFade;
+        void main() {
+          vec2 d = gl_PointCoord - 0.5;
+          float a = smoothstep(0.5, 0.05, length(d));
+          gl_FragColor = vec4(vec3(1.0, 0.56, 0.16), a * vFade * 0.9);
+        }
+      `,
+    }),
+  );
+  {
+    const N = 26;
+    const sp = new Float32Array(N * 3);
+    const ss = new Float32Array(N);
+    const rs = rand(337);
+    for (let i = 0; i < N; i++) {
+      sp[i * 3] = (rs() - 0.5) * (FIRE_W - 0.2);
+      sp[i * 3 + 1] = 0.12;
+      sp[i * 3 + 2] = -0.05 + (rs() - 0.5) * 0.06;
+      ss[i] = rs();
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(sp, 3));
+    g.setAttribute("aSeed", new THREE.BufferAttribute(ss, 1));
+    keep(g);
+    const pts = new THREE.Points(g, sparkMat);
+    pts.renderOrder = 5;
+    hearth.add(pts);
+  }
+
+
   /* No glass pane across the opening. A transmissive material
      is rendered from a backbuffer of the opaque scene only, so
      everything additive behind it — which is the entire flame —
@@ -1467,6 +1614,77 @@ export function buildRoom(): Built {
   const fireLight = new THREE.PointLight(0xff7a2a, 0, 3.0, 2);
   fireLight.position.set(ROOM.leftX + 0.5, 0.42, FLAT_ANCHOR.z);
   root.add(fireLight);
+
+  /* ── What lives on top of it ──────────────────────────────
+     An empty 2.9m slab under a television is a plinth, not
+     furniture. A candle at one end, a short stack of books at
+     the other, a dish between them: the things that are
+     actually on a media unit in a room somebody uses. */
+
+  // Candle. Wax body, a dark wick, and a real flame.
+  const waxMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0xe8ddc8, roughness: 0.72, emissive: 0x3a2410, emissiveIntensity: 0.5 }),
+  );
+  /* The hearth group is turned a quarter turn, so its local x
+     runs along the 2.9m length of the unit and its local z is
+     the 0.42m depth. Everything placed on top is positioned in
+     those axes, not world ones. */
+  const CANDLE_X = 1.02;
+  const CANDLE_Y = UNIT_H + 0.075;
+  addTo(hearth, keep(new THREE.CylinderGeometry(0.052, 0.055, 0.15, 20)), waxMat, CANDLE_X, CANDLE_Y, 0.02);
+  addTo(hearth, keep(new THREE.CylinderGeometry(0.054, 0.054, 0.006, 20)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x1a1218, roughness: 0.9 })),
+    CANDLE_X, CANDLE_Y + 0.075, 0.02);
+
+  /* The flame is the same shader as the fire, handed a tall
+     narrow aspect instead of a wide one — which is the whole
+     difference between a hearth and a candle. */
+  const candleMat = keep(
+    new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: FIRE_VERT,
+      fragmentShader: FIRE_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        uHue: { value: 0.04 },
+        uLevel: { value: 1 },
+        uSeed: { value: 88.2 },
+        uRise: { value: 0.75 },
+        uGain: { value: 0.8 },
+        uAR: { value: 0.42 },
+      },
+    }),
+  );
+  {
+    const cf = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.055, 0.1)), candleMat);
+    cf.position.set(CANDLE_X, CANDLE_Y + 0.128, 0.02);
+    cf.renderOrder = 5;
+    hearth.add(cf);
+  }
+  const candleLight = new THREE.PointLight(0xffb15e, 0, 1.5, 2);
+  candleLight.position.set(ROOM.leftX + 0.4, CANDLE_Y + 0.14, FLAT_ANCHOR.z - CANDLE_X);
+  root.add(candleLight);
+
+  // A stack of books, lying flat, each one a little out of true.
+  {
+    const rk = rand(1207);
+    let by = UNIT_H + 0.02;
+    for (let i = 0; i < 4; i++) {
+      const th = 0.028 + rk() * 0.018;
+      const bk = new THREE.Mesh(box(0.2 - i * 0.008, th, 0.15 - i * 0.006), bookFaces(rk));
+      bk.position.set(-1.02 + (rk() - 0.5) * 0.02, by + th / 2, (rk() - 0.5) * 0.03);
+      bk.rotation.y = (rk() - 0.5) * 0.22;
+      bk.castShadow = true;
+      hearth.add(bk);
+      by += th + 0.002;
+    }
+    // A shallow dish, because flat surfaces collect small things.
+    addTo(hearth, keep(new THREE.CylinderGeometry(0.075, 0.055, 0.035, 20, 1, true)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 0.62, side: THREE.DoubleSide })),
+      -0.42, UNIT_H + 0.018, 0.0);
+  }
 
   root.add(hearth);
   hitBox(0.5, 0.8, 2.9, "hearth", new THREE.Vector3(ROOM.leftX + 0.25, 0.38, FLAT_ANCHOR.z));
@@ -1540,6 +1758,33 @@ export function buildRoom(): Built {
       cu.castShadow = true;
       sofa.add(cu);
     });
+    /* A throw over the near arm, falling down the front.
+       Built as a lathe-free strip of boxes rather than cloth
+       simulation: four short panels, each tipped a little
+       further than the last, which from any angle you can
+       actually stand at reads as fabric hanging. */
+    {
+      const throwMat = keep(
+        new THREE.MeshStandardMaterial({ color: 0xb8683f, roughness: 0.96 }),
+      );
+      const drape: Array<[number, number, number, number]> = [
+        // width, height, y, tilt
+        [0.52, 0.2, 0.595, -0.1],
+        [0.2, 0.3, 0.46, 0.5],
+        [0.18, 0.26, 0.22, 0.12],
+        [0.17, 0.12, 0.06, -0.3],
+      ];
+      let dx = -0.08;
+      for (const [w, h, y, tilt] of drape) {
+        const panel = new THREE.Mesh(rbox(w, h, 0.26, 0.02), throwMat);
+        panel.position.set(dx, y, 0.9);
+        panel.rotation.z = tilt;
+        panel.castShadow = true;
+        sofa.add(panel);
+        dx -= w * 0.32;
+      }
+    }
+
     for (const lz of [-0.78, 0.78]) {
       for (const lx of [-0.34, 0.34]) {
         const leg = new THREE.Mesh(box(0.06, 0.14, 0.06), darkMetal);
@@ -2543,7 +2788,8 @@ export function buildRoom(): Built {
 
   const plantSpecs: Array<[Parameters<typeof buildPlant>[0], number, THREE.Vector3]> = [
     ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],
-    ["snake", 83, new THREE.Vector3(-2.62, 0, -0.95)],
+    // Back-left corner. It was standing inside the media unit.
+    ["snake", 83, new THREE.Vector3(-2.66, 0, -2.02)],
     // On top of the bookcase, trailing over the edge.
     ["pothos", 97, new THREE.Vector3(CASE_X - 0.04, CASE_H + 0.04, CASE_Z - 0.6)],
     ["succulent", 113, new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z - 0.14)],
@@ -2555,6 +2801,13 @@ export function buildRoom(): Built {
     life.push(p);
     if (p.hit) targets.push(p.hit);
   }
+
+  /* The air. Sits under everything else and stops the volume
+     between the furniture reading as vacuum. */
+  const motes = buildMotes(keep);
+  motes.group.position.set(0, 0, ROOM.backZ + ROOM.d / 2);
+  root.add(motes.group);
+  life.push(motes);
 
   const steam = buildSteam(keep);
   steam.group.position.set(MUG.x, DESK_Y + 0.13, MUG.z);
@@ -2672,6 +2925,7 @@ export function buildRoom(): Built {
       tv: tvLight,
       flat: flatLight,
       fire: fireLight,
+      candle: candleLight,
       ambient,
     },
     props: {
@@ -2695,6 +2949,9 @@ export function buildRoom(): Built {
       flatOff,
       flatLed,
       fireMats,
+      coalMat,
+      sparkMat,
+      candleMat,
       speakerCones,
       posters,
       towerMats,

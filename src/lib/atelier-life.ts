@@ -1519,6 +1519,91 @@ export function buildSteam(keep: (x: { dispose: () => void }) => void): Life {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MOTES — the air in the room
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Dust.
+ *
+ * A still room is a model of a room. The cheapest thing that
+ * fixes it is the air itself: a few hundred specks turning over
+ * slowly, catching whatever light is nearest. You never look at
+ * them directly — that is the point. They sit under everything
+ * else and stop the volume between the furniture reading as
+ * vacuum.
+ *
+ * Each one gets its own phase and its own drift rate, so there
+ * is no visible sheet of particles moving together, and the
+ * brightness pulses on a slow sine as it turns through the
+ * light. Additive at very low alpha: they should never be
+ * countable.
+ */
+export function buildMotes(keep: (x: { dispose: () => void }) => void): Life {
+  const group = new THREE.Group();
+  const COUNT = 110;
+
+  const pos = new Float32Array(COUNT * 3);
+  const seedAttr = new Float32Array(COUNT);
+  const r = rand(733);
+  for (let i = 0; i < COUNT; i++) {
+    pos[i * 3] = (r() - 0.5) * 5.6;
+    pos[i * 3 + 1] = 0.15 + r() * 2.5;
+    pos[i * 3 + 2] = (r() - 0.5) * 4.6;
+    seedAttr[i] = r();
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("aSeed", new THREE.BufferAttribute(seedAttr, 1));
+  keep(geo);
+
+  const mat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: `
+      attribute float aSeed;
+      uniform float uTime;
+      varying float vFade;
+      void main() {
+        vec3 p = position;
+        float s = aSeed * 6.2831;
+        /* Three incommensurable rates, so the path never closes
+           and no two motes travel together. */
+        p.x += sin(uTime * (0.05 + aSeed * 0.05) + s) * 0.3;
+        p.y += sin(uTime * (0.03 + aSeed * 0.04) + s * 1.7) * 0.18;
+        p.z += cos(uTime * (0.04 + aSeed * 0.05) + s * 2.3) * 0.26;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        // Turning through the light, not blinking.
+        vFade = 0.25 + 0.75 * pow(0.5 + 0.5 * sin(uTime * (0.4 + aSeed * 0.7) + s), 4.0);
+        gl_PointSize = (0.7 + aSeed * 0.9) * (12.0 / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: `
+      varying float vFade;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float a = smoothstep(0.5, 0.0, length(d));
+        /* Very low. Dust you can count is not dust — it is
+           snow, and it sits on top of the picture instead of
+           inside it. */
+        gl_FragColor = vec4(vec3(0.95, 0.93, 0.88), a * a * vFade * 0.035);
+      }
+    `,
+  });
+  keep(mat);
+  group.add(new THREE.Points(geo, mat));
+
+  const update = ({ t, reduced }: LifeCtx) => {
+    mat.uniforms.uTime.value = reduced ? 0 : t;
+  };
+
+  return { name: "motes", group, update };
+}
+
+/* ══════════════════════════════════════════════════════════════
    CLOCK — real hands, real time
    ══════════════════════════════════════════════════════════════ */
 
