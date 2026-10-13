@@ -150,10 +150,16 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     map: headCoat,
     roughnessMap: coat.rough,
   });
+  /* The white parts take a coat with no tabby in it. Banding on
+     a muzzle the size of a thumbnail does not read as a tabby,
+     it reads as a candy stripe. */
+  const plain = furTexture(3318, false);
+  keep(plain.map);
+  plain.map.repeat.set(2, 2);
   const furLight = new THREE.MeshStandardMaterial({
     color: 0x4a4060,
     roughness: 0.95,
-    map: headCoat,
+    map: plain.map,
   });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
   /* A white bib and socks. Markings are the cheapest way to make
@@ -161,7 +167,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const furWhite = new THREE.MeshStandardMaterial({
     color: 0xcfc6d8,
     roughness: 0.93,
-    map: headCoat,
+    map: plain.map,
   });
   const whisker = new THREE.MeshBasicMaterial({ color: 0xe8e2ef, transparent: true, opacity: 0.55 });
   keep(fur);
@@ -178,6 +184,12 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   keep(bodyGeo);
   const body = new THREE.Mesh(bodyGeo, fur);
   body.rotation.z = Math.PI / 2;
+  /* A sitting cat is taller than she is wide, and this one was
+     reading as a sphere. The capsule lies along x after the
+     rotation, so local x is world height and local z is her
+     width across — taller and narrower, without touching the
+     pivot, whose scale the breathing owns. */
+  body.scale.set(1.1, 1, 0.84);
   body.position.y = 0.085;
   body.castShadow = true;
   bodyPivot.add(body);
@@ -188,7 +200,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   keep(haunchGeo);
   const haunch = new THREE.Mesh(haunchGeo, fur);
   haunch.position.set(-0.055, 0.07, 0.045);
-  haunch.scale.set(1, 0.85, 0.8);
+  haunch.scale.set(0.96, 0.98, 0.74);
   haunch.castShadow = true;
   bodyPivot.add(haunch);
 
@@ -206,7 +218,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   keep(bibGeo);
   const bib = new THREE.Mesh(bibGeo, furWhite);
   bib.position.set(0.072, 0.072, 0);
-  bib.scale.set(0.62, 1.05, 0.78);
+  bib.scale.set(0.58, 1.12, 0.68);
   bib.castShadow = true;
   bodyPivot.add(bib);
 
@@ -214,7 +226,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   keep(ruffGeo);
   const ruff = new THREE.Mesh(ruffGeo, fur);
   ruff.position.set(0.072, 0.122, 0);
-  ruff.scale.set(0.7, 0.62, 0.92);
+  ruff.scale.set(0.6, 0.52, 0.74);
   bodyPivot.add(ruff);
 
   /* A shoulder blade either side. A sitting cat is not smooth
@@ -657,6 +669,57 @@ function furTexture(seed: number, banded: boolean): { map: THREE.Texture; rough:
 }
 
 /**
+ * Needles.
+ *
+ * A fir read as four smooth cones because it was four smooth
+ * cones. Half the fix is the silhouette, below; the other half
+ * is that a real tier is thousands of needles, dark in the
+ * shade of the branch above and catching light at the tips.
+ */
+function needleTexture(): THREE.Texture {
+  const W = 256;
+  const H = 256;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d") as CanvasRenderingContext2D;
+  const r = rand(5582);
+
+  g.fillStyle = "#4e5a44";
+  g.fillRect(0, 0, W, H);
+
+  // Needles, hanging and splayed, in both directions.
+  for (let i = 0; i < 4200; i++) {
+    const x = r() * W;
+    const y = r() * H;
+    const len = 5 + r() * 14;
+    const lean = (r() - 0.5) * 1.5;
+    const pale = r() < 0.42;
+    g.strokeStyle = pale
+      ? `rgba(196,214,160,${0.06 + r() * 0.2})`
+      : `rgba(14,32,16,${0.08 + r() * 0.26})`;
+    g.lineWidth = 0.6 + r() * 1.1;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.sin(lean) * len, y + Math.abs(Math.cos(lean)) * len);
+    g.stroke();
+  }
+  // Shade under where the tier above sits.
+  const shade = g.createLinearGradient(0, 0, 0, H * 0.45);
+  shade.addColorStop(0, "rgba(6,18,8,0.55)");
+  shade.addColorStop(1, "rgba(6,18,8,0)");
+  g.fillStyle = shade;
+  g.fillRect(0, 0, W, H * 0.45);
+
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+
+/**
  * Veins.
  *
  * A leaf with no vein structure is a green shape, and ten green
@@ -860,10 +923,13 @@ export function buildWalkingCat(
     map: coatFine,
     roughnessMap: coat.rough,
   });
+  const plain = furTexture(7715, false);
+  keep(plain.map);
+  plain.map.repeat.set(2, 2);
   const furPale = new THREE.MeshStandardMaterial({
     color: 0xd8c3ab,
     roughness: 0.93,
-    map: coatFine,
+    map: plain.map,
   });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
   keep(fur);
@@ -1579,7 +1645,14 @@ export function buildDecor(
   /* ── Christmas tree ───────────────────────────────────── */
   const tree = new THREE.Group();
   {
-    const needleMat = new THREE.MeshStandardMaterial({ color: 0x22512e, roughness: 0.88 });
+    const needles = needleTexture();
+    keep(needles);
+    needles.repeat.set(5, 3);
+    const needleMat = new THREE.MeshStandardMaterial({
+      color: 0x2c5c34,
+      roughness: 0.92,
+      map: needles,
+    });
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3322, roughness: 0.92 });
     keep(needleMat);
     keep(trunkMat);
@@ -1597,22 +1670,53 @@ export function buildDecor(
     trunk.position.y = 0.3;
     tree.add(trunk);
 
-    // Four tiers, each a cone, narrowing upward.
+    /* Tiers.
+     *
+     * Seven, not four, and none of them a smooth cone. A fir's
+     * outline is the single thing that gives it away: the rim of
+     * a branch tier is ragged and it droops, where a cone's rim
+     * is a perfect circle in a perfect plane. So every vertex on
+     * the skirt is pushed out by a different amount and dropped
+     * by a different amount, which costs one pass over the
+     * position buffer and does more than any amount of texture.
+     *
+     * Each tier is also turned a little, so the raggedness of
+     * one does not line up with the next.
+     */
     const tiers = [
-      { y: 0.42, r: 0.42, h: 0.42 },
-      { y: 0.68, r: 0.34, h: 0.38 },
-      { y: 0.92, r: 0.26, h: 0.34 },
-      { y: 1.13, r: 0.17, h: 0.3 },
+      { y: 0.30, r: 0.46, h: 0.34 },
+      { y: 0.46, r: 0.42, h: 0.32 },
+      { y: 0.62, r: 0.36, h: 0.3 },
+      { y: 0.78, r: 0.3, h: 0.28 },
+      { y: 0.93, r: 0.24, h: 0.26 },
+      { y: 1.07, r: 0.18, h: 0.24 },
+      { y: 1.2, r: 0.11, h: 0.22 },
     ];
-    for (const tier of tiers) {
-      const g = new THREE.ConeGeometry(tier.r, tier.h, 20);
+    const jig = rand(8821);
+    tiers.forEach((tier, i) => {
+      const g = new THREE.ConeGeometry(tier.r, tier.h, 26, 3, true);
+      const pos = g.attributes.position as THREE.BufferAttribute;
+      for (let v = 0; v < pos.count; v++) {
+        const x = pos.getX(v);
+        const y = pos.getY(v);
+        const z = pos.getZ(v);
+        const rad = Math.hypot(x, z);
+        if (rad < 1e-4) continue;
+        // Strongest at the rim, nothing at the apex.
+        const edge = rad / tier.r;
+        const out = 1 + (jig() - 0.35) * 0.3 * edge;
+        const droop = Math.pow(edge, 2.2) * (0.02 + jig() * 0.055);
+        pos.setXYZ(v, x * out, y - droop, z * out);
+      }
+      g.computeVertexNormals();
       keep(g);
       const cone = new THREE.Mesh(g, needleMat);
       cone.position.y = tier.y + tier.h / 2;
+      cone.rotation.y = i * 1.37;
       cone.castShadow = true;
       cone.receiveShadow = true;
       tree.add(cone);
-    }
+    });
 
     // Baubles and lights. The lights are emissive so the bloom
     // pass picks them up and the tree actually glows in the dark.

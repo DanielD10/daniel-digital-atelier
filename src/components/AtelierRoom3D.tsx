@@ -261,6 +261,27 @@ const SHOTS: Shot[] = [
     narrowFit: 1.72,
   },
   { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7], fit: 2.95 },
+  /* Two close-ups.
+   *
+   * Everything in this room is modelled at a level of detail
+   * that cannot survive being eighty pixels tall — spines you
+   * can read, veins, a coat, whiskers. From the room framings
+   * none of it lands, and no amount of further texturing fixes
+   * that; the camera has to come in. */
+  {
+    name: "The shelf",
+    pos: [0.9, 1.75, 0.35],
+    aim: [2.45, 1.15, -1.25],
+    fit: 0.85,
+    narrowFit: 0.62,
+  },
+  {
+    name: "The sill",
+    pos: [0.1, 1.45, -1.2],
+    aim: [-1.05, 1.12, -2.42],
+    fit: 0.42,
+    narrowFit: 0.33,
+  },
 ];
 
 export default function AtelierRoom3D() {
@@ -978,7 +999,8 @@ export default function AtelierRoom3D() {
         const reach = Math.max(0.001, wantPos.length());
         const radius = (useNarrow && sh.narrowFit) || sh.fit;
         const want = radius / Math.min(rig.tanV, rig.tanH);
-        wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 1.6, 14) / reach).add(wantAim);
+        // 0.7 rather than 1.6: the close-ups need to get close.
+        wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 0.7, 14) / reach).add(wantAim);
         if (!reduced) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
