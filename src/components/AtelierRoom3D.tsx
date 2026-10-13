@@ -339,6 +339,80 @@ const SHOTS: Shot[] = [
  */
 const FILMS = [{ name: "The Outsiders", id: "iOQisO0KAzM" }];
 
+/**
+ * The transport, for either set.
+ *
+ * Both televisions are the same component with different
+ * storage keys, so they get the same controls. Neither set can
+ * carry its own: the retro one is a CSS3D element whose
+ * children paint in one place and hit-test in another, and the
+ * big one is a cross-origin iframe whose controls belong to
+ * YouTube. So the buttons live out here on the stage and talk
+ * to the player over its message channel.
+ *
+ * A button that cannot do anything is disabled rather than
+ * silently ignored. Skip only appears when the dial has
+ * somewhere to go, and the two seek buttons stay out until the
+ * player has reported a position — "thirty seconds on from
+ * where?" has no answer before that.
+ */
+function Transport({
+  api,
+  onOff,
+}: {
+  api: TVApi | null;
+  onOff: () => void;
+}) {
+  if (!api?.tuned) return null;
+  const many = api.dial > 1;
+  return (
+    <div className="room3d-tvbar">
+      {many ? (
+        <button type="button" onClick={() => api.step(-1)} aria-label="Previous channel">
+          ⏮
+        </button>
+      ) : null}
+      <button type="button" onClick={() => api.restart()} aria-label="Start again">
+        ↺
+      </button>
+      <button
+        type="button"
+        onClick={() => api.seek(-30)}
+        disabled={!api.canSeek}
+        aria-label="Back thirty seconds"
+      >
+        −30
+      </button>
+      <button
+        type="button"
+        onClick={() => api.toggle()}
+        aria-label={api.playing ? "Pause" : "Play"}
+      >
+        {api.playing ? "❚❚" : "▶"}
+      </button>
+      <button
+        type="button"
+        onClick={() => api.seek(30)}
+        disabled={!api.canSeek}
+        aria-label="Forward thirty seconds"
+      >
+        +30
+      </button>
+      {many ? (
+        <button type="button" onClick={() => api.step(1)} aria-label="Next channel">
+          ⏭
+        </button>
+      ) : null}
+      <button type="button" onClick={() => api.retune()}>
+        Tune
+      </button>
+      <button type="button" onClick={onOff}>
+        Off
+      </button>
+    </div>
+  );
+}
+
 /** Derived, so inserting a framing cannot silently point it elsewhere. */
 const SOFA_SHOT = SHOTS.findIndex((x) => x.name === "The sofa");
 
@@ -1449,34 +1523,18 @@ export default function AtelierRoom3D() {
             cannot be pressed inside a CSS3D element. The sofa
             framing looks square-on at the screen, so a flat
             panel sits exactly where the glass is. */}
+        {/* The host div is owned by a separate React root, which
+            clears whatever is inside it — so the controls are a
+            sibling of the picture, never a child of it. */}
         {ready && flatOn && shot === SOFA_SHOT && !awake ? (
-          <div className="room3d-flat" ref={flatHostRef}>
-            <button
-              type="button"
-              className="room3d-flat-off"
-              onClick={() => setFlatOn(false)}
-              aria-label="Turn the big screen off"
-            >
-              ✕
-            </button>
-          </div>
+          <>
+            <div className="room3d-flat" ref={flatHostRef} />
+            <Transport api={flatApi} onOff={() => setFlatOn(false)} />
+          </>
         ) : null}
 
-        {ready && tvOn && !awake && tvApi?.tuned ? (
-          <div className="room3d-tvbar">
-            <button type="button" onClick={() => tvApi.step(-1)} aria-label="Previous track">
-              ⏮
-            </button>
-            <button type="button" onClick={() => tvApi.step(1)} aria-label="Skip">
-              ⏭
-            </button>
-            <button type="button" onClick={() => tvApi.retune()}>
-              Tune
-            </button>
-            <button type="button" onClick={() => setTvOn(false)}>
-              Off
-            </button>
-          </div>
+        {ready && tvOn && !awake ? (
+          <Transport api={tvApi} onOff={() => setTvOn(false)} />
         ) : null}
 
         {ready && awake ? (

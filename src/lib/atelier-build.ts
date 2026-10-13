@@ -416,7 +416,6 @@ export type Built = {
     chairGlowRing: THREE.Mesh;
     vinyl: THREE.Mesh;
     lampBulb: THREE.Mesh;
-    lampHead: THREE.Group;
     neonSign: THREE.Group;
     neonBase: THREE.Color;
     neonMat: THREE.MeshBasicMaterial;
@@ -438,7 +437,6 @@ export type Built = {
     signs: THREE.Mesh[];
     ledGlowA: THREE.PointLight;
     ledGlowB: THREE.PointLight;
-    cityGroup: THREE.Group;
     vista: THREE.Mesh;
     vistaMat: THREE.ShaderMaterial;
     ceiling: THREE.Mesh;
@@ -499,7 +497,39 @@ export function buildRoom(): Built {
      part of what made the place feel like one material. */
   const brass = keep(new THREE.MeshStandardMaterial({ color: 0xb08a4a, roughness: 0.3, metalness: 0.85 }));
 
-  const box = (w: number, h: number, d: number) => keep(new THREE.BoxGeometry(w, h, d));
+  /**
+   * Geometry, shared by shape.
+   *
+   * These two were handing out a brand new buffer for every
+   * call, and a room built out of boxes calls them several
+   * hundred times — 543 unique geometries for 752 meshes, which
+   * is 543 separate uploads to the GPU at boot for maybe a
+   * hundred genuinely different shapes. Keyed on the dimensions
+   * instead, identical boxes share one buffer. Safe because
+   * nothing here mutates a geometry after it is built; every
+   * transform happens on the mesh.
+   */
+  const geoCache = new Map<string, THREE.BufferGeometry>();
+  const shared = (key: string, make: () => THREE.BufferGeometry) => {
+    let g = geoCache.get(key);
+    if (!g) {
+      g = keep(make());
+      geoCache.set(key, g);
+    }
+    return g;
+  };
+  /* Snapped to three significant figures before it becomes a
+     key, and built at the snapped size so the cache never hands
+     back something a different size from what was asked for.
+     Half the furniture in here is sized off a random number —
+     a book 0.1734 tall and one 0.1731 tall are two buffers for
+     no reason. Worst-case error is 0.05% of a dimension, which
+     on the largest thing in the room is under a millimetre. */
+  const q = (n: number) => Number(n.toPrecision(3));
+  const box = (w0: number, h0: number, d0: number) => {
+    const w = q(w0), h = q(h0), d = q(d0);
+    return shared(`b:${w}:${h}:${d}`, () => new THREE.BoxGeometry(w, h, d));
+  };
 
   /* One atlas for every spine in the room; a book takes its
      slice by offsetting the map, so a shelf of twenty costs one
@@ -515,25 +545,56 @@ export function buildRoom(): Built {
    * are the page block — which is what stops a shelf looking
    * like a row of identically wrapped bricks.
    */
+  /**
+   * One material per spine, built once.
+   *
+   * This used to clone the atlas for every single book so it
+   * could set that book's offset — and a cloned texture is a
+   * separate upload of the same canvas, so a hundred books meant
+   * a hundred copies of the same 1296x460 image on the GPU,
+   * plus four fresh materials each. There are only eighteen
+   * spines in the atlas, so there only need to be eighteen
+   * materials.
+   */
+  const spineMats: THREE.MeshStandardMaterial[] = [];
+  for (let i = 0; i < SPINE_COLS; i++) {
+    const map = keep(spineMap.clone());
+    map.repeat.set(1 / SPINE_COLS, 1);
+    map.offset.set(i / SPINE_COLS, 0);
+    map.needsUpdate = true;
+    spineMats.push(keep(new THREE.MeshStandardMaterial({ roughness: 0.86, map })));
+  }
+  // The page block is the same on every book in the room.
+  const paperMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0xcfc4ad, roughness: 0.95 }),
+  );
+  /* Cloth is still varied, but drawn from a fixed set rather
+     than mixed fresh each time. Twelve is more than enough to
+     stop a shelf looking uniform, and it is twelve materials
+     instead of one per book. */
+  const clothMats: THREE.MeshStandardMaterial[] = [];
+  for (let i = 0; i < 12; i++) {
+    clothMats.push(
+      keep(
+        new THREE.MeshStandardMaterial({
+          color: new THREE.Color().setHSL((i * 0.137) % 1, 0.24, 0.2 + (i % 4) * 0.04),
+          roughness: 0.9,
+        }),
+      ),
+    );
+  }
+
   const bookFaces = (r: () => number): THREE.Material[] => {
     const i = spineTurn++ % SPINE_COLS;
-    const spine = keep(
-      new THREE.MeshStandardMaterial({ roughness: 0.86, map: spineMap.clone() }),
-    );
-    spine.map!.repeat.set(1 / SPINE_COLS, 1);
-    spine.map!.offset.set(i / SPINE_COLS, 0);
-    spine.map!.needsUpdate = true;
-    keep(spine.map!);
-
-    const cloth = keep(
-      new THREE.MeshStandardMaterial({
-        color: new THREE.Color().setHSL(r(), 0.24, 0.2 + r() * 0.16),
-        roughness: 0.9,
-      }),
-    );
-    const paper = keep(
-      new THREE.MeshStandardMaterial({ color: 0xcfc4ad, roughness: 0.95 }),
-    );
+    const spine = spineMats[i];
+    /* Two draws, not one. The old version consumed two random
+       numbers here (hue and lightness) and the shelf-filling
+       loops share the same generator — taking fewer would
+       reshuffle every shelf in the room for no reason. */
+    const pick = Math.floor(r() * clothMats.length);
+    void r();
+    const cloth = clothMats[pick % clothMats.length];
+    const paper = paperMat;
     /* Spine on BOTH ends. The shelf stands against the right
        wall and that wall is cut away in the overview, so the
        shot people see most looks at it from behind — where a
@@ -553,9 +614,11 @@ export function buildRoom(): Built {
    * whole thing stops looking like geometry. Radius is clamped so
    * a thin panel cannot invert itself.
    */
-  const rbox = (w: number, h: number, d: number, radius = 0.014) => {
-    const r2 = Math.min(radius, Math.min(w, h, d) * 0.45);
-    return keep(new RoundedBoxGeometry(w, h, d, 2, r2));
+  const rbox = (w0: number, h0: number, d0: number, radius = 0.014) => {
+    const w = q(w0), h = q(h0), d = q(d0);
+    const r2 = q(Math.min(radius, Math.min(w, h, d) * 0.45));
+    return shared(`r:${w}:${h}:${d}:${r2}`,
+      () => new RoundedBoxGeometry(w, h, d, 2, r2));
   };
 
   const add = (
@@ -2989,7 +3052,6 @@ export function buildRoom(): Built {
       chairGlowRing,
       vinyl,
       lampBulb,
-      lampHead,
       neonSign,
       neonBase: new THREE.Color(NEON_HUE),
       neonMat,
@@ -3011,7 +3073,6 @@ export function buildRoom(): Built {
       signs,
       ledGlowA,
       ledGlowB,
-      cityGroup,
       vista,
       vistaMat,
       ceiling: ceil,

@@ -127,7 +127,26 @@ function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string 
   return `${base}/${t.id}?${common}${queue}`;
 }
 
-export type TVApi = { step: (dir: 1 | -1) => void; retune: () => void; tuned: boolean };
+export type TVApi = {
+  /** Walk the dial. No-op when there is only one station. */
+  step: (dir: 1 | -1) => void;
+  /** Back to the tuning panel. */
+  retune: () => void;
+  /** Jump by a number of seconds, positive or negative. */
+  seek: (delta: number) => void;
+  /** Back to the beginning. */
+  restart: () => void;
+  /** Play if paused, pause if playing. */
+  toggle: () => void;
+  tuned: boolean;
+  /** True once the player has reported a position, which is
+   *  when seeking is meaningful and not before. */
+  canSeek: boolean;
+  playing: boolean;
+  /** How many presets there are, so the room knows whether to
+   *  draw the skip buttons at all. */
+  dial: number;
+};
 
 /**
  * The set's controls do not live in the set.
@@ -166,8 +185,32 @@ export default function AtelierTV({
      reports one, "ok" once it reports anything else. */
   const [signal, setSignal] = useState<null | "error" | "ok">(null);
   const [webview, setWebview] = useState(false);
+  /* What the player has told us about itself. YouTube's state
+     codes: 1 is playing, 2 is paused. */
+  const [playing, setPlaying] = useState(true);
+  const [canSeek, setCanSeek] = useState(false);
+  const atRef = useRef(0);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => setWebview(inAppBrowser()), []);
+
+  /**
+   * Talk to the player.
+   *
+   * With `enablejsapi` the embed accepts commands as posted JSON
+   * — the same channel the official iframe API uses underneath,
+   * without the 60kB of script it loads to do it. Everything the
+   * transport does goes through here.
+   */
+  const cmd = (func: string, args: unknown[] = []) => {
+    const win = frameRef.current?.contentWindow;
+    if (!win) return;
+    try {
+      win.postMessage(JSON.stringify({ event: "command", func, args }), "*");
+    } catch {
+      /* the frame is cross-origin and may be mid-navigation */
+    }
+  };
 
   /* Listen to the player.
    *
@@ -189,15 +232,59 @@ export default function AtelierTV({
           return;
         }
       }
-      const ev = (data as { event?: string } | null)?.event;
+      const d = data as {
+        event?: string;
+        info?: { currentTime?: number; playerState?: number };
+      } | null;
+      const ev = d?.event;
       if (ev === "onError") setSignal("error");
       else if (ev === "onReady" || ev === "onStateChange" || ev === "infoDelivery") {
-        setSignal((p) => (p === "error" ? p : "ok"));
+        setSignal((prev) => (prev === "error" ? prev : "ok"));
+      }
+      /* Position and state arrive on `infoDelivery`, which the
+         player only sends once it has been asked to listen —
+         see the effect below. Until the first one lands there
+         is no sensible answer to "seek thirty seconds from
+         where?", so the seek buttons stay disabled. */
+      const info = d?.info;
+      if (info && typeof info.currentTime === "number") {
+        atRef.current = info.currentTime;
+        setCanSeek(true);
+      }
+      if (info && typeof info.playerState === "number") {
+        setPlaying(info.playerState === 1);
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, []);
+
+  /* Ask the player to report. It says nothing until told to,
+     and it may not be ready the instant the iframe mounts, so
+     this keeps asking for a few seconds and then stops. */
+  useEffect(() => {
+    if (!tuned) return;
+    setCanSeek(false);
+    atRef.current = 0;
+    let n = 0;
+    const ping = () => {
+      const win = frameRef.current?.contentWindow;
+      try {
+        win?.postMessage(
+          JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
+          "*",
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    ping();
+    const id = window.setInterval(() => {
+      ping();
+      if (++n > 12) window.clearInterval(id);
+    }, 700);
+    return () => window.clearInterval(id);
+  }, [tuned?.kind, tuned?.id]);
 
   // A fresh channel deserves a fresh verdict.
   useEffect(() => setSignal(null), [tuned?.id]);
@@ -265,22 +352,51 @@ export default function AtelierTV({
   stepRef.current = step;
   const retuneRef = useRef(retune);
   retuneRef.current = retune;
+  const cmdRef = useRef(cmd);
+  cmdRef.current = cmd;
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
   const isTuned = Boolean(tuned);
+  const dial = stations.length;
 
+  /* Republished whenever something the room draws from it
+     changes — whether there is a picture, whether seeking is
+     possible yet, and whether it is playing — because those
+     decide which buttons the room shows and how they look. The
+     handlers themselves stay stable behind refs. */
   useEffect(() => {
     apiRef.current?.({
       step: (d) => stepRef.current(d),
       retune: () => retuneRef.current(),
+      seek: (delta) => {
+        const to = Math.max(0, atRef.current + delta);
+        atRef.current = to;
+        cmdRef.current("seekTo", [to, true]);
+      },
+      restart: () => {
+        atRef.current = 0;
+        cmdRef.current("seekTo", [0, true]);
+        cmdRef.current("playVideo");
+      },
+      toggle: () => {
+        const next = !playingRef.current;
+        setPlaying(next);
+        cmdRef.current(next ? "playVideo" : "pauseVideo");
+      },
       tuned: isTuned,
+      canSeek,
+      playing,
+      dial,
     });
     return () => apiRef.current?.(null);
-  }, [isTuned]);
+  }, [isTuned, canSeek, playing, dial]);
 
   if (tuned) {
     const out = watchUrl(tuned);
     return (
       <div className="tv-set">
         <iframe
+          ref={frameRef}
           key={`${tuned.kind}-${tuned.id}`}
           src={embedUrl(tuned, stations)}
           title="Television"

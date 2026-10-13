@@ -3556,7 +3556,26 @@ main { position: relative; z-index: 3; }
   text-transform: uppercase;
   cursor: pointer;
 }
-.room3d-tvbar button:hover { background: rgba(255, 255, 255, 0.12); }
+.room3d-tvbar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+/* A control that cannot do anything yet says so, rather than
+   looking live and doing nothing when pressed. The two seek
+   buttons sit like this until the player reports a position. */
+.room3d-tvbar button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+/* Narrow screens: the bar is eight controls wide now, so it
+   centres and wraps rather than running off the left edge. */
+@media (max-width: 560px) {
+  .room3d-tvbar {
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: calc(100vw - 24px);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .room3d-tvbar button { padding: 5px 8px; }
+}
 
 /* ── The cursor, as a light ─────────────────────────────────
    A soft halo with a small bright centre. The centre matters: a
@@ -3748,22 +3767,6 @@ main { position: relative; z-index: 3; }
 .room3d-flat .tv-set,
 .room3d-flat .tv-tune { position: absolute; inset: 0; }
 .room3d-flat iframe { width: 100%; height: 100%; border: 0; display: block; }
-
-.room3d-flat-off {
-  position: absolute;
-  z-index: 2;
-  right: 8px;
-  top: 8px;
-  width: 30px;
-  height: 30px;
-  background: rgba(8, 6, 16, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 50%;
-  color: #f3eee6;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-.room3d-flat-off:hover { border-color: rgba(255, 255, 255, 0.65); }
 
 /* Watching something, the page heading is in the way of it. */
 .atelier.is-watching + .lab-intro {

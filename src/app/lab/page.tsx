@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
-import AtelierRoom3D from "@/components/AtelierRoom3D";
+import LabRoom from "@/components/LabRoom";
 
 /**
- * Imported directly rather than through next/dynamic: this page is
- * a Server Component, and Next 16 does not allow `ssr: false`
- * from one. It costs nothing — the room builds itself inside an
- * effect, so the server renders the empty stage and the scene
- * appears on mount either way.
+ * The room comes in through LabRoom, which is a client boundary
+ * holding a `next/dynamic` import with `ssr: false`. Importing
+ * AtelierRoom3D straight into this Server Component looked
+ * equivalent — the scene builds in an effect either way — but it
+ * is not: the whole three.js chunk then belongs to this route's
+ * client bundle and has to arrive and parse before hydration
+ * finishes. Behind the dynamic boundary the page shell paints
+ * and becomes interactive first, and the engine follows.
  */
 
 export const metadata: Metadata = {
@@ -28,7 +31,7 @@ export default function Lab() {
           full-height stage below the fold. */}
       <main className="lab-full" id="main">
         <div className="lab-room">
-          <AtelierRoom3D />
+          <LabRoom />
           <div className="lab-intro">
             <Link className="back" href="/">
               Home
