@@ -530,39 +530,43 @@ function leafTexture(): { map: THREE.Texture; rough: THREE.Texture } {
   }
 
   // The midrib: thick at the stem, tapering to the tip.
-  g.strokeStyle = "rgba(120,132,110,0.55)";
+  g.strokeStyle = "rgba(74,92,64,0.78)";
   g.lineCap = "round";
   for (let i = 0; i < 24; i++) {
     const t = i / 24;
-    g.lineWidth = 7 * (1 - t) + 1.2;
+    g.lineWidth = 15 * (1 - t) + 3.5;
     g.beginPath();
     g.moveTo(W / 2, H * t);
     g.lineTo(W / 2, H * (t + 1 / 24));
     g.stroke();
   }
   // A highlight just off the rib, which is what makes it read as raised.
-  g.strokeStyle = "rgba(255,255,255,0.4)";
-  g.lineWidth = 2;
+  g.strokeStyle = "rgba(255,255,255,0.55)";
+  g.lineWidth = 4;
   g.beginPath();
   g.moveTo(W / 2 + 4, H * 0.04);
   g.lineTo(W / 2 + 2.5, H * 0.95);
   g.stroke();
 
   // Laterals, swept toward the tip, each with a few branchlets.
-  g.strokeStyle = "rgba(126,138,116,0.42)";
-  for (let i = 1; i <= 11; i++) {
-    const t = i / 12;
+  g.strokeStyle = "rgba(78,96,68,0.62)";
+  /* Seven, not eleven. At the distance the camera actually
+     sits, a leaf is about a hundred pixels tall — eleven thin
+     laterals average out to a flat wash, where seven thick ones
+     still read as veins. */
+  for (let i = 1; i <= 7; i++) {
+    const t = i / 8;
     const y = H * t;
     const reach = Math.sin(t * Math.PI) * (W / 2) * 0.86;
     const rise = H * 0.085 * (1 - t * 0.4);
     for (const dir of [-1, 1]) {
-      g.lineWidth = 2.6 * (1 - t * 0.5) + 0.5;
+      g.lineWidth = 6.5 * (1 - t * 0.45) + 1.6;
       g.beginPath();
       g.moveTo(W / 2, y);
       g.quadraticCurveTo(W / 2 + dir * reach * 0.55, y + rise * 0.4, W / 2 + dir * reach, y + rise);
       g.stroke();
       // Branchlets off each lateral.
-      g.lineWidth = 0.9;
+      g.lineWidth = 2.4;
       for (let b = 1; b <= 2; b++) {
         const f = b / 3;
         const bx = W / 2 + dir * reach * f;
@@ -574,6 +578,22 @@ function leafTexture(): { map: THREE.Texture; rough: THREE.Texture } {
       }
     }
   }
+
+  /* A darker margin. Real leaves are thinner and darker at the
+     rim, and at this size the rim is a bigger share of the leaf
+     than any single vein. */
+  const rim = g.createLinearGradient(0, 0, W, 0);
+  rim.addColorStop(0, "rgba(40,54,34,0.5)");
+  rim.addColorStop(0.17, "rgba(40,54,34,0)");
+  rim.addColorStop(0.83, "rgba(40,54,34,0)");
+  rim.addColorStop(1, "rgba(40,54,34,0.5)");
+  g.fillStyle = rim;
+  g.fillRect(0, 0, W, H);
+  const tip = g.createLinearGradient(0, H, 0, H * 0.72);
+  tip.addColorStop(0, "rgba(40,54,34,0.45)");
+  tip.addColorStop(1, "rgba(40,54,34,0)");
+  g.fillStyle = tip;
+  g.fillRect(0, H * 0.72, W, H * 0.28);
 
   const map = new THREE.CanvasTexture(c);
   map.colorSpace = THREE.SRGBColorSpace;

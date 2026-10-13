@@ -370,7 +370,15 @@ export default function AtelierRoom3D() {
 
     // Bloom runs the scene through extra full-screen passes, so
     // every pixel here is paid for several times over.
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    const DPR_IDLE = Math.min(window.devicePixelRatio || 1, 1.5);
+    /* With the set playing there is a hardware video decode, a
+       compositor layer for it and the whole WebGL scene with
+       bloom all wanting the same frame. Dropping the 3D to 1x
+       while the television is on costs a little crispness and
+       buys back far more than it costs. */
+    const DPR_TV = Math.min(window.devicePixelRatio || 1, 1);
+    renderer.setPixelRatio(DPR_IDLE);
+    let dprNow = DPR_IDLE;
     renderer.setSize(w, h);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -898,7 +906,13 @@ export default function AtelierRoom3D() {
       built.lamps.tv.intensity = cur.tvI * (reduced ? 1 : 0.86 + Math.sin(t * 11) * 0.14);
       (p.tvGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, cur.tvI * 0.45);
       p.tvOff.visible = !s.tvOn;
-      tvHost.style.visibility = s.tvOn ? "visible" : "hidden";
+      /* The picture is a CSS3D element, which the browser sizes
+         by distance — sitting at the desk it was being laid out
+         at tens of thousands of pixels across, with a YouTube
+         player inside it. A DOM layer that size with live video
+         in it is the single most expensive thing on the page,
+         and at the desk you cannot see the set anyway. */
+      tvHost.style.visibility = s.tvOn && !s.awake ? "visible" : "hidden";
 
       /* Hotspots, projected to the canvas. */
       for (const spot of spots) {
@@ -993,7 +1007,16 @@ export default function AtelierRoom3D() {
       p.modelFill.intensity = lerp(p.modelFill.intensity, s.awake ? 0 : 5.2, Math.min(1, dt * 2));
 
       composer.render();
-      css.render(scene, camera);
+      // Nothing in the CSS layer unless the set is on and visible.
+      if (s.tvOn && !s.awake) css.render(scene, camera);
+
+      const wantDpr = s.tvOn && !s.awake ? DPR_TV : DPR_IDLE;
+      if (wantDpr !== dprNow) {
+        dprNow = wantDpr;
+        renderer.setPixelRatio(wantDpr);
+        composer.setPixelRatio?.(wantDpr);
+        resize();
+      }
     };
 
     /* ── Poke handler ──────────────────────────────────── */

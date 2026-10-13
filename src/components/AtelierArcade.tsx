@@ -12,10 +12,6 @@ import { useEffect, useRef, useState } from "react";
  * an iframe, which is fine when they allow it and dead the day
  * they stop.
  *
- * Steam is not an option and never will be: Steam games are
- * native binaries, the Web API returns library and achievement
- * data and nothing playable. Anyone reading this looking for the
- * hook — it does not exist.
  *
  * Licences for the vendored games, and the changes made to them,
  * are in public/games/NOTICE.md. Both are MIT.
