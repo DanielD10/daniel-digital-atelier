@@ -1287,7 +1287,7 @@ export function buildRoom(): Built {
      there are three, staggered through the firebox at
      different rise rates and seeds, adding together. */
   const FIRE_W = 1.62;
-  const FIRE_H = 0.34;
+  const FIRE_H = 0.46;
   /* How much wider than tall, which is the factor the noise
      frequency has to be corrected by. */
   const FIRE_AR = FIRE_W / FIRE_H;
@@ -1303,7 +1303,7 @@ export function buildRoom(): Built {
   );
 
   const UNIT_W = 2.9;
-  const UNIT_H = 0.66;
+  const UNIT_H = 0.78;
   const UNIT_D = 0.42;
   // Carcass, built as a surround rather than one slab so the
   // burner sits in a recess with a shadow line round it.
@@ -1359,8 +1359,8 @@ export function buildRoom(): Built {
       /* uAR is the plane's width over its height. Without it the
          noise cells are as wide as the burner and every tongue
          comes out as a horizontal streak. */
-      float fx = (uv.x - lean) * 2.2 * uAR + uSeed;
-      vec2 p = vec2(fx, uv.y * 2.3 - uTime * uRise);
+      float fx = (uv.x - lean) * 1.7 * uAR + uSeed;
+      vec2 p = vec2(fx, uv.y * 1.7 - uTime * uRise);
 
       float n = fbm(p) * 0.62 + fbm(p * 2.1 + 17.0) * 0.38;
       /* Each column breathes on its own clock, which is what
@@ -1372,9 +1372,14 @@ export function buildRoom(): Built {
       // Wide at the bed, narrow at the tip.
       float taper = 1.0 - smoothstep(0.15, 1.15, uv.y);
       float sides = smoothstep(0.5, 0.2, abs(uv.x - 0.5));
-      float body = n * taper * sides * uLevel * 3.1;
-      body -= uv.y * 0.46;
-      float f = smoothstep(0.08, 0.7, body);
+      float body = n * taper * sides * uLevel * 1.55;
+      body -= uv.y * 0.42;
+      /* Deliberately short of saturation over most of the
+         sheet. Three of these add together and the bloom pass
+         threshold is 0.82, so a flame that reaches 1.0
+         everywhere floods the whole room with haze. Only the
+         hottest cores are meant to cross it. */
+      float f = smoothstep(0.12, 1.0, body);
       if (f <= 0.002) discard;
 
       /* Hot core to cool tip, with the whole ramp drifting
@@ -1382,7 +1387,7 @@ export function buildRoom(): Built {
       float h = fract(uHue);
       vec3 deep = vec3(0.62, 0.08, 0.02);
       vec3 mid  = vec3(1.0, 0.45, 0.06);
-      vec3 hot  = vec3(1.0, 0.93, 0.72);
+      vec3 hot  = vec3(1.0, 0.82, 0.42);
       vec3 tint = vec3(
         0.5 + 0.5 * cos(6.2831 * (h + 0.0)),
         0.5 + 0.5 * cos(6.2831 * (h + 0.33)),
@@ -1392,7 +1397,7 @@ export function buildRoom(): Built {
       c = mix(c, hot, smoothstep(0.62, 1.0, f));
       // Only the cooler part takes the colour; the core stays
       // white-hot, which is what keeps it reading as fire.
-      c = mix(c, c * 0.45 + tint * 0.95, (1.0 - smoothstep(0.5, 0.95, f)) * 0.72);
+      c = mix(c, c * 0.55 + tint * 0.7, (1.0 - smoothstep(0.45, 0.92, f)) * 0.5);
       gl_FragColor = vec4(c, f * uGain);
     }
   `;
@@ -1403,9 +1408,9 @@ export function buildRoom(): Built {
      reaches, the tip stays thin. */
   const fireMats: THREE.ShaderMaterial[] = [];
   const FIRE_LAYERS: Array<[seed: number, rise: number, z: number, gain: number, w: number]> = [
-    [0.0, 1.05, -0.07, 0.6, 1.0],
-    [23.7, 1.5, -0.025, 0.85, 0.97],
-    [51.3, 1.95, 0.025, 0.55, 0.9],
+    [0.0, 1.05, -0.07, 0.3, 1.0],
+    [23.7, 1.5, -0.025, 0.45, 0.97],
+    [51.3, 1.95, 0.025, 0.26, 0.9],
   ];
   for (const [seed, rise, fz, gain, wScale] of FIRE_LAYERS) {
     const m = keep(
@@ -1441,19 +1446,25 @@ export function buildRoom(): Built {
      the light. */
   const emberMat = keep(new THREE.MeshBasicMaterial({ color: 0x2a0a02 }));
   addTo(hearth, rbox(FIRE_W - 0.12, 0.025, 0.14, 0.008), emberMat, 0, 0.108, -0.03);
-  const glassMat = keep(
-    new THREE.MeshPhysicalMaterial({
-      color: 0x0d1016,
-      roughness: 0.06,
-      metalness: 0,
-      transparent: true,
-      opacity: 0.18,
-      transmission: 0.6,
-    }),
+  /* No glass pane across the opening. A transmissive material
+     is rendered from a backbuffer of the opaque scene only, so
+     everything additive behind it — which is the entire flame —
+     disappears into it. A slim metal reveal round the opening
+     does the same job of making it look like a fitted unit and
+     costs nothing per frame. */
+  const trimMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0x3a3542, roughness: 0.3, metalness: 0.75 }),
   );
-  addTo(hearth, box(FIRE_W, FIRE_H + 0.02, 0.008), glassMat, 0, 0.1 + FIRE_H / 2, 0.1);
+  for (const sy of [-1, 1]) {
+    addTo(hearth, box(FIRE_W + 0.05, 0.022, 0.03), trimMat,
+      0, 0.1 + FIRE_H / 2 + sy * (FIRE_H / 2 + 0.011), 0.205);
+  }
+  for (const sx of [-1, 1]) {
+    addTo(hearth, box(0.022, FIRE_H + 0.05, 0.03), trimMat,
+      sx * (FIRE_W / 2 + 0.011), 0.1 + FIRE_H / 2, 0.205);
+  }
 
-  const fireLight = new THREE.PointLight(0xff7a2a, 0, 3.6, 2);
+  const fireLight = new THREE.PointLight(0xff7a2a, 0, 3.0, 2);
   fireLight.position.set(ROOM.leftX + 0.5, 0.42, FLAT_ANCHOR.z);
   root.add(fireLight);
 

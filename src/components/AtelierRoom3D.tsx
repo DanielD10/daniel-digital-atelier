@@ -172,6 +172,18 @@ type Shot = {
   /** The same, for the portrait framing, which usually has to
    *  hold more of the room in a much narrower frame. */
   narrowFit?: number;
+  /**
+   * Used instead of `fit` when nothing is playing.
+   *
+   * The sofa framing has two jobs that pull against each other.
+   * With a film on, the screen should fill the frame — that is
+   * the whole point of sitting down. With nothing on, the thing
+   * worth looking at is the wall: the screen, the fireplace
+   * under it and the light it throws. One radius cannot do
+   * both, so the shot carries the resting one too and the
+   * camera eases between them.
+   */
+  restFit?: number;
 };
 
 /**
@@ -303,6 +315,10 @@ const SHOTS: Shot[] = [
        the frame. */
     fit: 1.52,
     narrowFit: 1.3,
+    /* Nothing playing: stand back far enough to take in the
+       fireplace under the screen as well. It closes back in the
+       moment a film starts. */
+    restFit: 1.95,
   },
   {
     name: "The sill",
@@ -1050,7 +1066,7 @@ export default function AtelierRoom3D() {
       const fireFocus = touch("hearth");
       const gutter = reduced
         ? 1
-        : 0.82 + Math.sin(t * 11.3) * 0.08 + Math.sin(t * 4.1) * 0.06 + Math.sin(t * 1.7) * 0.05;
+        : 0.89 + Math.sin(t * 11.3) * 0.05 + Math.sin(t * 4.1) * 0.04 + Math.sin(t * 1.7) * 0.03;
       cur.fireI = lerp(cur.fireI, s.fireOn ? 1 : 0, Math.min(1, dt * 2.4));
       const fireLevel = cur.fireI * gutter * (1 + fireFocus * 0.22);
       for (const fm of p.fireMats) {
@@ -1058,7 +1074,7 @@ export default function AtelierRoom3D() {
         fm.uniforms.uHue.value = reduced ? 0.04 : (t * 0.021) % 1;
         fm.uniforms.uLevel.value = fireLevel;
       }
-      built.lamps.fire.intensity = cur.fireI * gutter * (1.5 + fireFocus * 0.5);
+      built.lamps.fire.intensity = cur.fireI * gutter * (0.85 + fireFocus * 0.3);
 
       p.tvOff.visible = !s.tvOn;
       /* The picture is a CSS3D element, which the browser sizes
@@ -1131,14 +1147,18 @@ export default function AtelierRoom3D() {
          * empty room on the others. */
         wantPos.sub(wantAim);
         const reach = Math.max(0.001, wantPos.length());
-        const radius = (useNarrow && sh.narrowFit) || sh.fit;
+        const watching = s.flatOn && s.shot === SOFA_SHOT;
+        const radius =
+          !watching && sh.restFit
+            ? sh.restFit
+            : (useNarrow && sh.narrowFit) || sh.fit;
         const want = radius / Math.min(rig.tanV, rig.tanH);
         // 0.7 rather than 1.6: the close-ups need to get close.
         wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 0.7, 14) / reach).add(wantAim);
         /* Dead still while a film is on. The room breathing is
            what keeps it alive the rest of the time; under a
            picture it is a camera that will not sit down. */
-        if (!reduced && !(s.flatOn && s.shot === SOFA_SHOT)) {
+        if (!reduced && !watching) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
           wantPos.x += Math.sin(t * 0.17) * 0.07 + pointer.x * 0.1;
