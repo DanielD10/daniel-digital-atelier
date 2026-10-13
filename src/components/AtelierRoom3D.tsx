@@ -282,10 +282,27 @@ const SHOTS: Shot[] = [
        the distance it reads at, with enough room around it to
        still be in a room. */
     name: "The sofa",
-    pos: [2.1, 1.22, 0.52],
-    aim: [-2.86, 1.56, 0.45],
-    fit: 1.0,
-    narrowFit: 0.78,
+    /* Dead on the screen's normal: same height, same z, only
+       the distance differs. That is not a style choice — the
+       picture is an axis-aligned rectangle drawn over the
+       stage, and a screen viewed from even slightly off-axis
+       projects as a trapezoid. Square-on, the two line up
+       exactly. Matching a trapezoid would mean a matrix3d
+       transform, which is precisely the thing that cannot be
+       clicked. */
+    pos: [2.16, 1.85, 0.02],
+    aim: [-2.84, 1.85, 0.02],
+    /* Back where you would actually be sitting. The screen is
+       3.25m across, so at this distance it fills a bit under
+       half the frame — big enough to watch, with enough room
+       either side that you are still in a room. */
+    /* The screen is already 3.25m across — a third more and it
+       runs out of wall. So the view comes in instead, which is
+       the same thing to look at and does not break the room:
+       at this distance the picture fills about two thirds of
+       the frame. */
+    fit: 1.52,
+    narrowFit: 1.3,
   },
   {
     name: "The sill",
@@ -304,7 +321,7 @@ const SHOTS: Shot[] = [
  * disappears when the rights holder files, and all that is left
  * on the page is a dead player. Swapping it is one id.
  */
-const FILMS = [{ name: "The Crow", id: "DyN5vkHU7JI" }];
+const FILMS = [{ name: "The Outsiders", id: "iOQisO0KAzM" }];
 
 /** Derived, so inserting a framing cannot silently point it elsewhere. */
 const SOFA_SHOT = SHOTS.findIndex((x) => x.name === "The sofa");
@@ -654,6 +671,7 @@ export default function AtelierRoom3D() {
     const edgeA = new THREE.Vector3();
     const edgeB = new THREE.Vector3();
     const flatRight = new THREE.Vector3();
+    const flatAt = { x: -1, y: -1, fit: -1 };
 
     /* ── Camera rigs ───────────────────────────────────── */
     const IDLE_POS = new THREE.Vector3(...SHOTS[0].pos);
@@ -992,11 +1010,21 @@ export default function AtelierRoom3D() {
         edgeB.copy(built.flat.position).add(flatRight.set(0, 0, half)).project(camera);
         projV.copy(built.flat.position).project(camera);
         const px = Math.abs(edgeB.x - edgeA.x) * 0.5 * w;
-        const cx = (projV.x * 0.5 + 0.5) * w;
-        const cy = (-projV.y * 0.5 + 0.5) * h;
-        flatEl.style.left = `${cx}px`;
-        flatEl.style.top = `${cy}px`;
-        flatEl.style.setProperty("--flat-fit", String(Math.max(0.12, px / 960)));
+        const cx = Math.round((projV.x * 0.5 + 0.5) * w);
+        const cy = Math.round((-projV.y * 0.5 + 0.5) * h);
+        const fit = Math.round(Math.max(0.12, px / 960) * 500) / 500;
+        /* Only when it has actually moved. Writing a fresh
+           transform every frame relaid out an iframe sixty times
+           a second off a camera that never stops breathing,
+           which is what made the picture shimmer. */
+        if (cx !== flatAt.x || cy !== flatAt.y || fit !== flatAt.fit) {
+          flatAt.x = cx;
+          flatAt.y = cy;
+          flatAt.fit = fit;
+          flatEl.style.left = `${cx}px`;
+          flatEl.style.top = `${cy}px`;
+          flatEl.style.setProperty("--flat-fit", String(fit));
+        }
       }
       cur.flatI = lerp(cur.flatI, flatLive ? 1.5 : 0, Math.min(1, dt * 3));
       built.lamps.flat.intensity = cur.flatI * (reduced ? 1 : 0.9 + Math.sin(t * 9) * 0.1);
@@ -1079,7 +1107,10 @@ export default function AtelierRoom3D() {
         const want = radius / Math.min(rig.tanV, rig.tanH);
         // 0.7 rather than 1.6: the close-ups need to get close.
         wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 0.7, 14) / reach).add(wantAim);
-        if (!reduced) {
+        /* Dead still while a film is on. The room breathing is
+           what keeps it alive the rest of the time; under a
+           picture it is a camera that will not sit down. */
+        if (!reduced && !(s.flatOn && s.shot === SOFA_SHOT)) {
           // A slow breath, plus a little parallax toward the
           // cursor. Enough that the room is never quite still.
           wantPos.x += Math.sin(t * 0.17) * 0.07 + pointer.x * 0.1;

@@ -225,6 +225,13 @@ export default function AtelierTV({
           <button type="submit">Tune</button>
         </form>
         {bad ? <p className="tv-bad">That is not a YouTube link.</p> : null}
+        {/* The one failure that looks like a bug and is not.
+            YouTube refuses to play age-restricted videos in any
+            embed, anywhere — it wants you signed in on its own
+            site — so the player comes up with a notice instead
+            of a picture and there is nothing this end can do
+            about it. */}
+        <p className="tv-foot">Age-restricted videos will not play in an embed.</p>
         {stations.length ? (
           <ul className="tv-dial">
             {stations.map((c) => (

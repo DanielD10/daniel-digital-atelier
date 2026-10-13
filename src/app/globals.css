@@ -3716,3 +3716,11 @@ main { position: relative; z-index: 3; }
   visibility: hidden;
   transition: opacity 320ms ease, visibility 0s linear 320ms;
 }
+
+.tv-foot {
+  margin: 8px 0 0;
+  font-family: var(--f-micro);
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+  color: rgba(243, 238, 230, 0.4);
+}

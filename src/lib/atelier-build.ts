@@ -68,22 +68,27 @@ function finish(c: HTMLCanvasElement, repeat = 1, srgb = true): THREE.Texture {
  * books with writing on them", not a list.
  */
 const SPINE_TITLES: Array<[string, string]> = [
-  ["THE TIMELESS WAY", "ALEXANDER"],
-  ["UNDERSTANDING MEDIA", "McLUHAN"],
-  ["GODEL ESCHER BACH", "HOFSTADTER"],
-  ["THE DESIGN OF THINGS", "NORMAN"],
-  ["NEUROMANCER", "GIBSON"],
-  ["SNOW CRASH", "STEPHENSON"],
-  ["THE DISPOSSESSED", "LE GUIN"],
-  ["GRID SYSTEMS", "MULLER-BROCKMANN"],
-  ["ON GROWTH AND FORM", "THOMPSON"],
-  ["THE SOUL OF A MACHINE", "KIDDER"],
-  ["PATTERNS", "GAMMA"],
-  ["A PATTERN LANGUAGE", "ALEXANDER"],
-  ["INVISIBLE CITIES", "CALVINO"],
-  ["THE ELEMENTS", "BRINGHURST"],
-  ["STRUCTURES", "GORDON"],
-  ["HOW BUILDINGS LEARN", "BRAND"],
+  // What someone actually builds a shelf out of: how to work,
+  // how to think, and something to read when neither is going
+  // well.
+  ["MEDITATIONS", "AURELIUS"],
+  ["LETTERS FROM A STOIC", "SENECA"],
+  ["THE ENCHIRIDION", "EPICTETUS"],
+  ["MAN'S SEARCH FOR MEANING", "FRANKL"],
+  ["BEYOND GOOD AND EVIL", "NIETZSCHE"],
+  ["TAO TE CHING", "LAO TZU"],
+  ["THE REPUBLIC", "PLATO"],
+  ["THINK AND GROW RICH", "HILL"],
+  ["ATOMIC HABITS", "CLEAR"],
+  ["THE 48 LAWS OF POWER", "GREENE"],
+  ["MASTERY", "GREENE"],
+  ["DEEP WORK", "NEWPORT"],
+  ["THE OBSTACLE IS THE WAY", "HOLIDAY"],
+  ["RICH DAD POOR DAD", "KIYOSAKI"],
+  ["LEAVES OF GRASS", "WHITMAN"],
+  ["THE PROPHET", "GIBRAN"],
+  ["COLLECTED POEMS", "YEATS"],
+  ["SELECTED POEMS", "RUMI"],
 ];
 
 const SPINE_COLS = SPINE_TITLES.length;
@@ -1091,7 +1096,8 @@ export function buildRoom(): Built {
   const TV_W = 0.62;
   const TV_H = TV_W * (3 / 4);
   const TV_YAW = 0.92;
-  const TV_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.46, 1.74, -0.92);
+  // Back toward the window, to leave the long wall free.
+  const TV_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.46, 1.74, -2.05);
 
   const tvSet = new THREE.Group();
   tvSet.position.copy(TV_ANCHOR);
@@ -1186,10 +1192,16 @@ export function buildRoom(): Built {
      own bezel, a slightly deeper box behind the middle where
      the electronics actually live, and a bracket you can see
      under it. */
-  const FLAT_W = 1.3;
+  /* Two and a half times the first one, which is 3.25m across
+     and does not share a wall with anything. Two things moved to
+     make room: the retro set slid back into the window corner,
+     and the crates came off this wall entirely. A screen this
+     size is also high enough off the floor to clear the snake
+     plant standing under it. */
+  const FLAT_W = 3.25;
   const FLAT_H = (FLAT_W * 9) / 16;
   const FLAT_YAW = Math.PI / 2;
-  const FLAT_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.07, 1.56, 0.45);
+  const FLAT_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.07, 1.85, 0.02);
 
   const flatSet = new THREE.Group();
   flatSet.position.copy(FLAT_ANCHOR);
@@ -1204,7 +1216,7 @@ export function buildRoom(): Built {
   // The deeper housing, which only covers the middle third.
   addTo(flatSet, rbox(FLAT_W * 0.42, FLAT_H * 0.52, 0.042, 0.01), flatShell, 0, -0.03, -0.045);
   // Wall plate and the short arm down to it.
-  addTo(flatSet, box(0.26, 0.26, 0.018), darkMetal, 0, 0, -0.07);
+  addTo(flatSet, box(0.5, 0.42, 0.02), darkMetal, 0, 0, -0.072);
 
   const flatOff = new THREE.Mesh(
     keep(new THREE.PlaneGeometry(FLAT_W, FLAT_H)),
@@ -1463,19 +1475,22 @@ export function buildRoom(): Built {
   /* Crates by the left wall, and a board leaning on them. */
   {
     const crateMat = keep(new THREE.MeshStandardMaterial({ color: 0x7a5c3e, roughness: 0.92, map: woodMap }));
+    /* Moved forward off the screen wall — a metre of stacked
+       crates in front of a 3.25m television is a metre of
+       television you cannot see. */
     const stack = [
-      [0.46, 0.34, 0.4, -2.5, 0.17, 0.9, 0.1],
-      [0.42, 0.3, 0.38, -2.46, 0.49, 0.84, -0.18],
-      [0.3, 0.24, 0.3, -2.56, 0.76, 0.96, 0.3],
+      [0.46, 0.34, 0.4, -2.5, 0.17, 1.95, 0.1],
+      [0.42, 0.3, 0.38, -2.46, 0.49, 1.89, -0.18],
+      [0.3, 0.24, 0.3, -2.56, 0.76, 2.01, 0.3],
     ] as const;
     for (const [cw, ch, cd, cx2, cy2, cz2, rot] of stack) {
       const c = add(rbox(cw, ch, cd, 0.012), crateMat, cx2, cy2, cz2);
       c.rotation.y = rot;
     }
-    const board = add(box(0.22, 0.9, 0.035), keep(new THREE.MeshStandardMaterial({ color: 0x2f3a58, roughness: 0.6 })), -2.82, 0.45, 0.2);
+    const board = add(box(0.22, 0.9, 0.035), keep(new THREE.MeshStandardMaterial({ color: 0x2f3a58, roughness: 0.6 })), -2.82, 0.45, 1.52);
     board.rotation.z = 0.16;
     board.rotation.y = 0.5;
-    hitBox(0.7, 1.1, 0.7, "crates", new THREE.Vector3(-2.5, 0.5, 0.9));
+    hitBox(0.7, 1.1, 0.7, "crates", new THREE.Vector3(-2.45, 0.5, 1.95));
   }
 
   /* A pouffe, because the floor needs something soft on it. */
