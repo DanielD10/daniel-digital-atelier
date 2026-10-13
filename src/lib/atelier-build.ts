@@ -448,6 +448,73 @@ export type Built = {
   dispose: () => void;
 };
 
+/**
+ * Something for the room to reflect.
+ *
+ * Every glossy or metallic surface in here was rendering black,
+ * because a `metalness` close to 1 means "show me the
+ * environment" and there was no environment — just point lights,
+ * which a mirror cannot show you. The off-state television was
+ * the obvious case, but it was equally true of the chair frame,
+ * the lamp, the metal trim and the record.
+ *
+ * The usual fix is three.js's RoomEnvironment, which is a
+ * neutral white studio and would light this place like a
+ * showroom. So this is built to match the room's own light
+ * instead: cold from the window side, warm and low where the
+ * fire is, a patch of cyan where the neon sits, near-black
+ * above. A reflection then agrees with what is actually lighting
+ * the object, which is the whole point of having one.
+ *
+ * Only directions matter to an environment map, so the panels
+ * are a box around the origin rather than anything to scale. The
+ * caller runs this through PMREMGenerator once and disposes it.
+ */
+export function buildEnvScene(): THREE.Scene {
+  const s = new THREE.Scene();
+  const panel = (
+    color: number,
+    w: number,
+    h: number,
+    pos: [number, number, number],
+    rot: [number, number, number],
+  ) => {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(w, h),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
+    );
+    m.position.set(...pos);
+    m.rotation.set(...rot);
+    s.add(m);
+  };
+
+  const H = Math.PI / 2;
+  // Shell.
+  panel(0x0a0a16, 10, 6, [0, 0, -5], [0, 0, 0]); // window wall
+  panel(0x0a0a14, 10, 6, [0, 0, 5], [0, Math.PI, 0]);
+  panel(0x0b0a12, 10, 6, [-5, 0, 0], [0, H, 0]); // screen + fire wall
+  panel(0x0b0a12, 10, 6, [5, 0, 0], [0, -H, 0]); // bookcase wall
+  panel(0x08080f, 10, 10, [0, 5, 0], [H, 0, 0]); // ceiling
+  panel(0x14101a, 10, 10, [0, -5, 0], [-H, 0, 0]); // floor
+
+  /* The three things in the room bright enough to see in a
+     reflection: the window, the fire and the sign. */
+  panel(0x3a5f96, 7, 2.6, [0, 1.1, -4.9], [0, 0, 0]);
+  panel(0x7a3410, 6, 1.4, [-4.9, -2.4, 0], [0, H, 0]);
+  panel(0x1d6076, 1.3, 1.3, [4.9, 2.2, -1.5], [0, -H, 0]);
+
+  return s;
+}
+
+/** Give back everything buildEnvScene allocated. */
+export function disposeEnvScene(s: THREE.Scene) {
+  s.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.geometry) m.geometry.dispose();
+    if (m.material) for (const x of [m.material].flat()) x.dispose();
+  });
+}
+
 export function buildRoom(): Built {
   const root = new THREE.Group();
   const disposables: Array<{ dispose: () => void }> = [];
@@ -2967,13 +3034,19 @@ export function buildRoom(): Built {
   sun.position.set(-3, 7, -6);
   sun.target.position.set(0, 0.9, -1);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1536, 1536);
+  /* 2048, over a frustum tightened to what the room actually
+     occupies. The old one covered a 10x8 area for a 6x5 room,
+     so roughly half the texels were falling outside the walls —
+     between the resolution and the tighter fit this is about
+     two and a half times the shadow detail per metre, for one
+     extra megabyte of depth buffer. */
+  sun.shadow.mapSize.set(2048, 2048);
   sun.shadow.camera.near = 0.5;
-  sun.shadow.camera.far = 24;
-  sun.shadow.camera.left = -5;
-  sun.shadow.camera.right = 5;
-  sun.shadow.camera.top = 5;
-  sun.shadow.camera.bottom = -3;
+  sun.shadow.camera.far = 20;
+  sun.shadow.camera.left = -4.2;
+  sun.shadow.camera.right = 4.2;
+  sun.shadow.camera.top = 4.2;
+  sun.shadow.camera.bottom = -2.6;
   sun.shadow.bias = -0.0012;
   sun.shadow.normalBias = 0.022;
   root.add(sun);

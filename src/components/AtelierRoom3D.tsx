@@ -10,7 +10,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { RectAreaLightUniformsLib } from "three/examples/jsm/lights/RectAreaLightUniformsLib.js";
 
-import { buildRoom, type Built } from "@/lib/atelier-build";
+import { buildRoom, buildEnvScene, disposeEnvScene, type Built } from "@/lib/atelier-build";
 import type { LifeCtx } from "@/lib/atelier-life";
 import { moodNow, PHASE_ORDER, SEASON_ORDER, type Phase, type Season } from "@/lib/atelier-time";
 import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-decor";
@@ -559,6 +559,27 @@ export default function AtelierRoom3D() {
     // room off the sides, which is where most of the furniture is.
     const camera = new THREE.PerspectiveCamera(fitFov(w / h), w / h, 0.05, 400);
     camera.position.set(0.35, 1.6, 1.6);
+
+    /* Something for the glossy things to reflect.
+     *
+     * Built once from a handful of coloured panels that match
+     * this room's own light, pre-filtered into a mip chain, and
+     * then thrown away — what survives is one small cube map.
+     * Without it every high-metalness surface in here renders
+     * black, because a mirror with nothing in front of it is
+     * black and point lights are not something a mirror can
+     * show you. */
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envScene = buildEnvScene();
+    const envRT = pmrem.fromScene(envScene, 0.08);
+    disposeEnvScene(envScene);
+    pmrem.dispose();
+    scene.environment = envRT.texture;
+    /* Low. This is here to put highlights on metal, not to
+       light the room — the lamps do that, and an environment
+       turned up far enough to notice flattens a night interior
+       into an overcast afternoon. */
+    scene.environmentIntensity = 0.3;
 
     const built = buildRoom();
     builtRef.current = built;
@@ -1384,6 +1405,7 @@ export default function AtelierRoom3D() {
       if (torch.parentNode === host) host.removeChild(torch);
       composer.dispose();
       built.dispose();
+      envRT.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
       if (css.domElement.parentNode === host) host.removeChild(css.domElement);
