@@ -127,12 +127,49 @@ function hitBox(
 export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const group = new THREE.Group();
 
-  const fur = new THREE.MeshStandardMaterial({ color: 0x241f30, roughness: 0.95 });
-  const furLight = new THREE.MeshStandardMaterial({ color: 0x322b42, roughness: 0.95 });
+  const coat = furTexture(3317, true);
+  keep(coat.map);
+  keep(coat.rough);
+  /* The body repeats the coat a few times round; the head is a
+     much smaller sphere and wants the hair at roughly the same
+     scale, so it gets its own repeat. */
+  const headCoat = coat.map.clone();
+  headCoat.repeat.set(2, 2);
+  keep(headCoat);
+
+  const fur = new THREE.MeshStandardMaterial({
+    color: 0x241f30,
+    roughness: 0.95,
+    map: coat.map,
+    roughnessMap: coat.rough,
+  });
+  fur.map!.repeat.set(3, 2);
+  const furHead = new THREE.MeshStandardMaterial({
+    color: 0x241f30,
+    roughness: 0.95,
+    map: headCoat,
+    roughnessMap: coat.rough,
+  });
+  const furLight = new THREE.MeshStandardMaterial({
+    color: 0x4a4060,
+    roughness: 0.95,
+    map: headCoat,
+  });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
+  /* A white bib and socks. Markings are the cheapest way to make
+     an animal look like a particular animal instead of a shape. */
+  const furWhite = new THREE.MeshStandardMaterial({
+    color: 0xcfc6d8,
+    roughness: 0.93,
+    map: headCoat,
+  });
+  const whisker = new THREE.MeshBasicMaterial({ color: 0xe8e2ef, transparent: true, opacity: 0.55 });
   keep(fur);
+  keep(furHead);
   keep(furLight);
   keep(innerEar);
+  keep(furWhite);
+  keep(whisker);
 
   /* Body sits on its own pivot so breathing does not drag the
      head around with it. */
@@ -158,11 +195,37 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const pawGeo = new THREE.CapsuleGeometry(0.018, 0.035, 6, 12);
   keep(pawGeo);
   for (const pz of [-0.04, 0.04]) {
-    const paw = new THREE.Mesh(pawGeo, furLight);
+    const paw = new THREE.Mesh(pawGeo, furWhite);
     paw.rotation.x = Math.PI / 2;
     paw.position.set(0.085, 0.022, pz);
     bodyPivot.add(paw);
   }
+  /* The bib: a white chest patch, and a ruff where the head
+     meets the body so it is not a sphere balanced on a capsule. */
+  const bibGeo = new THREE.SphereGeometry(0.05, 16, 12);
+  keep(bibGeo);
+  const bib = new THREE.Mesh(bibGeo, furWhite);
+  bib.position.set(0.072, 0.072, 0);
+  bib.scale.set(0.62, 1.05, 0.78);
+  bib.castShadow = true;
+  bodyPivot.add(bib);
+
+  const ruffGeo = new THREE.SphereGeometry(0.062, 18, 12);
+  keep(ruffGeo);
+  const ruff = new THREE.Mesh(ruffGeo, fur);
+  ruff.position.set(0.072, 0.122, 0);
+  ruff.scale.set(0.7, 0.62, 0.92);
+  bodyPivot.add(ruff);
+
+  /* A shoulder blade either side. A sitting cat is not smooth
+     across the back and the break is what gives it mass. */
+  for (const sz of [-1, 1]) {
+    const blade = new THREE.Mesh(ruffGeo, fur);
+    blade.position.set(0.03, 0.115, sz * 0.045);
+    blade.scale.set(0.58, 0.4, 0.44);
+    bodyPivot.add(blade);
+  }
+
   group.add(bodyPivot);
 
   /* Head, on a pivot at the neck. Everything facial parents to it
@@ -172,14 +235,14 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
 
   const headGeo = new THREE.SphereGeometry(0.068, 26, 20);
   keep(headGeo);
-  const head = new THREE.Mesh(headGeo, fur);
+  const head = new THREE.Mesh(headGeo, furHead);
   head.scale.set(1, 0.94, 1.02);
   head.castShadow = true;
   headPivot.add(head);
 
   const muzzleGeo = new THREE.SphereGeometry(0.034, 16, 12);
   keep(muzzleGeo);
-  const muzzle = new THREE.Mesh(muzzleGeo, furLight);
+  const muzzle = new THREE.Mesh(muzzleGeo, furWhite);
   muzzle.position.set(0.05, -0.016, 0);
   muzzle.scale.set(0.8, 0.7, 1.1);
   headPivot.add(muzzle);
@@ -188,6 +251,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   keep(noseGeo);
   const nose = new THREE.Mesh(noseGeo, innerEar);
   nose.position.set(0.078, -0.008, 0);
+  nose.scale.set(0.8, 0.7, 1.2);
   headPivot.add(nose);
 
   /* Ears, each on its own pivot at the base so they can rotate
@@ -265,19 +329,33 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     blush.push(b);
   }
 
-  // Whiskers.
-  const whiskerMat = new THREE.MeshBasicMaterial({ color: 0x9c93ad });
-  keep(whiskerMat);
-  const whiskerGeo = new THREE.CylinderGeometry(0.0011, 0.0008, 0.07, 4);
+  /* Whiskers. Finer and longer than they were, splayed rather
+     than parallel, and tapering — a whisker that does not taper
+     reads as a wire. Brow hairs too, which a cat has and which
+     nothing else on a face looks like. */
+  const whiskerGeo = new THREE.CylinderGeometry(0.0008, 0.0003, 0.095, 4);
   keep(whiskerGeo);
+  const browGeo = new THREE.CylinderGeometry(0.0007, 0.0003, 0.05, 4);
+  keep(browGeo);
   for (const wz of [-1, 1]) {
-    for (let i = 0; i < 3; i++) {
-      const w = new THREE.Mesh(whiskerGeo, whiskerMat);
-      w.position.set(0.066, -0.008 + i * 0.008, wz * 0.022);
+    for (let i = 0; i < 4; i++) {
+      // On a pivot at the muzzle, so they splay from one root.
+      const root = new THREE.Group();
+      root.position.set(0.058, -0.016 + i * 0.008, wz * 0.019);
+      const w = new THREE.Mesh(whiskerGeo, whisker);
       w.rotation.z = Math.PI / 2;
-      w.rotation.y = wz * (0.5 + i * 0.16);
-      headPivot.add(w);
+      w.position.x = 0.046;
+      root.add(w);
+      root.rotation.y = wz * (0.42 + i * 0.13);
+      root.rotation.z = 0.26 - i * 0.17;
+      headPivot.add(root);
     }
+    const brow = new THREE.Mesh(browGeo, whisker);
+    brow.rotation.z = Math.PI / 2;
+    brow.position.set(0.058, 0.04, wz * 0.026);
+    brow.rotation.y = wz * 0.45;
+    brow.rotation.z = Math.PI / 2 - 0.4;
+    headPivot.add(brow);
   }
 
   group.add(headPivot);
@@ -489,6 +567,96 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
 export type PlantKind = "monstera" | "snake" | "pothos" | "succulent";
 
 /**
+ * A coat.
+ *
+ * Both cats were smooth matte shapes in one flat colour, which
+ * is why they read as sculpted rather than furred however good
+ * the proportions were. Fur is three things at once and all
+ * three are cheap: strands lying in a direction, tabby banding
+ * across the body, and a paler underside. Lit, the strands are
+ * what catch the lamp along the spine.
+ *
+ * Returned as a colour map and a matching roughness map — fur
+ * is not uniformly matte, and the tips catching slightly
+ * glossier than the undercoat is a good part of what the eye
+ * reads as hair rather than felt.
+ */
+function furTexture(seed: number, banded: boolean): { map: THREE.Texture; rough: THREE.Texture } {
+  const W = 256;
+  const H = 256;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = c.getContext("2d") as CanvasRenderingContext2D;
+  const r = rand(seed);
+
+  g.fillStyle = "#b9b9b9";
+  g.fillRect(0, 0, W, H);
+
+  /* Tabby. Soft vertical bands in uv, which wrap round the body
+     as rings — the direction a real tabby's bands run. */
+  if (banded) {
+    for (let i = 0; i < 9; i++) {
+      const x = (i / 9) * W + r() * 10;
+      const w = 7 + r() * 13;
+      const band = g.createLinearGradient(x - w, 0, x + w, 0);
+      band.addColorStop(0, "rgba(70,70,70,0)");
+      band.addColorStop(0.5, `rgba(70,70,70,${0.3 + r() * 0.26})`);
+      band.addColorStop(1, "rgba(70,70,70,0)");
+      g.fillStyle = band;
+      g.fillRect(x - w, 0, w * 2, H);
+    }
+  }
+
+  /* A paler belly. v runs pole to pole on a sphere and along a
+     capsule, so the bottom third is the underside. */
+  const under = g.createLinearGradient(0, H, 0, H * 0.52);
+  under.addColorStop(0, "rgba(255,255,255,0.5)");
+  under.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = under;
+  g.fillRect(0, H * 0.52, W, H * 0.48);
+
+  // Strands: short, mostly aligned, a few crossing.
+  for (let i = 0; i < 2600; i++) {
+    const x = r() * W;
+    const y = r() * H;
+    const len = 4 + r() * 11;
+    const lean = (r() - 0.5) * 0.7;
+    const pale = r() < 0.5;
+    g.strokeStyle = pale
+      ? `rgba(255,255,255,${0.05 + r() * 0.13})`
+      : `rgba(40,40,46,${0.05 + r() * 0.15})`;
+    g.lineWidth = 0.7 + r() * 1.3;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + Math.sin(lean) * len, y + Math.cos(lean) * len);
+    g.stroke();
+  }
+
+  const map = new THREE.CanvasTexture(c);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = THREE.RepeatWrapping;
+  map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 8;
+
+  // The same hair read as roughness: tips a touch glossier.
+  const rc = document.createElement("canvas");
+  rc.width = W;
+  rc.height = H;
+  const rg = rc.getContext("2d") as CanvasRenderingContext2D;
+  rg.fillStyle = "#d8d8d8";
+  rg.fillRect(0, 0, W, H);
+  rg.globalAlpha = 0.5;
+  rg.drawImage(c, 0, 0);
+  const rough = new THREE.CanvasTexture(rc);
+  rough.wrapS = THREE.RepeatWrapping;
+  rough.wrapT = THREE.RepeatWrapping;
+  rough.anisotropy = 4;
+
+  return { map, rough };
+}
+
+/**
  * Veins.
  *
  * A leaf with no vein structure is a green shape, and ten green
@@ -670,10 +838,36 @@ export function buildWalkingCat(
   const rig = new THREE.Group();
   group.add(rig);
 
-  const fur = new THREE.MeshStandardMaterial({ color: 0x8a6a4e, roughness: 0.93 });
-  const furPale = new THREE.MeshStandardMaterial({ color: 0xb49070, roughness: 0.93 });
+  /* A tabby, where the one on the sill is a solid dark. Two
+     cats in the same coat look like one cat rendered twice. */
+  const coat = furTexture(7714, true);
+  keep(coat.map);
+  keep(coat.rough);
+  coat.map.repeat.set(4, 2);
+  const coatFine = coat.map.clone();
+  coatFine.repeat.set(2, 2);
+  keep(coatFine);
+
+  const fur = new THREE.MeshStandardMaterial({
+    color: 0x8a6a4e,
+    roughness: 0.93,
+    map: coat.map,
+    roughnessMap: coat.rough,
+  });
+  const furHead = new THREE.MeshStandardMaterial({
+    color: 0x8a6a4e,
+    roughness: 0.93,
+    map: coatFine,
+    roughnessMap: coat.rough,
+  });
+  const furPale = new THREE.MeshStandardMaterial({
+    color: 0xd8c3ab,
+    roughness: 0.93,
+    map: coatFine,
+  });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
   keep(fur);
+  keep(furHead);
   keep(furPale);
   keep(innerEar);
 
@@ -705,7 +899,7 @@ export function buildWalkingCat(
   headPivot.position.set(0.17, 0.215, 0);
   const headGeo = new THREE.SphereGeometry(0.055, 22, 16);
   keep(headGeo);
-  const head = new THREE.Mesh(headGeo, fur);
+  const head = new THREE.Mesh(headGeo, furHead);
   head.castShadow = true;
   headPivot.add(head);
   const muzzleGeo = new THREE.SphereGeometry(0.028, 14, 10);
