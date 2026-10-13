@@ -276,6 +276,18 @@ const SHOTS: Shot[] = [
     narrowFit: 0.62,
   },
   {
+    /* Sitting on the sofa, looking at the big screen on the far
+       wall. Pulled in from where you would actually sit, because
+       a television five metres away is a postage stamp — this is
+       the distance it reads at, with enough room around it to
+       still be in a room. */
+    name: "The sofa",
+    pos: [2.1, 1.22, 0.52],
+    aim: [-2.86, 1.56, 0.45],
+    fit: 1.0,
+    narrowFit: 0.78,
+  },
+  {
     name: "The sill",
     pos: [0.1, 1.45, -1.2],
     aim: [-1.05, 1.12, -2.42],
@@ -283,6 +295,19 @@ const SHOTS: Shot[] = [
     narrowFit: 0.33,
   },
 ];
+
+/**
+ * What the big set is tuned to out of the box.
+ *
+ * Daniel's pick. Worth him checking it is the studio's own
+ * upload rather than someone's re-post: an unauthorised one
+ * disappears when the rights holder files, and all that is left
+ * on the page is a dead player. Swapping it is one id.
+ */
+const FILMS = [{ name: "The Crow", id: "DyN5vkHU7JI" }];
+
+/** Derived, so inserting a framing cannot silently point it elsewhere. */
+const SOFA_SHOT = SHOTS.findIndex((x) => x.name === "The sofa");
 
 export default function AtelierRoom3D() {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -299,6 +324,7 @@ export default function AtelierRoom3D() {
   /* The set's controls are drawn by the room, because buttons
      inside the 3D picture cannot be pressed. */
   const [tvApi, setTvApi] = useState<TVApi | null>(null);
+  const [flatOn, setFlatOn] = useState(false);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -310,9 +336,10 @@ export default function AtelierRoom3D() {
 
   /* Mutable mirrors, so the render loop never closes over stale
      state and never has to be rebuilt when state changes. */
-  const stateRef = useRef({ awake: false, tvOn: false, phase, season, playing: false, shot: 0, view: 0 });
+  const stateRef = useRef({ awake: false, tvOn: false, flatOn: false, phase, season, playing: false, shot: 0, view: 0 });
   stateRef.current.awake = awake;
   stateRef.current.tvOn = tvOn;
+  stateRef.current.flatOn = flatOn;
   stateRef.current.phase = phase;
   stateRef.current.season = season;
   stateRef.current.playing = playing;
@@ -323,6 +350,9 @@ export default function AtelierRoom3D() {
   const osHostRef = useRef<HTMLDivElement | null>(null);
   const tvRootRef = useRef<Root | null>(null);
   const tvHostRef = useRef<HTMLDivElement | null>(null);
+  const flatRootRef = useRef<Root | null>(null);
+  const flatHostRef = useRef<HTMLDivElement | null>(null);
+  const [flatApi, setFlatApi] = useState<TVApi | null>(null);
   const builtRef = useRef<Built | null>(null);
   const pokeRef = useRef<((name: string) => void) | null>(null);
 
@@ -613,8 +643,17 @@ export default function AtelierRoom3D() {
         (x) => x > -2.4,
       ),
       makeSpot("shelf", "Find a book", new THREE.Vector3(2.6, 1.5, -1.25), () => true),
+      makeSpot(
+        "flat",
+        "Put a film on",
+        built.flat.position.clone().add(new THREE.Vector3(0, built.flat.height / 2 + 0.1, 0)),
+        (x) => x > -2.4,
+      ),
     ];
     const projV = new THREE.Vector3();
+    const edgeA = new THREE.Vector3();
+    const edgeB = new THREE.Vector3();
+    const flatRight = new THREE.Vector3();
 
     /* ── Camera rigs ───────────────────────────────────── */
     const IDLE_POS = new THREE.Vector3(...SHOTS[0].pos);
@@ -681,6 +720,7 @@ export default function AtelierRoom3D() {
       exposure: 1.1,
       screenI: 0,
       tvI: 0,
+      flatI: 0,
       city: 1,
       rain: 1,
     fog: 0x0b0720,
@@ -800,7 +840,12 @@ export default function AtelierRoom3D() {
       // Neon hum, plus a rare flicker. Real tubes do this.
       const neonFocus = touch("neon");
       const flick = reduced ? 1 : Math.sin(t * 90) > 0.985 ? 0.35 : 1;
-      p.neonMat.color.setHex(0xff2f86);
+      /* This used to hard-set the tube magenta on every frame,
+         which quietly overrode the material and was why changing
+         the sign's colour appeared to do nothing. The colour
+         lives on the material now; this only dims it, which is
+         what the flicker was computed for and never used on. */
+      p.neonMat.color.copy(p.neonBase).multiplyScalar(flick * (0.9 + neonFocus * 0.35));
       p.neonSign.scale.setScalar(1 + neonFocus * 0.06);
 
       const posterFocus = touch("poster");
@@ -926,6 +971,39 @@ export default function AtelierRoom3D() {
       cur.tvI = lerp(cur.tvI, s.tvOn ? 1.5 : tvFocus * 0.3, Math.min(1, dt * 4));
       built.lamps.tv.intensity = cur.tvI * (reduced ? 1 : 0.86 + Math.sin(t * 11) * 0.14);
       (p.tvGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.8, cur.tvI * 0.45);
+      /* The big set. Its picture is a flat panel drawn over the
+         stage rather than geometry, so in the room all there is
+         to show is the dark glass and the light it throws. */
+      const flatLive = s.flatOn && s.shot === SOFA_SHOT && !s.awake;
+
+      /* Fit the player to where the screen actually is.
+       *
+       * A fixed-size panel in the middle of the stage is a
+       * cinema overlay, not a television in a room. The set is
+       * rotated to face the sofa, so its width runs along world
+       * -z; projecting both edges gives the exact pixel width
+       * and centre it occupies this frame, and the panel is
+       * scaled and placed to match. The illusion holds because
+       * this framing looks square-on at it. */
+      const flatEl = flatHostRef.current;
+      if (flatLive && flatEl) {
+        const half = built.flat.width / 2;
+        edgeA.copy(built.flat.position).add(flatRight.set(0, 0, -half)).project(camera);
+        edgeB.copy(built.flat.position).add(flatRight.set(0, 0, half)).project(camera);
+        projV.copy(built.flat.position).project(camera);
+        const px = Math.abs(edgeB.x - edgeA.x) * 0.5 * w;
+        const cx = (projV.x * 0.5 + 0.5) * w;
+        const cy = (-projV.y * 0.5 + 0.5) * h;
+        flatEl.style.left = `${cx}px`;
+        flatEl.style.top = `${cy}px`;
+        flatEl.style.setProperty("--flat-fit", String(Math.max(0.12, px / 960)));
+      }
+      cur.flatI = lerp(cur.flatI, flatLive ? 1.5 : 0, Math.min(1, dt * 3));
+      built.lamps.flat.intensity = cur.flatI * (reduced ? 1 : 0.9 + Math.sin(t * 9) * 0.1);
+      (p.flatGlow.material as THREE.MeshBasicMaterial).opacity = Math.min(0.72, cur.flatI * 0.42);
+      p.flatOff.visible = !flatLive;
+      (p.flatLed.material as THREE.MeshBasicMaterial).color.setHex(flatLive ? 0x4affa0 : 0xff5a4a);
+
       p.tvOff.visible = !s.tvOn;
       /* The picture is a CSS3D element, which the browser sizes
          by distance — sitting at the desk it was being laid out
@@ -1055,6 +1133,15 @@ export default function AtelierRoom3D() {
         setLibrary(true);
         return;
       }
+      if (name === "flat") {
+        /* Sit down first. The picture only plays from the sofa
+           framing, where the camera is square-on to the screen
+           and the player can be a flat panel with working
+           controls — a film you cannot pause is not a film. */
+        setShot(SOFA_SHOT);
+        setFlatOn((v) => !v);
+        return;
+      }
       const item = built.life.find((l) => l.name === name);
       item?.poke?.();
     };
@@ -1138,6 +1225,27 @@ export default function AtelierRoom3D() {
     );
   }, [ready, awake, phase, season, clock, cyclePhase, cycleSeason, sleep]);
 
+  /* The big set. Its own storage key, so the two televisions do
+     not overwrite each other's channel, and no preset stations —
+     it waits to be given something rather than guessing. */
+  useEffect(() => {
+    const el = flatHostRef.current;
+    if (!el) {
+      flatRootRef.current?.render(null);
+      return;
+    }
+    if (!flatRootRef.current) flatRootRef.current = createRoot(el);
+    flatRootRef.current.render(
+      <AtelierTV
+        onApi={setFlatApi}
+        storeKey="atelier.flat"
+        stations={FILMS}
+        kicker="Nothing on"
+        hint="Paste a YouTube link"
+      />,
+    );
+  }, [flatOn, shot, awake, ready]);
+
   useEffect(() => {
     if (!ready) return;
     const el = tvHostRef.current;
@@ -1150,9 +1258,10 @@ export default function AtelierRoom3D() {
   // doing it inside the scene effect races with React's own commit.
   useEffect(() => {
     return () => {
-      const roots = [osRootRef.current, tvRootRef.current];
+      const roots = [osRootRef.current, tvRootRef.current, flatRootRef.current];
       osRootRef.current = null;
       tvRootRef.current = null;
+      flatRootRef.current = null;
       setTimeout(() => {
         for (const r of roots) r?.unmount();
       }, 0);
@@ -1192,7 +1301,7 @@ export default function AtelierRoom3D() {
   const decorNote = decorLabel(decor);
 
   return (
-    <div className={`atelier${awake ? " is-awake" : ""}`}>
+    <div className={`atelier${awake ? " is-awake" : ""}${flatOn && shot === SOFA_SHOT ? " is-watching" : ""}`}>
       <div className={`room3d-stage${awake ? " is-awake" : ""}`} ref={stageRef}>
         <div className={`room3d-host${hovered ? " is-pointing" : ""}`} ref={hostRef} />
 
@@ -1217,6 +1326,25 @@ export default function AtelierRoom3D() {
         {/* The desktop, as a flat panel. See the note in the scene
             effect for why this is not a CSS3D object. */}
         <div className="room3d-os" ref={osHostRef} aria-hidden={!awake} />
+
+        {/* The big set's picture. A panel over the stage rather
+            than geometry in it: a film needs play, pause and
+            seek, and those are the player's own controls, which
+            cannot be pressed inside a CSS3D element. The sofa
+            framing looks square-on at the screen, so a flat
+            panel sits exactly where the glass is. */}
+        {ready && flatOn && shot === SOFA_SHOT && !awake ? (
+          <div className="room3d-flat" ref={flatHostRef}>
+            <button
+              type="button"
+              className="room3d-flat-off"
+              onClick={() => setFlatOn(false)}
+              aria-label="Turn the big screen off"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
 
         {ready && tvOn && !awake && tvApi?.tuned ? (
           <div className="room3d-tvbar">

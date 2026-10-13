@@ -18,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
  * dial.
  */
 
-const STORE = "atelier.tv";
+const DEFAULT_STORE = "atelier.tv";
 
 /**
  * What the set is tuned to when nobody has touched it.
@@ -67,7 +67,7 @@ export function parseYouTube(raw: string): Tuned {
   return null;
 }
 
-function embedUrl(t: NonNullable<Tuned>): string {
+function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string }>): string {
   // nocookie, because a television in someone's portfolio has no
   // business setting tracking cookies on their visitors.
   const base = "https://www.youtube-nocookie.com/embed";
@@ -77,7 +77,7 @@ function embedUrl(t: NonNullable<Tuned>): string {
   /* Handing the player the whole dial as `playlist` gives its own
      next/previous buttons something to move between, on top of
      the ones in the cabinet below. */
-  const rest = STATIONS.filter((x) => x.id !== t.id).map((x) => x.id);
+  const rest = dial.filter((x) => x.id !== t.id).map((x) => x.id);
   const queue = rest.length ? `&playlist=${rest.join(",")}` : "";
   return `${base}/${t.id}?${common}${queue}`;
 }
@@ -98,7 +98,22 @@ export type TVApi = { step: (dir: 1 | -1) => void; retune: () => void; tuned: bo
  * player is started with autoplay rather than waiting to be
  * pressed.
  */
-export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => void }) {
+export default function AtelierTV({
+  onApi,
+  storeKey = DEFAULT_STORE,
+  stations = STATIONS,
+  hint = "Paste a YouTube link",
+  kicker = "No signal",
+}: {
+  onApi?: (api: TVApi | null) => void;
+  /** Each set remembers what it was last tuned to, separately. */
+  storeKey?: string;
+  /** Preset channels. The big set starts with none — it is for
+   *  whatever long thing you want to put on. */
+  stations?: Array<{ name: string; id: string }>;
+  hint?: string;
+  kicker?: string;
+}) {
   const [tuned, setTuned] = useState<Tuned>(null);
   const [entry, setEntry] = useState("");
   const [bad, setBad] = useState(false);
@@ -106,21 +121,27 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
   useEffect(() => {
     let saved: Tuned = null;
     try {
-      const raw = window.localStorage.getItem(STORE);
+      const raw = window.localStorage.getItem(storeKey);
       if (raw) saved = JSON.parse(raw) as Tuned;
     } catch {
       /* no storage — the set still works for this sitting */
     }
-    setTuned(saved ?? { kind: "video", id: STATIONS[0].id });
+    // A set with no presets waits to be tuned rather than
+    // guessing something to play.
+    setTuned(saved ?? (stations.length ? { kind: "video", id: stations[0].id } : null));
+    // Only on mount: re-reading storage later would fight the
+    // set's own state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const step = (dir: 1 | -1) => {
-    const here = tuned && tuned.kind === "video" ? STATIONS.findIndex((x) => x.id === tuned.id) : -1;
-    const next = STATIONS[(Math.max(0, here) + dir + STATIONS.length) % STATIONS.length];
+    if (!stations.length) return;
+    const here = tuned && tuned.kind === "video" ? stations.findIndex((x) => x.id === tuned.id) : -1;
+    const next = stations[(Math.max(0, here) + dir + stations.length) % stations.length];
     const t: Tuned = { kind: "video", id: next.id };
     setTuned(t);
     try {
-      window.localStorage.setItem(STORE, JSON.stringify(t));
+      window.localStorage.setItem(storeKey, JSON.stringify(t));
     } catch {
       /* ignore */
     }
@@ -129,7 +150,7 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
   const retune = () => {
     setTuned(null);
     try {
-      window.localStorage.removeItem(STORE);
+      window.localStorage.removeItem(storeKey);
     } catch {
       /* ignore */
     }
@@ -144,7 +165,7 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
     setBad(false);
     setTuned(next);
     try {
-      window.localStorage.setItem(STORE, JSON.stringify(next));
+      window.localStorage.setItem(storeKey, JSON.stringify(next));
     } catch {
       /* ignore */
     }
@@ -174,7 +195,7 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
       <div className="tv-set">
         <iframe
           key={`${tuned.kind}-${tuned.id}`}
-          src={embedUrl(tuned)}
+          src={embedUrl(tuned, stations)}
           title="Television"
           allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowFullScreen
@@ -187,7 +208,7 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
     <div className="tv-tune">
       <p className="tv-static" aria-hidden="true" />
       <div className="tv-panel">
-        <p className="tv-kicker">No signal</p>
+        <p className="tv-kicker">{kicker}</p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -197,16 +218,16 @@ export default function AtelierTV({ onApi }: { onApi?: (api: TVApi | null) => vo
           <input
             value={entry}
             onChange={(e) => setEntry(e.target.value)}
-            placeholder="Paste a YouTube link"
+            placeholder={hint}
             spellCheck={false}
             aria-label="YouTube link"
           />
           <button type="submit">Tune</button>
         </form>
         {bad ? <p className="tv-bad">That is not a YouTube link.</p> : null}
-        {STATIONS.length ? (
+        {stations.length ? (
           <ul className="tv-dial">
-            {STATIONS.map((c) => (
+            {stations.map((c) => (
               <li key={c.id}>
                 <button type="button" onClick={() => tune(c.id)}>
                   {c.name}

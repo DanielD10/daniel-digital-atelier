@@ -381,6 +381,7 @@ export type Built = {
   root: THREE.Group;
   screen: { position: THREE.Vector3; width: number; height: number };
   tv: { position: THREE.Vector3; width: number; height: number; rotationY: number };
+  flat: { position: THREE.Vector3; width: number; height: number; rotationY: number };
   /** Every mesh the raycaster tests, each with a .name. */
   targets: THREE.Object3D[];
   /** Objects with their own idle and reaction behaviour. */
@@ -395,6 +396,7 @@ export type Built = {
     neon: THREE.PointLight;
     screen: THREE.PointLight;
     tv: THREE.PointLight;
+    flat: THREE.PointLight;
     ambient: THREE.HemisphereLight;
   };
   props: {
@@ -408,11 +410,15 @@ export type Built = {
     lampBulb: THREE.Mesh;
     lampHead: THREE.Group;
     neonSign: THREE.Group;
+    neonBase: THREE.Color;
     neonMat: THREE.MeshBasicMaterial;
     screenGlow: THREE.Mesh;
     screenOff: THREE.Mesh;
     tvGlow: THREE.Mesh;
     tvOff: THREE.Mesh;
+    flatGlow: THREE.Mesh;
+    flatOff: THREE.Mesh;
+    flatLed: THREE.Mesh;
     speakerCones: THREE.Mesh[];
     posters: THREE.Mesh[];
     towerMats: THREE.MeshStandardMaterial[];
@@ -1031,68 +1037,50 @@ export function buildRoom(): Built {
   posters.push(p2);
 
   /* ══ Neon sign ═══════════════════════════════════════════
-     D/D, bent out of glass tube.
+     One letter, bent out of glass tube.
 
-     Real neon is one continuous tube per colour, so the letters
-     are built the way a bender would build them: the straight
-     back of each D is a capsule, the bowl is a half torus, and
-     the slash between them is one more capsule on the diagonal.
-     Rounded caps matter — a tube cut square at the end reads as
-     a stick, and the whole point of neon is that it does not
-     have ends. */
+     Real neon is a continuous run per colour, so the D is built
+     the way a bender would build it: the straight back is one
+     tube with rounded caps and the bowl is a half torus meeting
+     it top and bottom. Rounded ends matter — a tube cut square
+     reads as a stick, and the whole point of neon is that it has
+     no ends. */
+  const NEON_HUE = 0x2fd0ff;
   const neonSign = new THREE.Group();
-  /* Electric blue. The room already has magenta on the desk
-     LEDs and under the chair; the sign carrying the same colour
-     made the whole left wall one note. */
-  const neonMat = keep(new THREE.MeshBasicMaterial({ color: 0x2fd0ff }));
-  const TUBE = 0.013;
+  const neonMat = keep(new THREE.MeshBasicMaterial({ color: NEON_HUE }));
+  const TUBE = 0.016;
+  const LETTER_H = 0.34;
 
-  /** A straight run of tube, with the ends rounded off. */
-  const run = (len: number, x: number, y: number, rot = 0) => {
-    const m = new THREE.Mesh(keep(new THREE.CapsuleGeometry(TUBE, len, 6, 12)), neonMat);
-    m.position.set(x, y, 0);
-    m.rotation.z = rot;
-    neonSign.add(m);
-    return m;
-  };
+  const stem = new THREE.Mesh(
+    keep(new THREE.CapsuleGeometry(TUBE, LETTER_H, 6, 14)),
+    neonMat,
+  );
+  stem.position.set(-0.085, 0, 0);
+  neonSign.add(stem);
 
-  /** The bowl of a D: half a torus, open side to the stem. */
-  const bowl = (r: number, x: number, y: number) => {
-    const m = new THREE.Mesh(
-      keep(new THREE.TorusGeometry(r, TUBE, 8, 28, Math.PI)),
-      neonMat,
-    );
-    m.position.set(x, y, 0);
-    m.rotation.z = -Math.PI / 2;
-    neonSign.add(m);
-    return m;
-  };
+  const bowl = new THREE.Mesh(
+    keep(new THREE.TorusGeometry(LETTER_H / 2, TUBE, 10, 34, Math.PI)),
+    neonMat,
+  );
+  bowl.position.set(-0.085, 0, 0);
+  bowl.rotation.z = -Math.PI / 2;
+  neonSign.add(bowl);
 
-  const LETTER_H = 0.26;
-  const BOWL_R = LETTER_H / 2;
-
-  // First D.
-  run(LETTER_H, -0.17, 0);
-  bowl(BOWL_R, -0.17, 0);
-  // The slash.
-  run(LETTER_H * 1.12, 0, 0, 0.38);
-  // Second D.
-  run(LETTER_H, 0.17, 0);
-  bowl(BOWL_R, 0.17, 0);
-
-  /* The mounting bar the tube is clipped to, which is what makes
-     a sign look fixed to a wall rather than floating on it. */
+  /* The bar the tube is clipped to. A sign with nothing behind
+     it floats; a sign on a bracket is fixed to a wall. */
   const backBar = new THREE.Mesh(
-    keep(new THREE.BoxGeometry(0.46, 0.012, 0.012)),
+    keep(new THREE.BoxGeometry(0.3, 0.014, 0.014)),
     keep(new THREE.MeshStandardMaterial({ color: 0x1a1822, roughness: 0.7 })),
   );
-  backBar.position.set(0, -LETTER_H / 2 - 0.035, -0.012);
+  backBar.position.set(-0.02, -LETTER_H / 2 - 0.045, -0.014);
   neonSign.add(backBar);
 
-  neonSign.position.set(ROOM.leftX + 0.08, 1.95, 0.35);
-  neonSign.rotation.y = Math.PI / 2;
+  /* Over the bookcase on the right wall, which is the corner
+     that had no light of its own. */
+  neonSign.position.set(ROOM.rightX - 0.07, 2.32, -1.25);
+  neonSign.rotation.y = -Math.PI / 2;
   root.add(neonSign);
-  hitBox(0.2, 0.6, 0.5, "neon", new THREE.Vector3(ROOM.leftX + 0.12, 1.9, 0.35));
+  hitBox(0.5, 0.6, 0.2, "neon", new THREE.Vector3(ROOM.rightX - 0.12, 2.3, -1.25));
 
   /* ══ Television ══════════════════════════════════════════
      Wall-mounted on a short bracket and turned toward the room,
@@ -1185,6 +1173,82 @@ export function buildRoom(): Built {
 
   // Where the CSS3D picture goes, in world space.
   const tvScreenPos = new THREE.Vector3(0, 0, 0.076).applyAxisAngle(new THREE.Vector3(0, 1, 0), TV_YAW).add(TV_ANCHOR);
+
+  /* ══ The flat screen ═════════════════════════════════════
+     A modern panel on the long wall, facing the sofa — the
+     retro set is a thing in the corner you glance at, this is
+     the one you sit down in front of. It takes the wall the
+     neon used to have, which was the largest blank surface in
+     the room.
+
+     A flat television is almost entirely a question of how thin
+     you can make the edge, so: a panel barely thicker than its
+     own bezel, a slightly deeper box behind the middle where
+     the electronics actually live, and a bracket you can see
+     under it. */
+  const FLAT_W = 1.3;
+  const FLAT_H = (FLAT_W * 9) / 16;
+  const FLAT_YAW = Math.PI / 2;
+  const FLAT_ANCHOR = new THREE.Vector3(ROOM.leftX + 0.07, 1.56, 0.45);
+
+  const flatSet = new THREE.Group();
+  flatSet.position.copy(FLAT_ANCHOR);
+  flatSet.rotation.y = FLAT_YAW;
+
+  const flatShell = keep(
+    new THREE.MeshStandardMaterial({ color: 0x15151b, roughness: 0.34, metalness: 0.6 }),
+  );
+
+  // The bezel, barely proud of the glass.
+  addTo(flatSet, rbox(FLAT_W + 0.022, FLAT_H + 0.022, 0.028, 0.006), flatShell, 0, 0, -0.012);
+  // The deeper housing, which only covers the middle third.
+  addTo(flatSet, rbox(FLAT_W * 0.42, FLAT_H * 0.52, 0.042, 0.01), flatShell, 0, -0.03, -0.045);
+  // Wall plate and the short arm down to it.
+  addTo(flatSet, box(0.26, 0.26, 0.018), darkMetal, 0, 0, -0.07);
+
+  const flatOff = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(FLAT_W, FLAT_H)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x07080b, roughness: 0.08, metalness: 0.9 })),
+  );
+  flatOff.position.set(0, 0, 0.004);
+  flatSet.add(flatOff);
+
+  const flatGlow = new THREE.Mesh(
+    keep(new THREE.PlaneGeometry(FLAT_W, FLAT_H)),
+    keep(new THREE.MeshBasicMaterial({ color: 0x9fd0ff, transparent: true, opacity: 0 })),
+  );
+  flatGlow.position.set(0, 0, 0.002);
+  flatSet.add(flatGlow);
+
+  // Standby lamp, bottom centre, the way every set has one.
+  const flatLed = new THREE.Mesh(
+    keep(new THREE.SphereGeometry(0.008, 8, 6)),
+    keep(new THREE.MeshBasicMaterial({ color: 0xff5a4a })),
+  );
+  flatLed.position.set(0, -FLAT_H / 2 - 0.016, 0.006);
+  flatSet.add(flatLed);
+
+  root.add(flatSet);
+
+  {
+    const hm = new THREE.Mesh(
+      keep(new THREE.BoxGeometry(FLAT_W + 0.1, FLAT_H + 0.1, 0.24)),
+      keep(new THREE.MeshBasicMaterial({ visible: false })),
+    );
+    hm.name = "flat";
+    hm.position.copy(FLAT_ANCHOR);
+    hm.rotation.y = FLAT_YAW;
+    root.add(hm);
+    targets.push(hm);
+  }
+
+  const flatScreenPos = new THREE.Vector3(0, 0, 0.008)
+    .applyAxisAngle(new THREE.Vector3(0, 1, 0), FLAT_YAW)
+    .add(FLAT_ANCHOR);
+
+  const flatLight = new THREE.PointLight(0x9fd0ff, 0, 3.4, 2);
+  flatLight.position.copy(flatScreenPos).add(new THREE.Vector3(0.45, 0, 0));
+  root.add(flatLight);
 
   /* ══ Living half ═════════════════════════════════════════
      The room had one occupied corner and three empty walls,
@@ -2339,8 +2403,8 @@ export function buildRoom(): Built {
   root.add(deskLamp);
   root.add(deskLamp.target);
 
-  const neonLight = new THREE.PointLight(0x2fd0ff, 1.5, 2.6, 2);
-  neonLight.position.set(ROOM.leftX + 0.25, 1.95, 0.35);
+  const neonLight = new THREE.PointLight(NEON_HUE, 1.7, 3.0, 2);
+  neonLight.position.set(ROOM.rightX - 0.3, 2.28, -1.25);
   root.add(neonLight);
 
   const screenLight = new THREE.PointLight(0x7fb4e8, 0, 2.2, 2);
@@ -2359,11 +2423,21 @@ export function buildRoom(): Built {
       height: SCREEN_H,
     },
     tv: { position: tvScreenPos, width: TV_W, height: TV_H, rotationY: TV_YAW },
+    flat: { position: flatScreenPos, width: FLAT_W, height: FLAT_H, rotationY: FLAT_YAW },
     targets,
     life,
     decor,
     vistas,
-    lamps: { sun, windowFill, desk: deskLamp, neon: neonLight, screen: screenLight, tv: tvLight, ambient },
+    lamps: {
+      sun,
+      windowFill,
+      desk: deskLamp,
+      neon: neonLight,
+      screen: screenLight,
+      tv: tvLight,
+      flat: flatLight,
+      ambient,
+    },
     props: {
       skyMat,
       ships,
@@ -2375,11 +2449,15 @@ export function buildRoom(): Built {
       lampBulb,
       lampHead,
       neonSign,
+      neonBase: new THREE.Color(NEON_HUE),
       neonMat,
       screenGlow,
       screenOff,
       tvGlow,
       tvOff,
+      flatGlow,
+      flatOff,
+      flatLed,
       speakerCones,
       posters,
       towerMats,

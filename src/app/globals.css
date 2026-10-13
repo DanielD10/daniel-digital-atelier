@@ -3661,3 +3661,58 @@ main { position: relative; z-index: 3; }
 }
 .doc-bar a { margin-left: auto; font-size: 10px; color: rgba(243, 238, 230, 0.6); }
 .doc-open iframe { flex: 1; width: 100%; border: 0; }
+
+/* ── The big screen ─────────────────────────────────────────
+   A panel over the stage, not geometry in it. A film needs
+   play, pause and seek, and those are the player's own controls
+   — inside a CSS3D element they paint in the right place and
+   hit-test somewhere else, so they cannot be pressed. The sofa
+   framing looks square-on at the screen, so a flat panel sits
+   where the glass is and everything works. */
+.room3d-flat {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  top: 50%;
+  width: 960px;
+  height: 540px;
+  overflow: hidden;
+  background: #000;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 120px rgba(120, 180, 255, 0.22);
+  transform: translate(-50%, -50%) scale(var(--flat-fit, 1));
+  transform-origin: 50% 50%;
+  animation: flat-in 420ms ease both;
+}
+
+@keyframes flat-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(calc(var(--flat-fit, 1) * 0.96)); }
+  to { opacity: 1; }
+}
+
+.room3d-flat .tv-set,
+.room3d-flat .tv-tune { position: absolute; inset: 0; }
+.room3d-flat iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+.room3d-flat-off {
+  position: absolute;
+  z-index: 2;
+  right: 8px;
+  top: 8px;
+  width: 30px;
+  height: 30px;
+  background: rgba(8, 6, 16, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 50%;
+  color: #f3eee6;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.room3d-flat-off:hover { border-color: rgba(255, 255, 255, 0.65); }
+
+/* Watching something, the page heading is in the way of it. */
+.atelier.is-watching + .lab-intro {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 320ms ease, visibility 0s linear 320ms;
+}
