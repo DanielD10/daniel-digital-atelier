@@ -342,6 +342,9 @@ export default function AtelierRoom3D() {
      inside the 3D picture cannot be pressed. */
   const [tvApi, setTvApi] = useState<TVApi | null>(null);
   const [flatOn, setFlatOn] = useState(false);
+  /* Lit by default. A dark fireplace under a dark screen is a
+     hole in the wall. */
+  const [fireOn, setFireOn] = useState(true);
 
   const [phase, setPhase] = useState<Phase>("night");
   const [season, setSeason] = useState<Season>("autumn");
@@ -353,10 +356,11 @@ export default function AtelierRoom3D() {
 
   /* Mutable mirrors, so the render loop never closes over stale
      state and never has to be rebuilt when state changes. */
-  const stateRef = useRef({ awake: false, tvOn: false, flatOn: false, phase, season, playing: false, shot: 0, view: 0 });
+  const stateRef = useRef({ awake: false, tvOn: false, flatOn: false, fireOn: true, phase, season, playing: false, shot: 0, view: 0 });
   stateRef.current.awake = awake;
   stateRef.current.tvOn = tvOn;
   stateRef.current.flatOn = flatOn;
+  stateRef.current.fireOn = fireOn;
   stateRef.current.phase = phase;
   stateRef.current.season = season;
   stateRef.current.playing = playing;
@@ -739,6 +743,7 @@ export default function AtelierRoom3D() {
       screenI: 0,
       tvI: 0,
       flatI: 0,
+      fireI: 0,
       city: 1,
       rain: 1,
     fog: 0x0b0720,
@@ -1032,6 +1037,29 @@ export default function AtelierRoom3D() {
       p.flatOff.visible = !flatLive;
       (p.flatLed.material as THREE.MeshBasicMaterial).color.setHex(flatLive ? 0x4affa0 : 0xff5a4a);
 
+      /* The fire.
+       *
+       * uLevel carries the flicker rather than the light alone,
+       * so the flame itself shortens and gutters instead of the
+       * room just getting dimmer around a steady shape. Two
+       * beating sines plus a slow one: a fire is never periodic,
+       * and anything that is reads as a loop within seconds.
+       * uHue walks the ramp round the wheel on a cycle long
+       * enough that you notice the colour has changed without
+       * ever catching it changing. */
+      const fireFocus = touch("hearth");
+      const gutter = reduced
+        ? 1
+        : 0.82 + Math.sin(t * 11.3) * 0.08 + Math.sin(t * 4.1) * 0.06 + Math.sin(t * 1.7) * 0.05;
+      cur.fireI = lerp(cur.fireI, s.fireOn ? 1 : 0, Math.min(1, dt * 2.4));
+      const fireLevel = cur.fireI * gutter * (1 + fireFocus * 0.22);
+      for (const fm of p.fireMats) {
+        fm.uniforms.uTime.value = reduced ? 0 : t;
+        fm.uniforms.uHue.value = reduced ? 0.04 : (t * 0.021) % 1;
+        fm.uniforms.uLevel.value = fireLevel;
+      }
+      built.lamps.fire.intensity = cur.fireI * gutter * (1.5 + fireFocus * 0.5);
+
       p.tvOff.visible = !s.tvOn;
       /* The picture is a CSS3D element, which the browser sizes
          by distance — sitting at the desk it was being laid out
@@ -1162,6 +1190,10 @@ export default function AtelierRoom3D() {
       }
       if (name === "shelf") {
         setLibrary(true);
+        return;
+      }
+      if (name === "hearth") {
+        setFireOn((v) => !v);
         return;
       }
       if (name === "flat") {

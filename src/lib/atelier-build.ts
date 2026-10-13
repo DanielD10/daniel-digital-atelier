@@ -402,6 +402,7 @@ export type Built = {
     screen: THREE.PointLight;
     tv: THREE.PointLight;
     flat: THREE.PointLight;
+    fire: THREE.PointLight;
     ambient: THREE.HemisphereLight;
   };
   props: {
@@ -424,6 +425,7 @@ export type Built = {
     flatGlow: THREE.Mesh;
     flatOff: THREE.Mesh;
     flatLed: THREE.Mesh;
+    fireMats: THREE.ShaderMaterial[];
     speakerCones: THREE.Mesh[];
     posters: THREE.Mesh[];
     towerMats: THREE.MeshStandardMaterial[];
@@ -978,28 +980,26 @@ export function buildRoom(): Built {
   root.add(chair);
   hitBox(0.6, 1.1, 0.6, "chair", new THREE.Vector3(0.88, 0.6, DESK_Z + 0.95));
 
-  /* ══ Shelf, books, vinyl ═════════════════════════════════ */
-  const shelfY = 1.62;
-  add(box(0.3, 0.035, 1.1), deskMat, ROOM.leftX + 0.16, shelfY, -1.2);
-  const r2 = rand(53);
-  for (let i = 0; i < 11; i++) {
-    const hgt = 0.2 + r2() * 0.08;
-    const b = add(
-      box(0.17, hgt, 0.035),
-      keep(new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(r2(), 0.32, 0.36), roughness: 0.88 })),
-      ROOM.leftX + 0.16,
-      shelfY + 0.018 + hgt / 2,
-      -1.68 + i * 0.045,
-    );
-    if (i > 8) b.rotation.x = 0.3;
-  }
+  /* ══ Record, vinyl ═══════════════════════════════════════
+     The little floating shelf that used to carry this, eleven
+     paperbacks and the pothos is gone: the big screen owns the
+     left wall from the floor to nearly the ceiling, and the
+     shelf was standing inside it. The record and the plant
+     moved onto the top of the bookcase instead, which is
+     where they would be in a real room anyway. */
+  const WALL_X = ROOM.rightX;
+  /* The bookcase on the right wall, declared here because its
+     top is a surface two other things sit on. */
+  const CASE_X = 2.78;
+  const CASE_Z = -1.25;
+  const CASE_H = 1.95;
 
-  // A record on the shelf, which spins when you look at it.
+  // A record on top of the case, which spins when you look at it.
   const vinyl = new THREE.Mesh(
     keep(new THREE.CylinderGeometry(0.14, 0.14, 0.006, 40)),
     keep(new THREE.MeshStandardMaterial({ color: 0x121019, roughness: 0.3 })),
   );
-  vinyl.position.set(ROOM.leftX + 0.2, shelfY + 0.17, -0.8);
+  vinyl.position.set(CASE_X + 0.02, CASE_H + 0.155, CASE_Z + 0.52);
   vinyl.rotation.z = Math.PI / 2;
   vinyl.rotation.x = 0.16;
   vinyl.castShadow = true;
@@ -1026,8 +1026,8 @@ export function buildRoom(): Built {
       }),
     ),
   );
-  p1.rotation.y = Math.PI / 2;
-  p1.position.set(ROOM.leftX + 0.02, 2.1, -1.5);
+  p1.rotation.y = -Math.PI / 2;
+  p1.position.set(WALL_X - 0.02, 1.8, 1.55);
   root.add(p1);
   posters.push(p1);
   hitBox(0.1, 0.78, 0.58, "poster", p1.position.clone());
@@ -1036,8 +1036,8 @@ export function buildRoom(): Built {
     keep(new THREE.PlaneGeometry(0.44, 0.34)),
     keep(new THREE.MeshStandardMaterial({ color: 0x2a3f5c, roughness: 0.92 })),
   );
-  p2.rotation.y = Math.PI / 2;
-  p2.position.set(ROOM.leftX + 0.02, 1.2, -0.3);
+  p2.rotation.y = -Math.PI / 2;
+  p2.position.set(WALL_X - 0.02, 2.3, 0.5);
   root.add(p2);
   posters.push(p2);
 
@@ -1262,6 +1262,204 @@ export function buildRoom(): Built {
   flatLight.position.copy(flatScreenPos).add(new THREE.Vector3(0.45, 0, 0));
   root.add(flatLight);
 
+  /* ══ Fireplace media unit ════════════════════════════════
+     A long low cabinet under the screen with a linear burner
+     cut into it — the thing that actually anchors a wall this
+     size. Without it the television floats and the wall below
+     it is three metres of nothing.
+
+     The flame is a shader rather than sprites. Fire is the one
+     effect where sprites always lose: a real flame is a field
+     that rises, pinches and detaches, and it never repeats. The
+     fragment shader builds that out of noise scrolling upward
+     with the sample point sheared toward the centre, so the
+     tongues lean in and narrow as they climb, then takes a
+     colour ramp through the hot core. Daniel asked for it to
+     change colour, so the ramp's hue drifts on a slow cycle
+     that never lands twice in the same place.
+
+     Two details decide whether it reads as fire at all. The
+     first is the aspect: the burner is five times wider than
+     it is tall, so sampling the noise in UV space stretches
+     every tongue into a horizontal smear — the frequency has
+     to be scaled back up by that ratio. The second is depth.
+     One plane is a sticker from any angle off the normal, so
+     there are three, staggered through the firebox at
+     different rise rates and seeds, adding together. */
+  const FIRE_W = 1.62;
+  const FIRE_H = 0.34;
+  /* How much wider than tall, which is the factor the noise
+     frequency has to be corrected by. */
+  const FIRE_AR = FIRE_W / FIRE_H;
+  const hearth = new THREE.Group();
+  hearth.position.set(ROOM.leftX + 0.22, 0, FLAT_ANCHOR.z);
+  hearth.rotation.y = Math.PI / 2;
+
+  const caseMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0x191720, roughness: 0.42, metalness: 0.3 }),
+  );
+  const stoneMat = keep(
+    new THREE.MeshStandardMaterial({ color: 0x2b2932, roughness: 0.86, map: wallMap }),
+  );
+
+  const UNIT_W = 2.9;
+  const UNIT_H = 0.66;
+  const UNIT_D = 0.42;
+  // Carcass, built as a surround rather than one slab so the
+  // burner sits in a recess with a shadow line round it.
+  addTo(hearth, rbox(UNIT_W, 0.05, UNIT_D, 0.01), stoneMat, 0, UNIT_H, 0);
+  addTo(hearth, rbox(UNIT_W, 0.07, UNIT_D, 0.01), caseMat, 0, 0.035, 0);
+  addTo(hearth, box(UNIT_W, UNIT_H, 0.04), caseMat, 0, UNIT_H / 2, -UNIT_D / 2 + 0.02);
+  for (const sx of [-1, 1]) {
+    addTo(hearth, rbox((UNIT_W - FIRE_W) / 2, UNIT_H - 0.07, UNIT_D, 0.012), caseMat,
+      sx * (FIRE_W + (UNIT_W - FIRE_W) / 2) / 2, UNIT_H / 2, 0);
+  }
+  addTo(hearth, rbox(FIRE_W, UNIT_H - FIRE_H - 0.11, UNIT_D, 0.01), caseMat,
+    0, UNIT_H - (UNIT_H - FIRE_H - 0.11) / 2 - 0.02, 0);
+
+  // The firebox: black inside, so the flame has nothing behind it.
+  const boxMat = keep(new THREE.MeshBasicMaterial({ color: 0x07060a }));
+  addTo(hearth, box(FIRE_W, FIRE_H + 0.02, 0.02), boxMat, 0, 0.1 + FIRE_H / 2, -0.1);
+
+  const FIRE_VERT = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `;
+  const FIRE_FRAG = `
+    uniform float uTime; uniform float uHue; uniform float uLevel;
+    uniform float uSeed; uniform float uRise; uniform float uGain; uniform float uAR;
+    varying vec2 vUv;
+
+    float hash(vec2 p) {
+      p = fract(p * vec2(123.34, 456.21));
+      p += dot(p, p + 45.32);
+      return fract(p.x * p.y);
+    }
+    float vnoise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      float a = hash(i), b = hash(i + vec2(1.0, 0.0));
+      float c = hash(i + vec2(0.0, 1.0)), d = hash(i + vec2(1.0, 1.0));
+      return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    }
+    float fbm(vec2 p) {
+      float v = 0.0, a = 0.55;
+      for (int i = 0; i < 5; i++) { v += a * vnoise(p); p *= 2.07; a *= 0.5; }
+      return v;
+    }
+
+    void main() {
+      vec2 uv = vUv;
+      // Shear toward the middle as it rises: a flame narrows
+      // and leans in, it does not go straight up.
+      float lean = (uv.x - 0.5) * uv.y * 1.3;
+      /* uAR is the plane's width over its height. Without it the
+         noise cells are as wide as the burner and every tongue
+         comes out as a horizontal streak. */
+      float fx = (uv.x - lean) * 2.2 * uAR + uSeed;
+      vec2 p = vec2(fx, uv.y * 2.3 - uTime * uRise);
+
+      float n = fbm(p) * 0.62 + fbm(p * 2.1 + 17.0) * 0.38;
+      /* Each column breathes on its own clock, which is what
+         makes tongues pinch off instead of the whole sheet
+         going up and down together. */
+      float col1 = vnoise(vec2(uv.x * 9.0 + uSeed, uTime * 0.85));
+      n *= 0.5 + 0.75 * col1;
+
+      // Wide at the bed, narrow at the tip.
+      float taper = 1.0 - smoothstep(0.15, 1.15, uv.y);
+      float sides = smoothstep(0.5, 0.2, abs(uv.x - 0.5));
+      float body = n * taper * sides * uLevel * 3.1;
+      body -= uv.y * 0.46;
+      float f = smoothstep(0.08, 0.7, body);
+      if (f <= 0.002) discard;
+
+      /* Hot core to cool tip, with the whole ramp drifting
+         round the wheel so it is never the same fire twice. */
+      float h = fract(uHue);
+      vec3 deep = vec3(0.62, 0.08, 0.02);
+      vec3 mid  = vec3(1.0, 0.45, 0.06);
+      vec3 hot  = vec3(1.0, 0.93, 0.72);
+      vec3 tint = vec3(
+        0.5 + 0.5 * cos(6.2831 * (h + 0.0)),
+        0.5 + 0.5 * cos(6.2831 * (h + 0.33)),
+        0.5 + 0.5 * cos(6.2831 * (h + 0.66))
+      );
+      vec3 c = mix(deep, mid, smoothstep(0.1, 0.5, f));
+      c = mix(c, hot, smoothstep(0.62, 1.0, f));
+      // Only the cooler part takes the colour; the core stays
+      // white-hot, which is what keeps it reading as fire.
+      c = mix(c, c * 0.45 + tint * 0.95, (1.0 - smoothstep(0.5, 0.95, f)) * 0.72);
+      gl_FragColor = vec4(c, f * uGain);
+    }
+  `;
+
+  /* Three sheets staggered through the depth of the firebox,
+     each with its own seed and rise rate. Additive, so where
+     they overlap the core goes white and where only one
+     reaches, the tip stays thin. */
+  const fireMats: THREE.ShaderMaterial[] = [];
+  const FIRE_LAYERS: Array<[seed: number, rise: number, z: number, gain: number, w: number]> = [
+    [0.0, 1.05, -0.07, 0.6, 1.0],
+    [23.7, 1.5, -0.025, 0.85, 0.97],
+    [51.3, 1.95, 0.025, 0.55, 0.9],
+  ];
+  for (const [seed, rise, fz, gain, wScale] of FIRE_LAYERS) {
+    const m = keep(
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        vertexShader: FIRE_VERT,
+        fragmentShader: FIRE_FRAG,
+        uniforms: {
+          uTime: { value: 0 },
+          uHue: { value: 0 },
+          uLevel: { value: 1 },
+          uSeed: { value: seed },
+          uRise: { value: rise },
+          uGain: { value: gain },
+          uAR: { value: FIRE_AR },
+        },
+      }),
+    );
+    fireMats.push(m);
+    const sheet = new THREE.Mesh(
+      keep(new THREE.PlaneGeometry((FIRE_W - 0.06) * wScale, FIRE_H)),
+      m,
+    );
+    sheet.position.set(0, 0.105 + FIRE_H / 2, fz);
+    sheet.renderOrder = 4;
+    hearth.add(sheet);
+  }
+
+  /* A bed of embers under it. Dark enough to read as coals
+     rather than a painted red bar — the flame above supplies
+     the light. */
+  const emberMat = keep(new THREE.MeshBasicMaterial({ color: 0x2a0a02 }));
+  addTo(hearth, rbox(FIRE_W - 0.12, 0.025, 0.14, 0.008), emberMat, 0, 0.108, -0.03);
+  const glassMat = keep(
+    new THREE.MeshPhysicalMaterial({
+      color: 0x0d1016,
+      roughness: 0.06,
+      metalness: 0,
+      transparent: true,
+      opacity: 0.18,
+      transmission: 0.6,
+    }),
+  );
+  addTo(hearth, box(FIRE_W, FIRE_H + 0.02, 0.008), glassMat, 0, 0.1 + FIRE_H / 2, 0.1);
+
+  const fireLight = new THREE.PointLight(0xff7a2a, 0, 3.6, 2);
+  fireLight.position.set(ROOM.leftX + 0.5, 0.42, FLAT_ANCHOR.z);
+  root.add(fireLight);
+
+  root.add(hearth);
+  hitBox(0.5, 0.8, 2.9, "hearth", new THREE.Vector3(ROOM.leftX + 0.25, 0.38, FLAT_ANCHOR.z));
+
   /* ══ Living half ═════════════════════════════════════════
      The room had one occupied corner and three empty walls,
      which is why it read as a diorama of a desk rather than
@@ -1343,10 +1541,11 @@ export function buildRoom(): Built {
     hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
   }
 
-  /* Shelving against the right wall, behind the sofa. */
+  /* Shelving against the right wall, behind the sofa. This is
+     the one the library opens from — it stays. */
   {
     const shelfUnit = new THREE.Group();
-    const H = 1.95;
+    const H = CASE_H;
     const WD = 1.6;
     for (const uz of [-WD / 2, WD / 2]) {
       const upright = new THREE.Mesh(rbox(0.33, H, 0.05, 0.008), paleWood);
@@ -1406,9 +1605,18 @@ export function buildRoom(): Built {
         }
       }
     }
-    shelfUnit.position.set(2.78, 0, -1.25);
+    /* A cap across the top. It used to end on the uprights,
+       which left nowhere to put anything — and the record and
+       the pothos now live up here. */
+    const cap = new THREE.Mesh(rbox(0.36, 0.04, WD + 0.06, 0.008), paleWood);
+    cap.position.y = H + 0.02;
+    cap.castShadow = true;
+    cap.receiveShadow = true;
+    shelfUnit.add(cap);
+
+    shelfUnit.position.set(CASE_X, 0, CASE_Z);
     root.add(shelfUnit);
-    hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(2.78, 1, -1.25));
+    hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(CASE_X, 1, CASE_Z));
   }
 
   /* Coffee table, with the things that live on one. */
@@ -1511,8 +1719,8 @@ export function buildRoom(): Built {
     root.add(rug2);
   }
 
-  /* A cluster of small frames on the left wall. Abstract colour
-     fields of their own — nothing reproduced. */
+  /* A cluster of small frames, above the sofa on the right wall.
+     Abstract colour fields of their own — nothing reproduced. */
   {
     const frames: Array<[number, number, number, number, number]> = [
       [0.3, 0.22, 1.62, 0.42, 0x4a6f8a],
@@ -1524,8 +1732,8 @@ export function buildRoom(): Built {
         keep(new THREE.PlaneGeometry(fwid, fhgt)),
         keep(new THREE.MeshStandardMaterial({ color: col, roughness: 0.9, emissive: col, emissiveIntensity: 0.12 })),
       );
-      fr.rotation.y = Math.PI / 2;
-      fr.position.set(ROOM.leftX + 0.02, fy, fz);
+      fr.rotation.y = -Math.PI / 2;
+      fr.position.set(WALL_X - 0.02, fy, fz);
       root.add(fr);
     }
   }
@@ -2325,7 +2533,8 @@ export function buildRoom(): Built {
   const plantSpecs: Array<[Parameters<typeof buildPlant>[0], number, THREE.Vector3]> = [
     ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],
     ["snake", 83, new THREE.Vector3(-2.62, 0, -0.95)],
-    ["pothos", 97, new THREE.Vector3(ROOM.leftX + 0.17, shelfY + 0.018, -0.45)],
+    // On top of the bookcase, trailing over the edge.
+    ["pothos", 97, new THREE.Vector3(CASE_X - 0.04, CASE_H + 0.04, CASE_Z - 0.6)],
     ["succulent", 113, new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z - 0.14)],
   ];
   for (const [kind, seed, pos] of plantSpecs) {
@@ -2451,6 +2660,7 @@ export function buildRoom(): Built {
       screen: screenLight,
       tv: tvLight,
       flat: flatLight,
+      fire: fireLight,
       ambient,
     },
     props: {
@@ -2473,6 +2683,7 @@ export function buildRoom(): Built {
       flatGlow,
       flatOff,
       flatLed,
+      fireMats,
       speakerCones,
       posters,
       towerMats,

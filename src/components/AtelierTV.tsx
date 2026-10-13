@@ -40,6 +40,18 @@ const STATIONS: Array<{ name: string; id: string }> = [
 type Tuned = { kind: "video" | "list"; id: string } | null;
 
 /**
+ * What gets written to storage.
+ *
+ * `pinned` is the whole point. Without it a set remembers the
+ * first thing it ever showed — including a default that has
+ * since been changed — and there is no way to push a new one to
+ * anybody who has already loaded the page once. Only a
+ * deliberate tune pins; otherwise the set follows whatever the
+ * current default is.
+ */
+type Stored = { kind: "video" | "list"; id: string; pinned?: boolean };
+
+/**
  * Pull an id out of whatever got pasted.
  *
  * Accepts the share link, the watch URL, a playlist URL, an embed
@@ -119,16 +131,18 @@ export default function AtelierTV({
   const [bad, setBad] = useState(false);
 
   useEffect(() => {
-    let saved: Tuned = null;
+    let saved: Stored | null = null;
     try {
       const raw = window.localStorage.getItem(storeKey);
-      if (raw) saved = JSON.parse(raw) as Tuned;
+      if (raw) saved = JSON.parse(raw) as Stored;
     } catch {
       /* no storage — the set still works for this sitting */
     }
-    // A set with no presets waits to be tuned rather than
-    // guessing something to play.
-    setTuned(saved ?? (stations.length ? { kind: "video", id: stations[0].id } : null));
+    /* Only a channel somebody chose survives a change of
+       default. A set with no presets and nothing pinned waits
+       to be tuned rather than guessing something to play. */
+    const fallback: Tuned = stations.length ? { kind: "video", id: stations[0].id } : null;
+    setTuned(saved?.pinned ? { kind: saved.kind, id: saved.id } : fallback);
     // Only on mount: re-reading storage later would fight the
     // set's own state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -141,7 +155,7 @@ export default function AtelierTV({
     const t: Tuned = { kind: "video", id: next.id };
     setTuned(t);
     try {
-      window.localStorage.setItem(storeKey, JSON.stringify(t));
+      window.localStorage.setItem(storeKey, JSON.stringify({ ...t, pinned: true } satisfies Stored));
     } catch {
       /* ignore */
     }
@@ -165,7 +179,7 @@ export default function AtelierTV({
     setBad(false);
     setTuned(next);
     try {
-      window.localStorage.setItem(storeKey, JSON.stringify(next));
+      window.localStorage.setItem(storeKey, JSON.stringify({ ...next, pinned: true } satisfies Stored));
     } catch {
       /* ignore */
     }
