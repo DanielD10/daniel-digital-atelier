@@ -1087,6 +1087,9 @@ export default function AtelierRoom3D() {
       p.sparkMat.uniforms.uTime.value = reduced ? 0 : t;
       p.sparkMat.uniforms.uLevel.value = cur.fireI;
       built.lamps.fire.intensity = cur.fireI * gutter * (0.85 + fireFocus * 0.3);
+      /* And the dark screen above it catches that light. */
+      (p.flatOff.material as THREE.MeshStandardMaterial).emissiveIntensity =
+        flatLive ? 0 : cur.fireI * gutter * 0.5;
 
       /* The candle. Its own flicker, faster and shallower than
          the hearth's — a small flame reacts to air the big one

@@ -1223,9 +1223,24 @@ export function buildRoom(): Built {
   // Wall plate and the short arm down to it.
   addTo(flatSet, box(0.5, 0.42, 0.02), darkMetal, 0, 0, -0.072);
 
+  /* A switched-off screen is not black, it is a mirror of
+     whatever is lit in front of it. There is no env map here to
+     reflect with and a metalness of 0.9 with nothing to reflect
+     renders as a void, so the fire's light is painted on
+     instead: the emissive is driven from the hearth each frame,
+     which puts a warm wash across the panel that moves as the
+     fire moves. */
   const flatOff = new THREE.Mesh(
     keep(new THREE.PlaneGeometry(FLAT_W, FLAT_H)),
-    keep(new THREE.MeshStandardMaterial({ color: 0x07080b, roughness: 0.08, metalness: 0.9 })),
+    keep(
+      new THREE.MeshStandardMaterial({
+        color: 0x07080b,
+        roughness: 0.22,
+        metalness: 0.45,
+        emissive: new THREE.Color(0x3a1c08),
+        emissiveIntensity: 0,
+      }),
+    ),
   );
   flatOff.position.set(0, 0, 0.004);
   flatSet.add(flatOff);
@@ -1686,6 +1701,16 @@ export function buildRoom(): Built {
       -0.42, UNIT_H + 0.018, 0.0);
   }
 
+  /* A warm strip tucked under the plinth, washing the floor.
+     The desk corner already speaks in LED strips; the living
+     half had none, which is most of why it read as the unlit
+     end of the room. */
+  addTo(hearth, box(UNIT_W - 0.3, 0.012, 0.02),
+    keep(new THREE.MeshBasicMaterial({ color: 0xff9a4e })), 0, 0.012, 0.19);
+  const hearthWash = new THREE.PointLight(0xff8a44, 0.5, 1.9, 2);
+  hearthWash.position.set(ROOM.leftX + 0.45, 0.07, FLAT_ANCHOR.z);
+  root.add(hearthWash);
+
   root.add(hearth);
   hitBox(0.5, 0.8, 2.9, "hearth", new THREE.Vector3(ROOM.leftX + 0.25, 0.38, FLAT_ANCHOR.z));
 
@@ -1758,30 +1783,30 @@ export function buildRoom(): Built {
       cu.castShadow = true;
       sofa.add(cu);
     });
-    /* A throw over the near arm, falling down the front.
-       Built as a lathe-free strip of boxes rather than cloth
-       simulation: four short panels, each tipped a little
-       further than the last, which from any angle you can
-       actually stand at reads as fabric hanging. */
+    /* A throw over the near arm.
+       The arm is 0.9 along x, 0.2 tall, 0.18 deep, with its top
+       at y 0.58. So: a panel lying across it, a short fall down
+       the outside, a longer one down the inside, and a tail
+       pooling on the seat. Four thin slabs rather than cloth
+       simulation — from any angle you can stand at, that is
+       what a thrown blanket looks like. */
     {
       const throwMat = keep(
-        new THREE.MeshStandardMaterial({ color: 0xb8683f, roughness: 0.96 }),
+        new THREE.MeshStandardMaterial({ color: 0xb8683f, roughness: 0.97 }),
       );
-      const drape: Array<[number, number, number, number]> = [
-        // width, height, y, tilt
-        [0.52, 0.2, 0.595, -0.1],
-        [0.2, 0.3, 0.46, 0.5],
-        [0.18, 0.26, 0.22, 0.12],
-        [0.17, 0.12, 0.06, -0.3],
+      const AZ = 0.86;
+      const drape: Array<[number, number, number, number, number, number]> = [
+        // w, h, d, x, y, z
+        [0.44, 0.035, 0.235, 0.12, 0.596, AZ],
+        [0.42, 0.24, 0.03, 0.12, 0.47, AZ + 0.105],
+        [0.42, 0.33, 0.03, 0.12, 0.43, AZ - 0.105],
+        [0.4, 0.035, 0.2, 0.1, 0.535, AZ - 0.26],
       ];
-      let dx = -0.08;
-      for (const [w, h, y, tilt] of drape) {
-        const panel = new THREE.Mesh(rbox(w, h, 0.26, 0.02), throwMat);
-        panel.position.set(dx, y, 0.9);
-        panel.rotation.z = tilt;
+      for (const [w, hh, d, x, y, z] of drape) {
+        const panel = new THREE.Mesh(rbox(w, hh, d, 0.014), throwMat);
+        panel.position.set(x, y, z);
         panel.castShadow = true;
         sofa.add(panel);
-        dx -= w * 0.32;
       }
     }
 
@@ -1792,8 +1817,21 @@ export function buildRoom(): Built {
         sofa.add(leg);
       }
     }
+    /* The same strip under the sofa, so the floor between the
+       two of them is lit from both ends rather than being the
+       dead middle of the room. */
+    const glow = new THREE.Mesh(
+      box(0.02, 0.012, 1.7),
+      keep(new THREE.MeshBasicMaterial({ color: 0xff9a4e })),
+    );
+    glow.position.set(-0.3, 0.025, 0);
+    sofa.add(glow);
+
     sofa.position.set(2.2, 0, 0.5);
     root.add(sofa);
+    const sofaWash = new THREE.PointLight(0xff8a44, 0.45, 2.1, 2);
+    sofaWash.position.set(1.8, 0.1, 0.5);
+    root.add(sofaWash);
     hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
   }
 
@@ -1925,6 +1963,20 @@ export function buildRoom(): Built {
     dome.position.y = 1.52;
     dome.castShadow = true;
     lampG.add(dome);
+
+    /* The shade is dark from outside, which is right, but it
+       left no sign the lamp was on at all from across the room.
+       A disc of light across its mouth fixes that without
+       turning the shade itself into a white hole. */
+    const mouth = new THREE.Mesh(
+      keep(new THREE.CircleGeometry(0.175, 24)),
+      /* Dim. A full-brightness disc under a bloom pass is a
+         flare, not a lamp — this only has to say "lit". */
+      keep(new THREE.MeshBasicMaterial({ color: 0x6b3f1c })),
+    );
+    mouth.rotation.x = Math.PI / 2;
+    mouth.position.y = 1.515;
+    lampG.add(mouth);
 
     const warm = new THREE.SpotLight(0xffc98a, 2.4, 3.6, 0.9, 0.7, 1.4);
     warm.position.set(0, 1.42, 0);
