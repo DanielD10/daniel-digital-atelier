@@ -532,6 +532,11 @@ export function buildRoom(): Built {
       keep(new THREE.MeshBasicMaterial({ visible: false })),
     );
     m.name = name;
+    /* A stand-in, not the thing itself. The picker uses this to
+       break ties: a sofa's box encloses its own cushions, so a
+       click aimed at a cushion hits the box first and seats you
+       instead of throwing it. Real geometry wins over a proxy. */
+    m.userData.proxy = true;
     m.position.copy(pos);
     root.add(m);
     targets.push(m);
@@ -548,14 +553,47 @@ export function buildRoom(): Built {
   woodRough.repeat.set(2, 2);
   clothRough.repeat.set(4, 4);
 
-  const wallMat = keep(new THREE.MeshStandardMaterial({ color: 0x6d6480, roughness: 0.94, map: wallMap }));
+  /* Relief.
+   *
+   * Every one of these already had a generated canvas standing
+   * in for its colour, and that same canvas works as a height
+   * field for free — plaster grain, wood grain, the weave of a
+   * cloth. Without it the room is a set of perfectly smooth
+   * planes with pictures of texture painted on, which is most
+   * of why it read flat however good the lighting got. The map
+   * and the bump share one texture object, so they share its
+   * repeat and stay in register, and it costs no extra upload. */
+  const wallMat = keep(
+    new THREE.MeshStandardMaterial({
+      color: 0x6d6480,
+      roughness: 0.94,
+      map: wallMap,
+      bumpMap: wallMap,
+      bumpScale: 0.55,
+    }),
+  );
   const floorMat = keep(
     // Low roughness so the neon and the window smear across it.
     // A dry matte floor throws none of the colour back.
-    new THREE.MeshStandardMaterial({ color: 0x6d5440, roughness: 0.24, map: woodMap, metalness: 0.22 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x6d5440,
+      roughness: 0.24,
+      map: woodMap,
+      bumpMap: woodMap,
+      bumpScale: 0.4,
+      metalness: 0.22,
+    }),
   );
   const deskMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0x8a6038, roughness: 0.5, map: woodMap, roughnessMap: woodRough, metalness: 0.05 }),
+    new THREE.MeshStandardMaterial({
+      color: 0x8a6038,
+      roughness: 0.5,
+      map: woodMap,
+      roughnessMap: woodRough,
+      bumpMap: woodMap,
+      bumpScale: 0.28,
+      metalness: 0.05,
+    }),
   );
   const darkMetal = keep(new THREE.MeshStandardMaterial({ color: 0x23222c, roughness: 0.38, roughnessMap: woodRough, metalness: 0.72 }));
   const plastic = keep(new THREE.MeshStandardMaterial({ color: 0x24222c, roughness: 0.56, metalness: 0.08 }));
@@ -842,12 +880,25 @@ export function buildRoom(): Built {
   addVoid(VW / 2 - WIN.x1, WIN.y1 - WIN.y0, (WIN.x1 + VW / 2) / 2, (WIN.y0 + WIN.y1) / 2);
 
   /* ══ Rug ═════════════════════════════════════════════════ */
-  const rug = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(3.4, 2.2)),
-    keep(new THREE.MeshStandardMaterial({ map: rugMap, roughness: 0.98 })),
+  /* A rug is not a decal.
+   *
+   * This was a plane at y=0.004 — the same surface as the
+   * floorboards with a different picture on it, which is
+   * exactly how it read. It is a slab now, 18mm thick with a
+   * rounded edge, so it casts a shadow line onto the boards and
+   * you can see it is a thing lying on the floor rather than
+   * part of it. The weave doubles as the height field. */
+  const rugMat = keep(
+    new THREE.MeshStandardMaterial({
+      map: rugMap,
+      roughness: 0.98,
+      bumpMap: rugMap,
+      bumpScale: 1.1,
+    }),
   );
-  rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0.1, 0.004, -0.75);
+  const rug = new THREE.Mesh(rbox(3.4, 0.018, 2.2, 0.006), rugMat);
+  rug.position.set(0.1, 0.009, -0.75);
+  rug.castShadow = true;
   rug.receiveShadow = true;
   root.add(rug);
 
@@ -1767,19 +1818,35 @@ export function buildRoom(): Built {
      actually on a media unit in a room somebody uses. */
 
   // Candle. Wax body, a dark wick, and a real flame.
+  /* A fat pillar, not a tealight. It was a slim taper with a
+     strong emissive on the wax and a bright point light inside
+     it, and under the bloom pass all three added up to a white
+     blob with no candle visible in it. Bigger body, a quarter
+     of the emissive, and the light turned well down: the flame
+     should be the brightest thing here, not the wax. */
   const waxMat = keep(
-    new THREE.MeshStandardMaterial({ color: 0xe8ddc8, roughness: 0.72, emissive: 0x3a2410, emissiveIntensity: 0.5 }),
+    new THREE.MeshStandardMaterial({
+      color: 0xe8ddc8,
+      roughness: 0.72,
+      emissive: 0x24160a,
+      emissiveIntensity: 0.22,
+    }),
   );
   /* The hearth group is turned a quarter turn, so its local x
      runs along the 2.9m length of the unit and its local z is
      the 0.42m depth. Everything placed on top is positioned in
      those axes, not world ones. */
   const CANDLE_X = 1.02;
-  const CANDLE_Y = UNIT_H + 0.075;
-  addTo(hearth, keep(new THREE.CylinderGeometry(0.052, 0.055, 0.15, 20)), waxMat, CANDLE_X, CANDLE_Y, 0.02);
-  addTo(hearth, keep(new THREE.CylinderGeometry(0.054, 0.054, 0.006, 20)),
-    keep(new THREE.MeshStandardMaterial({ color: 0x1a1218, roughness: 0.9 })),
-    CANDLE_X, CANDLE_Y + 0.075, 0.02);
+  const CANDLE_H = 0.26;
+  const CANDLE_Y = UNIT_H + CANDLE_H / 2;
+  addTo(hearth, keep(new THREE.CylinderGeometry(0.082, 0.086, CANDLE_H, 24)), waxMat, CANDLE_X, CANDLE_Y, 0.02);
+  // The pooled, darker wax at the top, with the wick in it.
+  addTo(hearth, keep(new THREE.CylinderGeometry(0.084, 0.084, 0.008, 24)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x3b3022, roughness: 0.55 })),
+    CANDLE_X, CANDLE_Y + CANDLE_H / 2, 0.02);
+  addTo(hearth, keep(new THREE.CylinderGeometry(0.004, 0.003, 0.022, 6)),
+    keep(new THREE.MeshStandardMaterial({ color: 0x120d10, roughness: 0.95 })),
+    CANDLE_X, CANDLE_Y + CANDLE_H / 2 + 0.009, 0.02);
 
   /* The flame is the same shader as the fire, handed a tall
      narrow aspect instead of a wide one — which is the whole
@@ -1797,19 +1864,19 @@ export function buildRoom(): Built {
         uLevel: { value: 1 },
         uSeed: { value: 88.2 },
         uRise: { value: 0.75 },
-        uGain: { value: 0.8 },
+        uGain: { value: 0.5 },
         uAR: { value: 0.42 },
       },
     }),
   );
   {
-    const cf = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.055, 0.1)), candleMat);
-    cf.position.set(CANDLE_X, CANDLE_Y + 0.128, 0.02);
+    const cf = new THREE.Mesh(keep(new THREE.PlaneGeometry(0.062, 0.115)), candleMat);
+    cf.position.set(CANDLE_X, CANDLE_Y + CANDLE_H / 2 + 0.072, 0.02);
     cf.renderOrder = 5;
     hearth.add(cf);
   }
-  const candleLight = new THREE.PointLight(0xffb15e, 0, 1.5, 2);
-  candleLight.position.set(ROOM.leftX + 0.4, CANDLE_Y + 0.14, FLAT_ANCHOR.z - CANDLE_X);
+  const candleLight = new THREE.PointLight(0xffb15e, 0, 1.1, 2);
+  candleLight.position.set(ROOM.leftX + 0.4, CANDLE_Y + 0.2, FLAT_ANCHOR.z - CANDLE_X);
   root.add(candleLight);
 
   // A stack of books, lying flat, each one a little out of true.
@@ -1841,6 +1908,70 @@ export function buildRoom(): Built {
   hearthWash.position.set(ROOM.leftX + 0.45, 0.07, FLAT_ANCHOR.z);
   root.add(hearthWash);
 
+  /* The rest of the dressing. Local x runs along the unit, so
+     these are spaced down its length between the books at
+     -1.02, the dish at -0.42 and the candle at +1.02. */
+  {
+    const rd = rand(2203);
+    const ceramic = keep(
+      new THREE.MeshStandardMaterial({ color: 0x9fb0a6, roughness: 0.42, metalness: 0.05 }),
+    );
+    // A bottle vase with a few dried stems out of the top.
+    addTo(hearth, keep(new THREE.CylinderGeometry(0.045, 0.062, 0.17, 18)), ceramic,
+      -0.7, UNIT_H + 0.085, -0.01);
+    addTo(hearth, keep(new THREE.CylinderGeometry(0.019, 0.026, 0.07, 14)), ceramic,
+      -0.7, UNIT_H + 0.2, -0.01);
+    const stemMat = keep(new THREE.MeshStandardMaterial({ color: 0x8a7550, roughness: 0.95 }));
+    for (let i = 0; i < 5; i++) {
+      const len = 0.17 + rd() * 0.13;
+      const st = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.0035, 0.005, len, 5)), stemMat);
+      st.position.set(-0.7 + (rd() - 0.5) * 0.03, UNIT_H + 0.22 + len / 2, -0.01 + (rd() - 0.5) * 0.03);
+      st.rotation.z = (rd() - 0.5) * 0.5;
+      st.rotation.x = (rd() - 0.5) * 0.5;
+      hearth.add(st);
+    }
+
+    // A small frame, leaning back against nothing in particular.
+    const frame = new THREE.Mesh(
+      rbox(0.14, 0.11, 0.012, 0.004),
+      keep(new THREE.MeshStandardMaterial({ color: 0x2b2531, roughness: 0.5, metalness: 0.3 })),
+    );
+    frame.position.set(0.62, UNIT_H + 0.057, -0.05);
+    frame.rotation.x = -0.26;
+    frame.castShadow = true;
+    hearth.add(frame);
+    const photo = new THREE.Mesh(
+      keep(new THREE.PlaneGeometry(0.11, 0.08)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x55708c, roughness: 0.8, emissive: 0x16222e, emissiveIntensity: 0.5 })),
+    );
+    photo.position.set(0.62, UNIT_H + 0.059, -0.038);
+    photo.rotation.x = -0.26;
+    hearth.add(photo);
+
+    // The remote, where a remote actually ends up.
+    const remote = new THREE.Mesh(
+      rbox(0.045, 0.016, 0.14, 0.006),
+      keep(new THREE.MeshStandardMaterial({ color: 0x15131a, roughness: 0.46 })),
+    );
+    remote.position.set(0.2, UNIT_H + 0.012, 0.06);
+    remote.rotation.y = 0.42;
+    remote.castShadow = true;
+    hearth.add(remote);
+
+    // A little speaker at the far end, grille facing the room.
+    const spk = new THREE.Mesh(
+      rbox(0.1, 0.16, 0.1, 0.012),
+      keep(new THREE.MeshStandardMaterial({ color: 0x23202b, roughness: 0.74 })),
+    );
+    spk.position.set(1.33, UNIT_H + 0.082, 0);
+    spk.castShadow = true;
+    hearth.add(spk);
+    const grille = addTo(hearth, keep(new THREE.CylinderGeometry(0.032, 0.032, 0.006, 18)),
+      keep(new THREE.MeshStandardMaterial({ color: 0x0e0c12, roughness: 0.9 })),
+      1.33, UNIT_H + 0.09, 0.051);
+    grille.rotation.x = Math.PI / 2;
+  }
+
   root.add(hearth);
   hitBox(0.5, 0.8, 2.9, "hearth", new THREE.Vector3(ROOM.leftX + 0.25, 0.38, FLAT_ANCHOR.z));
 
@@ -1867,6 +1998,9 @@ export function buildRoom(): Built {
       roughness: 0.96,
       map: clothMap,
       roughnessMap: clothRough,
+      // Upholstery has a weave you can see across a room.
+      bumpMap: clothMap,
+      bumpScale: 0.7,
     }),
   );
   const paleWood = keep(
@@ -1903,15 +2037,122 @@ export function buildRoom(): Built {
       cushion.castShadow = true;
       sofa.add(cushion);
     }
-    // Throw cushions, tipped over as they always are.
+    /* Throw cushions you can throw.
+     *
+     * Seven places a cushion can end up — along the back, flat
+     * on the seat, and two on the floor in front where they
+     * always seem to end up anyway. Clicking one lobs it to a
+     * free slot: a real arc with a tumble in it over about
+     * two thirds of a second, not a teleport. An occupancy set
+     * is shared between the three so two never land in the
+     * same place.
+     *
+     * The cushion mesh is its own click target rather than
+     * carrying an invisible box, because the box would have to
+     * be animated alongside it to stay useful — and a 30cm
+     * cushion is a big enough thing to hit directly. */
+    const SLOTS: Array<[number, number, number, number, number]> = [
+      // x, y, z, tilt about x, yaw
+      [0.12, 0.66, -0.62, 0.4, 0],
+      [0.12, 0.66, -0.02, 0.5, 0.1],
+      [0.12, 0.66, 0.58, 0.6, -0.1],
+      [-0.1, 0.59, 0.3, 1.26, 0.5],
+      [-0.12, 0.59, -0.36, 1.3, -0.4],
+      [-0.72, 0.056, 0.26, 1.52, 0.8],
+      [-0.66, 0.056, -0.46, 1.5, -0.7],
+    ];
+    const taken = new Set<number>([0, 1, 2]);
+    const rc = rand(5501);
     const cols = [0xff6f9d, 0x49e8ff, 0xf0c05a];
     cols.forEach((c, i) => {
-      const m = keep(new THREE.MeshStandardMaterial({ color: c, roughness: 0.9 }));
+      const m = keep(new THREE.MeshStandardMaterial({
+        color: c,
+        roughness: 0.92,
+        map: clothMap,
+        bumpMap: clothMap,
+        bumpScale: 0.5,
+      }));
+      const holder = new THREE.Group();
+      sofa.add(holder);
       const cu = new THREE.Mesh(rbox(0.3, 0.3, 0.1, 0.045), m);
-      cu.position.set(0.12, 0.66, -0.62 + i * 0.6);
-      cu.rotation.x = 0.4 + i * 0.2;
+      cu.name = `cushion${i}`;
       cu.castShadow = true;
-      sofa.add(cu);
+      holder.add(cu);
+      targets.push(cu);
+
+      let slot = i;
+      const place = (k: number) => {
+        const [x, y, z, rx, ry] = SLOTS[k];
+        cu.position.set(x, y, z);
+        cu.rotation.set(rx, ry, 0);
+      };
+      place(slot);
+
+      // Flight state. t >= 1 means sitting still.
+      let ft = 1;
+      const fromP = new THREE.Vector3();
+      const toP = new THREE.Vector3();
+      const fromR = new THREE.Euler();
+      const toR = new THREE.Euler();
+      let lift = 0.26;
+
+      life.push({
+        name: `cushion${i}`,
+        group: holder,
+        hit: cu,
+        update: ({ dt, reduced }) => {
+          if (ft >= 1) return;
+          if (reduced) {
+            ft = 1;
+            cu.position.copy(toP);
+            cu.rotation.copy(toR);
+            return;
+          }
+          ft = Math.min(1, ft + dt / 0.64);
+          // Ease out, so it slows as it lands.
+          const e = 1 - Math.pow(1 - ft, 2.2);
+          cu.position.lerpVectors(fromP, toP, e);
+          cu.position.y += Math.sin(ft * Math.PI) * lift;
+          cu.rotation.set(
+            fromR.x + (toR.x - fromR.x) * e,
+            fromR.y + (toR.y - fromR.y) * e,
+            fromR.z + (toR.z - fromR.z) * e,
+          );
+        },
+        poke: () => {
+          if (ft < 1) return;
+          const free: number[] = [];
+          for (let k = 0; k < SLOTS.length; k++) if (!taken.has(k)) free.push(k);
+          if (!free.length) return;
+          const next = free[Math.floor(rc() * free.length)];
+          taken.delete(slot);
+          taken.add(next);
+          slot = next;
+
+          const [x, y, z, rx, ry] = SLOTS[next];
+          fromP.copy(cu.position);
+          toP.set(x, y, z);
+          fromR.copy(cu.rotation);
+          /* A tumble on the way, landing on the slot's own
+             angle plus a bit — nothing lands square.
+             The turn is added to wherever it is NOW, via the
+             shortest way round to the target: setting an
+             absolute `rx + 2PI` only tumbles the first time,
+             because after one toss the stored angle is already
+             a turn ahead and the next lerp has almost no
+             distance left to cover. */
+          const wrap = (a2: number) => Math.atan2(Math.sin(a2), Math.cos(a2));
+          const spin = Math.PI * 2 * (rc() < 0.5 ? 1 : -1);
+          toR.set(
+            fromR.x + wrap(rx - fromR.x) + spin,
+            fromR.y + wrap(ry + (rc() - 0.5) * 0.9 - fromR.y),
+            fromR.z + wrap((rc() - 0.5) * 0.7 - fromR.z),
+          );
+          // Further to go, higher it goes.
+          lift = 0.16 + fromP.distanceTo(toP) * 0.22;
+          ft = 0;
+        },
+      });
     });
     /* A throw over the near arm.
        The arm is 0.9 along x, 0.2 tall, 0.18 deep, with its top
@@ -1962,7 +2203,11 @@ export function buildRoom(): Built {
     const sofaWash = new THREE.PointLight(0xff8a44, 0.45, 2.1, 2);
     sofaWash.position.set(1.8, 0.1, 0.5);
     root.add(sofaWash);
-    hitBox(1.1, 0.9, 2.1, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
+    /* 1.85 rather than 2.1 deep: the old box reached back past
+       the sofa itself and overlapped the front edge of the
+       bookcase, so clicks aimed at the lowest shelf were landing
+       on the sofa. */
+    hitBox(1.1, 0.9, 1.85, "sofa", new THREE.Vector3(2.2, 0.45, 0.5));
   }
 
   /* Shelving against the right wall, behind the sofa. This is
@@ -2038,6 +2283,7 @@ export function buildRoom(): Built {
     cap.receiveShadow = true;
     shelfUnit.add(cap);
 
+    shelfUnit.name = "bookcase";
     shelfUnit.position.set(CASE_X, 0, CASE_Z);
     root.add(shelfUnit);
     hitBox(0.5, 2, 1.7, "shelf", new THREE.Vector3(CASE_X, 1, CASE_Z));
@@ -2148,11 +2394,18 @@ export function buildRoom(): Built {
   /* A second rug under the sitting half. */
   {
     const rug2 = new THREE.Mesh(
-      keep(new THREE.PlaneGeometry(1.9, 2.4)),
-      keep(new THREE.MeshStandardMaterial({ color: 0x2c2440, roughness: 0.98 })),
+      rbox(1.9, 0.014, 2.4, 0.005),
+      keep(
+        new THREE.MeshStandardMaterial({
+          color: 0x2c2440,
+          roughness: 0.98,
+          bumpMap: rugMap,
+          bumpScale: 0.8,
+        }),
+      ),
     );
-    rug2.rotation.x = -Math.PI / 2;
-    rug2.position.set(1.5, 0.003, 0.7);
+    rug2.position.set(1.5, 0.007, 0.7);
+    rug2.castShadow = true;
     rug2.receiveShadow = true;
     root.add(rug2);
   }
@@ -2972,8 +3225,12 @@ export function buildRoom(): Built {
     ["monstera", 71, new THREE.Vector3(2.25, 0, DESK_Z + 0.35)],
     // Back-left corner. It was standing inside the media unit.
     ["snake", 83, new THREE.Vector3(-2.66, 0, -2.02)],
-    // On top of the bookcase, trailing over the edge.
-    ["pothos", 97, new THREE.Vector3(CASE_X - 0.04, CASE_H + 0.04, CASE_Z - 0.6)],
+    /* On the far end of the media unit, where it can trail down
+       into open air. It was on top of the bookcase, and a
+       trailing plant on a shelf only 36cm deep sends its vines
+       straight down through the shelves and the books — three
+       dozen leaf meshes were sitting inside the carcass. */
+    ["pothos", 97, new THREE.Vector3(ROOM.leftX + 0.2, 0.78, 1.17)],
     ["succulent", 113, new THREE.Vector3(-0.5, DESK_Y + 0.025, DESK_Z - 0.14)],
   ];
   for (const [kind, seed, pos] of plantSpecs) {

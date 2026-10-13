@@ -117,6 +117,8 @@ function hitBox(
   keep(m);
   const mesh = new THREE.Mesh(g, m);
   mesh.name = name;
+  // See the note on the builder's hitBox: proxies lose ties.
+  mesh.userData.proxy = true;
   return mesh;
 }
 
@@ -409,6 +411,11 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   let twitchAt = 3 + r() * 4;
   let twitch = 0;
   let stretch = 0;
+  /* Seconds left on the dance. A poke starts it; everything
+     else about her carries on underneath it, so she still
+     breathes and blinks while she is at it. */
+  const DANCE_LEN = 5.6;
+  let dance = 0;
   // Where she is looking when nobody is interacting.
   const wander = new THREE.Vector3(1, 0.1, 0.4);
   let wanderAt = 0;
@@ -426,6 +433,19 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       blushMat.opacity = focus * 0.75;
       return;
     }
+
+    /* The dance clock.
+     *
+     * `danceEnv` eases in over a third of a second and back out
+     * over the last two thirds, so she starts and stops moving
+     * rather than snapping into and out of it. Everything below
+     * multiplies by it, which means when it is zero the dance
+     * code costs nothing and changes nothing. */
+    if (dance > 0) dance = Math.max(0, dance - dt);
+    const danceEnv =
+      dance > 0 ? Math.min(1, (DANCE_LEN - dance) / 0.34, dance / 0.65) : 0;
+    // Around 86 to the minute, which is a walkable beat.
+    const beat = t * 9.0;
 
     // Breathing. Always, whether or not anyone is here.
     const breath = 1 + Math.sin(t * 1.5) * 0.022 + focus * 0.012;
@@ -469,7 +489,8 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       const drift = wobble(t * 0.5 + i * 2, 1.1, 0.37) * 0.05;
       // Perk: rotate forward and bring them together.
       ear.rotation.x = sign * (0.22 - focus * 0.16) + drift;
-      ear.rotation.z = -0.1 - focus * 0.26 + twitchKick * (i === 0 ? 1 : 0.6);
+      ear.rotation.z = -0.1 - focus * 0.26 + twitchKick * (i === 0 ? 1 : 0.6)
+        + danceEnv * 0.26 * Math.sin(beat + i * 1.1);
     });
 
     /* Looking. At the cursor when attended to, otherwise at
@@ -518,7 +539,7 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     // lookAt puts +Z on the target; the model faces +X.
     tmp.rotateY(-Math.PI / 2);
     // A small tilt when curious. Nothing sells interest like it.
-    tmp.rotateZ(focus * 0.17 * Math.sin(t * 0.8));
+    tmp.rotateZ(focus * 0.17 * Math.sin(t * 0.8) + danceEnv * 0.34 * Math.sin(beat * 0.5 + 0.6));
     headQuat.copy(tmp.quaternion);
     headPivot.quaternion.slerp(headQuat, Math.min(1, dt * 3.4));
 
@@ -534,8 +555,8 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
      * each segment; TAIL_W shares it out. The old code handed the
      * same angle to all three and they compounded, which is what
      * put the tip through the window. */
-    const speed = 0.8 + focus * 1.5;
-    const amp = 0.26 + focus * 0.4;
+    const speed = 0.8 + focus * 1.5 + danceEnv * 7;
+    const amp = 0.26 + focus * 0.4 + danceEnv * 0.55;
     tailSegs.forEach((seg, i) => {
       // A wave travelling outward, not three segments on one beat.
       const phase = t * speed - i * 0.55;
@@ -546,8 +567,14 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       seg.rotation.z = i === 0 ? 0.2 + focus * 0.22 : -0.14 + Math.cos(phase) * 0.07;
     });
 
-    /* Blush and the stretch she does when poked. */
-    blushMat.opacity += (focus * 0.8 - blushMat.opacity) * Math.min(1, dt * 5);
+    /* Blush, the stretch she does when poked, and the dance.
+     *
+     * The blush is whichever is stronger — being looked at, or
+     * being mid-dance — so it does not drop out the moment the
+     * cursor leaves her. */
+    const blushWant = Math.max(focus * 0.8, danceEnv * 0.95);
+    blushMat.opacity += (blushWant - blushMat.opacity) * Math.min(1, dt * 5);
+
     if (stretch > 0) {
       stretch = Math.max(0, stretch - dt * 1.6);
       const s = Math.sin(stretch * Math.PI);
@@ -558,6 +585,13 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       bodyPivot.position.x = 0;
       headPivot.position.y = 0.15;
     }
+
+    /* Up on the beat, weight shifting side to side on the half
+       beat. Two rates rather than one, or it reads as a pogo
+       stick instead of a dance. */
+    bodyPivot.position.y = danceEnv * Math.abs(Math.sin(beat)) * 0.042;
+    bodyPivot.rotation.z = danceEnv * Math.sin(beat * 0.5) * 0.13;
+    bodyPivot.rotation.y = danceEnv * Math.sin(beat * 0.5 + 1.1) * 0.24;
   };
 
   return {
@@ -565,9 +599,12 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     group,
     hit,
     update,
+    /* A stretch, and then five and a half seconds of dancing.
+       The stretch is the wind-up: she unfolds, then goes. */
     poke: () => {
       stretch = 1;
       blinkAt = 0;
+      dance = DANCE_LEN;
     },
   };
 }

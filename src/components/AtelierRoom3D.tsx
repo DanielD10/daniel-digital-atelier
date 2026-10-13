@@ -689,6 +689,29 @@ export default function AtelierRoom3D() {
      * monitor or the set went nowhere. Raycasting from the event's
      * own coordinates needs no hover to have happened first.
      */
+    /**
+     * Whose name wins, given a ray.
+     *
+     * Most targets are invisible stand-in boxes, and some of
+     * them contain other targets: the sofa's box encloses its
+     * own cushions, so the nearest hit is the box and a click
+     * aimed at a cushion sat you down instead of throwing it.
+     * Real geometry therefore beats a proxy whenever both are
+     * on the ray. Only deliberate targets are in this list, so
+     * there is nothing else for the rule to catch by accident.
+     *
+     * Both the click and the per-frame hover go through here,
+     * or the thing the cursor says it is over would not be the
+     * thing a click acts on.
+     */
+    const resolve = (r: THREE.Raycaster): THREE.Intersection | null => {
+      const live = built.targets.filter((o) => o.visible && !o.userData.inactive);
+      const hits = r.intersectObjects(live, false);
+      if (!hits.length) return null;
+      const real = hits.find((x) => !x.object.userData.proxy);
+      return real ?? hits[0];
+    };
+
     const pickV = new THREE.Vector2();
     const pick = (clientX: number, clientY: number): string | null => {
       const rect = host.getBoundingClientRect();
@@ -697,9 +720,7 @@ export default function AtelierRoom3D() {
         -((clientY - rect.top) / rect.height) * 2 + 1,
       );
       ray.setFromCamera(pickV, camera);
-      const live = built.targets.filter((o) => o.visible && !o.userData.inactive);
-      const hits = ray.intersectObjects(live, false);
-      return hits.length ? hits[0].object.name : null;
+      return resolve(ray)?.object.name ?? null;
     };
 
     const onClick = (e: MouseEvent) => {
@@ -895,14 +916,13 @@ export default function AtelierRoom3D() {
       /* Hover. One raycast per frame against a short list. */
       if (pointerInside && !s.awake) {
         ray.setFromCamera(pointer, camera);
-        const live = built.targets.filter((o) => o.visible && !o.userData.inactive);
-        const hits = ray.intersectObjects(live, false);
-        const next = hits.length ? hits[0].object.name : null;
+        const hit = resolve(ray);
+        const next = hit?.object.name ?? null;
         if (next !== hoverName) {
           hoverName = next;
           setHovered(next);
         }
-        if (hits.length) cursorWorld.copy(hits[0].point);
+        if (hit) cursorWorld.copy(hit.point);
         else {
           // No object under the cursor: project onto a plane at
           // the desk so the cat still tracks an empty hand.
