@@ -314,7 +314,12 @@ const SHOTS: Shot[] = [
        at this distance the picture fills about two thirds of
        the frame. */
     fit: 1.52,
-    narrowFit: 1.3,
+    /* Portrait fits on the tighter of the two half-angles, which
+       is the horizontal one — so here the radius IS the visible
+       half-width at the screen's plane. The screen is 3.25m
+       across, so anything under 1.63 guarantees it overflows.
+       1.78 leaves about a 9% margin either side. */
+    narrowFit: 1.78,
     /* Nothing playing: stand back far enough to take in the
        fireplace under the screen as well. It closes back in the
        moment a film starts. */
@@ -463,6 +468,10 @@ export default function AtelierRoom3D() {
   const tvHostRef = useRef<HTMLDivElement | null>(null);
   const flatRootRef = useRef<Root | null>(null);
   const flatHostRef = useRef<HTMLDivElement | null>(null);
+  /** Which element the current root belongs to. */
+  const flatHostElRef = useRef<HTMLDivElement | null>(null);
+  /** Set when a new panel appears, to invalidate the geometry cache. */
+  const flatGeomRef = useRef(false);
   const [flatApi, setFlatApi] = useState<TVApi | null>(null);
   const builtRef = useRef<Built | null>(null);
   const pokeRef = useRef<((name: string) => void) | null>(null);
@@ -1142,6 +1151,12 @@ export default function AtelierRoom3D() {
        * scaled and placed to match. The illusion holds because
        * this framing looks square-on at it. */
       const flatEl = flatHostRef.current;
+      if (flatGeomRef.current) {
+        flatGeomRef.current = false;
+        flatAt.x = -1;
+        flatAt.y = -1;
+        flatAt.fit = -1;
+      }
       if (flatLive && flatEl) {
         const half = built.flat.width / 2;
         edgeA.copy(built.flat.position).add(flatRight.set(0, 0, -half)).project(camera);
@@ -1150,18 +1165,23 @@ export default function AtelierRoom3D() {
         const px = Math.abs(edgeB.x - edgeA.x) * 0.5 * w;
         const cx = Math.round((projV.x * 0.5 + 0.5) * w);
         const cy = Math.round((-projV.y * 0.5 + 0.5) * h);
-        const fit = Math.round(Math.max(0.12, px / 960) * 500) / 500;
-        /* Only when it has actually moved. Writing a fresh
-           transform every frame relaid out an iframe sixty times
+        /* Real pixels, not a scale factor. Quantised to even
+           numbers so a breathing camera does not relayout the
+           player for a half-pixel. */
+        const pw = Math.max(160, Math.round(px / 2) * 2);
+        const ph = Math.round(pw * (built.flat.height / built.flat.width));
+        /* Only when it has actually moved. Writing fresh
+           geometry every frame relaid out an iframe sixty times
            a second off a camera that never stops breathing,
            which is what made the picture shimmer. */
-        if (cx !== flatAt.x || cy !== flatAt.y || fit !== flatAt.fit) {
+        if (cx !== flatAt.x || cy !== flatAt.y || pw !== flatAt.fit) {
           flatAt.x = cx;
           flatAt.y = cy;
-          flatAt.fit = fit;
-          flatEl.style.left = `${cx}px`;
-          flatEl.style.top = `${cy}px`;
-          flatEl.style.setProperty("--flat-fit", String(fit));
+          flatAt.fit = pw;
+          flatEl.style.width = `${pw}px`;
+          flatEl.style.height = `${ph}px`;
+          flatEl.style.left = `${Math.round(cx - pw / 2)}px`;
+          flatEl.style.top = `${Math.round(cy - ph / 2)}px`;
         }
       }
       cur.flatI = lerp(cur.flatI, flatLive ? 1.5 : 0, Math.min(1, dt * 3));
@@ -1288,10 +1308,21 @@ export default function AtelierRoom3D() {
         wantPos.sub(wantAim);
         const reach = Math.max(0.001, wantPos.length());
         const watching = s.flatOn && s.shot === SOFA_SHOT;
+        /* narrowFit applies on any narrow frame, whether or not
+           the shot also re-authors its camera position.
+           It used to be gated behind `useNarrow`, which requires
+           narrowPos AND narrowAim — so the three shots that
+           carry a narrowFit and no narrow camera (the sofa, the
+           shelf, the sill) silently never used it and fell back
+           to the desktop radius on a phone. For the sofa that
+           was the whole bug: a radius smaller than the screen's
+           own half-width means the screen is deliberately wider
+           than the frame, which on a 390px phone put the picture
+           10px off both edges. */
         const radius =
           !watching && sh.restFit
             ? sh.restFit
-            : (useNarrow && sh.narrowFit) || sh.fit;
+            : (rig.narrow && sh.narrowFit) || sh.fit;
         const want = radius / Math.min(rig.tanV, rig.tanH);
         // 0.7 rather than 1.6: the close-ups need to get close.
         wantPos.multiplyScalar(THREE.MathUtils.clamp(want, 0.7, 14) / reach).add(wantAim);
@@ -1460,12 +1491,30 @@ export default function AtelierRoom3D() {
   /* The big set. Its own storage key, so the two televisions do
      not overwrite each other's channel, and no preset stations —
      it waits to be given something rather than guessing. */
+  /* The root has to follow the element.
+   *
+   * This kept one root for the life of the component and only
+   * created it if there was not one already — but the host div
+   * is unmounted by React every time the panel hides and a
+   * brand new one is mounted when it comes back. So from the
+   * second showing onward the player was being rendered into
+   * the previous, detached div: the panel appeared, correctly
+   * sized, and was completely empty. Measured on a phone
+   * viewport, the second show had zero children.
+   *
+   * So the root is tied to the element it was made for, and
+   * thrown away when that element is. */
   useEffect(() => {
     const el = flatHostRef.current;
-    if (!el) {
-      flatRootRef.current?.render(null);
-      return;
+    if (el !== flatHostElRef.current) {
+      flatRootRef.current?.unmount();
+      flatRootRef.current = null;
+      flatHostElRef.current = el;
+      // A fresh panel has no inline geometry yet, so make the
+      // render loop write it rather than trusting its cache.
+      flatGeomRef.current = true;
     }
+    if (!el) return;
     if (!flatRootRef.current) flatRootRef.current = createRoot(el);
     flatRootRef.current.render(
       <AtelierTV

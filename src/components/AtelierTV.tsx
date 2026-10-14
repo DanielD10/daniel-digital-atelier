@@ -116,7 +116,19 @@ function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string 
      rectangle. origin is required alongside it. */
   const origin =
     typeof window !== "undefined" ? `&origin=${encodeURIComponent(window.location.origin)}` : "";
-  const common = `autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${origin}`;
+  /* Autoplay only where it can actually happen.
+   *
+   * A phone will not start a video with sound without a gesture
+   * on the player itself, and a gesture somewhere else on the
+   * page does not carry. Asking anyway buys nothing and leaves
+   * the player sitting in a denied-autoplay state; without it
+   * the player simply shows its poster and its own play button,
+   * which is the thing a phone is waiting to be tapped. */
+  const touch =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
+  const auto = touch ? "" : "autoplay=1&";
+  const common = `${auto}rel=0&modestbranding=1&playsinline=1&enablejsapi=1${origin}`;
   if (t.kind === "list") return `${base}/videoseries?list=${t.id}&${common}`;
 
   /* Handing the player the whole dial as `playlist` gives its own

@@ -3569,6 +3569,10 @@ main { position: relative; z-index: 3; }
 @media (max-width: 560px) {
   .room3d-tvbar {
     left: 50%;
+    /* Above the view switcher, not on top of it. Both sat at
+       bottom:16px, and on a phone the centred transport ran
+       straight through the "THE SOFA" chip in the corner. */
+    bottom: 70px;
     transform: translateX(-50%);
     max-width: calc(100vw - 24px);
     flex-wrap: wrap;
@@ -3743,24 +3747,33 @@ main { position: relative; z-index: 3; }
    hit-test somewhere else, so they cannot be pressed. The sofa
    framing looks square-on at the screen, so a flat panel sits
    where the glass is and everything works. */
+/* No transform on this element, deliberately.
+   It used to be a fixed 960x540 box scaled down with
+   `transform: scale()` to match the television's projected
+   size. That is the same shape as the CSS3D problem this
+   project already hit once: mobile WebKit paints a transformed
+   cross-origin iframe in the right place and hit-tests it
+   somewhere else, so the player appears and the play button
+   cannot be pressed — which on a phone is indistinguishable
+   from the video not loading. The panel is now given its real
+   width, height and top-left in pixels, and the iframe lays
+   out at its true size. */
 .room3d-flat {
   position: absolute;
   z-index: 7;
-  left: 50%;
-  top: 50%;
-  width: 960px;
-  height: 540px;
+  left: 0;
+  top: 0;
+  width: 320px;
+  height: 180px;
   overflow: hidden;
   background: #000;
   border-radius: 2px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 120px rgba(120, 180, 255, 0.22);
-  transform: translate(-50%, -50%) scale(var(--flat-fit, 1));
-  transform-origin: 50% 50%;
   animation: flat-in 420ms ease both;
 }
 
 @keyframes flat-in {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(calc(var(--flat-fit, 1) * 0.96)); }
+  from { opacity: 0; }
   to { opacity: 1; }
 }
 
