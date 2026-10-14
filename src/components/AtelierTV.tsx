@@ -86,7 +86,29 @@ type Tuned = { kind: "video" | "list"; id: string } | null;
  * deliberate tune pins; otherwise the set follows whatever the
  * current default is.
  */
-type Stored = { kind: "video" | "list"; id: string; pinned?: boolean };
+type Stored = {
+  kind: "video" | "list";
+  id: string;
+  pinned?: boolean;
+  /**
+   * Which kind of device pinned it.
+   *
+   * A pin is a deliberate choice and it should survive a change
+   * of default — that is the whole reason it exists. But it must
+   * not survive a change of *device*, and it did: pressing skip
+   * once on a desktop wrote a pin that then overrode the default
+   * forever, and a pin made on a phone did the same in reverse.
+   * A phone and a desktop do not start in the same place here,
+   * so a pin only counts if it was made on the same sort of
+   * device that is now reading it.
+   *
+   * Older pins have no value here at all, which reads as a
+   * mismatch and quietly drops them — so anyone already stuck
+   * on one is unstuck by their next load rather than having to
+   * know to clear it.
+   */
+  touch?: boolean;
+};
 
 /**
  * Pull an id out of whatever got pasted.
@@ -369,7 +391,8 @@ export default function AtelierTV({
       ? (isTouch() ? stations.find((x) => x.mobile) ?? stations[0] : stations[0])
       : null;
     const fallback: Tuned = first ? { kind: "video", id: first.id } : null;
-    setTuned(saved?.pinned ? { kind: saved.kind, id: saved.id } : fallback);
+    const mine = saved?.pinned === true && saved.touch === isTouch();
+    setTuned(mine && saved ? { kind: saved.kind, id: saved.id } : fallback);
     // Only on mount: re-reading storage later would fight the
     // set's own state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -382,7 +405,10 @@ export default function AtelierTV({
     const t: Tuned = { kind: "video", id: next.id };
     setTuned(t);
     try {
-      window.localStorage.setItem(storeKey, JSON.stringify({ ...t, pinned: true } satisfies Stored));
+      window.localStorage.setItem(
+        storeKey,
+        JSON.stringify({ ...t, pinned: true, touch: isTouch() } satisfies Stored),
+      );
     } catch {
       /* ignore */
     }
@@ -406,7 +432,10 @@ export default function AtelierTV({
     setBad(false);
     setTuned(next);
     try {
-      window.localStorage.setItem(storeKey, JSON.stringify({ ...next, pinned: true } satisfies Stored));
+      window.localStorage.setItem(
+        storeKey,
+        JSON.stringify({ ...next, pinned: true, touch: isTouch() } satisfies Stored),
+      );
     } catch {
       /* ignore */
     }
