@@ -16,7 +16,7 @@ import { moodNow, PHASE_ORDER, SEASON_ORDER, type Phase, type Season } from "@/l
 import { decorFor, DECOR_ORDER, decorLabel, type Decor } from "@/lib/atelier-decor";
 import { useAmbient } from "@/lib/ambient";
 import AtelierOS from "./AtelierOS";
-import AtelierTV, { type TVApi } from "./AtelierTV";
+import AtelierTV, { FILMS, type TVApi } from "./AtelierTV";
 import AtelierLibrary from "./AtelierLibrary";
 
 /**
@@ -342,7 +342,7 @@ const SHOTS: Shot[] = [
  * disappears when the rights holder files, and all that is left
  * on the page is a dead player. Swapping it is one id.
  */
-const FILMS = [{ name: "The Outsiders", id: "iOQisO0KAzM" }];
+
 
 /**
  * The transport, for either set.

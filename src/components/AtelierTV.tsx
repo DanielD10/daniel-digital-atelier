@@ -21,20 +21,52 @@ import { useEffect, useRef, useState } from "react";
 const DEFAULT_STORE = "atelier.tv";
 
 /**
- * What the set is tuned to when nobody has touched it.
+ * The retro set's dial. Star67, which is confirmed working on
+ * Daniel's phone — so it is left exactly as it was.
  *
- * Daniel's link carried a `list=RD…` id, which is a YouTube Mix —
- * those are generated per viewer and YouTube will not serve them
- * to an embed, so passing it through would have produced an error
- * screen rather than a channel. The video id from the same link
- * plays fine, so that is the default.
- *
- * STATIONS is the dial. Add ids to it and the skip buttons walk
- * them; the player's own controls handle scrubbing within a
- * track.
+ * Worth recording why it nearly was not: its channel is
+ * "Drake - Topic", an auto-generated licensed-music upload, and
+ * on the strength of the big screen failing I had assumed that
+ * class of upload would not play in a frame on a phone. It
+ * plays. That assumption was wrong, and the fact that this set
+ * works on the same phone, on the same network, through the
+ * same component and the same URL builder as the one that
+ * fails is the most useful evidence there is: the code path is
+ * fine and the variable is the video.
  */
 const STATIONS: Array<{ name: string; id: string }> = [
   { name: "Star67", id: "8RFbYtOet4g" },
+];
+
+/**
+ * Films for the big screen.
+ *
+ * The Outsiders stays first and stays the default — it is the
+ * one that was asked for and it plays on a desktop. The rest
+ * are spares, and they are here for two reasons: a dial of one
+ * gives the skip buttons nowhere to go, and if the first one
+ * refuses on a phone there is somewhere to skip TO rather than
+ * just an error.
+ *
+ * Every id below was checked against
+ *   https://www.youtube.com/oembed?url=<watch url>&format=json
+ * before being added. A 401 or 404 there means the video will
+ * not embed anywhere; two of the seven candidates failed that
+ * check and were dropped. The rest are ordinary uploads from
+ * channels that post public domain film.
+ *
+ * For the record, the same check on The Outsiders reports its
+ * author as "YouTube Movies" — YouTube's licensed catalogue
+ * rather than somebody's upload. That is the one concrete
+ * difference found between it and anything that works.
+ */
+export const FILMS: Array<{ name: string; id: string }> = [
+  { name: "The Outsiders", id: "iOQisO0KAzM" },
+  { name: "Carnival of Souls", id: "jW_DftBegZs" },
+  { name: "House on Haunted Hill", id: "IBFRRZ6TsPk" },
+  { name: "A Star Is Born", id: "4h2s1elEYMQ" },
+  { name: "Of Human Bondage", id: "hQQDMVOsR74" },
+  { name: "The Outlaw", id: "tGNCxaHzkXg" },
 ];
 
 type Tuned = { kind: "video" | "list"; id: string } | null;
