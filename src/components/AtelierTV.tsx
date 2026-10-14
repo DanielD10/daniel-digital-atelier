@@ -34,34 +34,36 @@ const DEFAULT_STORE = "atelier.tv";
  * fails is the most useful evidence there is: the code path is
  * fine and the variable is the video.
  */
-const STATIONS: Array<{ name: string; id: string }> = [
+const STATIONS: Array<{ name: string; id: string; mobile?: boolean }> = [
   { name: "Star67", id: "8RFbYtOet4g" },
 ];
 
 /**
  * Films for the big screen.
  *
- * The Outsiders stays first and stays the default — it is the
- * one that was asked for and it plays on a desktop. The rest
- * are spares, and they are here for two reasons: a dial of one
- * gives the skip buttons nowhere to go, and if the first one
- * refuses on a phone there is somewhere to skip TO rather than
- * just an error.
+ * `mobile: true` marks the one a phone starts on. The Outsiders
+ * stays first and stays the desktop default — it is the film
+ * that was asked for and it plays there — but it is a YouTube
+ * Movies catalogue title, and that licence does not cover an
+ * embedded player on mobile web. Nothing on this side changes
+ * that, so a phone starts somewhere that works instead of on an
+ * error card.
  *
- * Every id below was checked against
+ * Every id here was checked against
  *   https://www.youtube.com/oembed?url=<watch url>&format=json
- * before being added. A 401 or 404 there means the video will
- * not embed anywhere; two of the seven candidates failed that
- * check and were dropped. The rest are ordinary uploads from
- * channels that post public domain film.
- *
- * For the record, the same check on The Outsiders reports its
- * author as "YouTube Movies" — YouTube's licensed catalogue
- * rather than somebody's upload. That is the one concrete
- * difference found between it and anything that works.
+ * before being added. A 401 or 404 means it will not embed
+ * anywhere; an author of "YouTube Movies", or anything ending
+ * "- Topic", means it will not play on a phone. Two of the
+ * first seven candidates failed outright.
  */
-export const FILMS: Array<{ name: string; id: string }> = [
+export const FILMS: Array<{ name: string; id: string; mobile?: boolean }> = [
+  // Desktop default. Checked: author "YouTube Movies".
   { name: "The Outsiders", id: "iOQisO0KAzM" },
+  // Mobile default. Checked: author "CineLife".
+  { name: "Halloween (1978) — trailer", id: "FXKnfIF9w5o", mobile: true },
+  // Checked: author "Park Circus".
+  { name: "Labyrinth — 4K trailer", id: "8bJy0GF2RZ0" },
+  // Full features, public domain, all checked.
   { name: "Carnival of Souls", id: "jW_DftBegZs" },
   { name: "House on Haunted Hill", id: "IBFRRZ6TsPk" },
   { name: "A Star Is Born", id: "4h2s1elEYMQ" },
@@ -140,7 +142,7 @@ function watchUrl(t: NonNullable<Tuned>): string {
     : `https://www.youtube.com/watch?v=${t.id}`;
 }
 
-function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string }>): string {
+function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string; mobile?: boolean }>): string {
   const touch = isTouch();
   /* nocookie on a desktop, the ordinary domain on anything with
      a finger.
@@ -230,7 +232,7 @@ export default function AtelierTV({
   storeKey?: string;
   /** Preset channels. The big set starts with none — it is for
    *  whatever long thing you want to put on. */
-  stations?: Array<{ name: string; id: string }>;
+  stations?: Array<{ name: string; id: string; mobile?: boolean }>;
   hint?: string;
   kicker?: string;
 }) {
@@ -356,7 +358,14 @@ export default function AtelierTV({
     /* Only a channel somebody chose survives a change of
        default. A set with no presets and nothing pinned waits
        to be tuned rather than guessing something to play. */
-    const fallback: Tuned = stations.length ? { kind: "video", id: stations[0].id } : null;
+    /* A phone starts on whichever entry is flagged for it, if
+       there is one. Not a different dial — the same one, opened
+       at a different page, so skip still walks the whole list
+       and a desktop still starts where it always did. */
+    const first = stations.length
+      ? (isTouch() ? stations.find((x) => x.mobile) ?? stations[0] : stations[0])
+      : null;
+    const fallback: Tuned = first ? { kind: "video", id: first.id } : null;
     setTuned(saved?.pinned ? { kind: saved.kind, id: saved.id } : fallback);
     // Only on mount: re-reading storage later would fight the
     // set's own state.
