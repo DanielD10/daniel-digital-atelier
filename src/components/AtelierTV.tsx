@@ -428,15 +428,21 @@ export default function AtelierTV({
           allowFullScreen
         />
         {/* The escape hatch.
-            YouTube refuses plenty of videos inside an embed —
-            age-restricted ones everywhere, and a much wider set
-            inside an app's built-in browser. When the player
-            reports a failure, say so in plain words and hand
-            over a link that opens on YouTube proper, where it
-            will play. */}
+            Three kinds of video refuse to play in an embed and
+            no parameter changes any of them: age-restricted
+            ones, ones whose uploader turned embedding off, and
+            anything from YouTube's own Movies catalogue, which
+            needs an entitled signed-in session that a phone
+            will not hand to a third-party frame. The last one
+            is the confusing case, because it loads its poster
+            and its title happily and only fails on play. So
+            name it, rather than leaving a grey rectangle. */}
         {signal === "error" ? (
           <div className="tv-fail">
-            <p>This one will not play inside an embed.</p>
+            <p>
+              This one will not play in an embed. Films from YouTube&rsquo;s
+              Movies shelf only play on YouTube itself.
+            </p>
             <a href={out} target="_blank" rel="noopener noreferrer">
               Watch it on YouTube
             </a>
