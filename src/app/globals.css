@@ -3556,6 +3556,19 @@ main { position: relative; z-index: 3; }
   text-transform: uppercase;
   cursor: pointer;
 }
+/* Both televisions can be playing at once, and their two
+   control bars used to be positioned identically and land on
+   top of each other. The big screen's sits on the row above. */
+.room3d-tvbar[data-tier="1"] { bottom: 68px; }
+.room3d-tvbar-who {
+  padding: 0 4px 0 8px;
+  font-family: var(--f-micro);
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(243, 238, 230, 0.5);
+  white-space: nowrap;
+}
 .room3d-tvbar button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
 /* A control that cannot do anything yet says so, rather than
    looking live and doing nothing when pressed. The two seek
@@ -3567,6 +3580,9 @@ main { position: relative; z-index: 3; }
 /* Narrow screens: the bar is eight controls wide now, so it
    centres and wraps rather than running off the left edge. */
 @media (max-width: 560px) {
+  /* Stacked the same way, with more room between them because
+     the bar wraps to two rows on a narrow screen. */
+  .room3d-tvbar[data-tier="1"] { bottom: 142px; }
   .room3d-tvbar {
     left: 50%;
     /* Above the view switcher, not on top of it. Both sat at

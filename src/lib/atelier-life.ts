@@ -126,55 +126,59 @@ function hitBox(
    THE CAT
    ══════════════════════════════════════════════════════════════ */
 
+/** The tail's resting yaw: see where it is applied. */
+const TAIL_YAW = 0.55;
+
 export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const group = new THREE.Group();
 
+  /* A white cat.
+     No banding anywhere on her: the tabby coat is only kept for
+     its roughness map, which is what gives the fur its broken
+     sheen. Stripes on a white cat would make her a tabby, and
+     at this size they read as candy stripe regardless. */
   const coat = furTexture(3317, true);
   keep(coat.map);
   keep(coat.rough);
+  const plain = furTexture(3318, false);
+  keep(plain.map);
+  plain.map.repeat.set(3, 2);
   /* The body repeats the coat a few times round; the head is a
      much smaller sphere and wants the hair at roughly the same
      scale, so it gets its own repeat. */
-  const headCoat = coat.map.clone();
+  const headCoat = plain.map.clone();
   headCoat.repeat.set(2, 2);
   keep(headCoat);
+  // Muzzle, bib and paws, finer again.
+  const fine = plain.map.clone();
+  fine.repeat.set(2, 2);
+  keep(fine);
 
+  const WHITE = 0xe9e5ec;
   const fur = new THREE.MeshStandardMaterial({
-    color: 0x241f30,
+    color: WHITE,
     roughness: 0.95,
-    map: coat.map,
+    map: plain.map,
     roughnessMap: coat.rough,
   });
-  fur.map!.repeat.set(3, 2);
   const furHead = new THREE.MeshStandardMaterial({
-    color: 0x241f30,
+    color: WHITE,
     roughness: 0.95,
     map: headCoat,
     roughnessMap: coat.rough,
   });
-  /* The white parts take a coat with no tabby in it. Banding on
-     a muzzle the size of a thumbnail does not read as a tabby,
-     it reads as a candy stripe. */
-  const plain = furTexture(3318, false);
-  keep(plain.map);
-  plain.map.repeat.set(2, 2);
-  const furLight = new THREE.MeshStandardMaterial({
-    color: 0x4a4060,
-    roughness: 0.95,
-    map: plain.map,
-  });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
-  /* A white bib and socks. Markings are the cheapest way to make
-     an animal look like a particular animal instead of a shape. */
+  /* Bib, socks and muzzle: a shade brighter than the coat
+     rather than a contrasting colour, so they still give her
+     some shape now that the whole animal is white. */
   const furWhite = new THREE.MeshStandardMaterial({
-    color: 0xcfc6d8,
+    color: 0xfaf7fb,
     roughness: 0.93,
-    map: plain.map,
+    map: fine,
   });
-  const whisker = new THREE.MeshBasicMaterial({ color: 0xe8e2ef, transparent: true, opacity: 0.55 });
+  const whisker = new THREE.MeshBasicMaterial({ color: 0xbfb6c9, transparent: true, opacity: 0.7 });
   keep(fur);
   keep(furHead);
-  keep(furLight);
   keep(innerEar);
   keep(furWhite);
   keep(whisker);
@@ -347,25 +351,45 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
      than parallel, and tapering — a whisker that does not taper
      reads as a wire. Brow hairs too, which a cat has and which
      nothing else on a face looks like. */
-  const whiskerGeo = new THREE.CylinderGeometry(0.0008, 0.0003, 0.095, 4);
-  keep(whiskerGeo);
-  const browGeo = new THREE.CylinderGeometry(0.0007, 0.0003, 0.05, 4);
+  /* Two tapered segments each, hinged part way along so the far
+     half droops. A whisker bows under its own weight, and a
+     dead straight one reads as wire — which is what these were.
+     They were also 0.8mm at the root, which from anywhere you
+     actually stand in this room is well under a pixel across,
+     so they were not so much wrong as absent. Nearly twice that
+     now, and the pair of geometries is shared by all eight. */
+  const whiskNear = new THREE.CylinderGeometry(0.0015, 0.001, 0.05, 5);
+  keep(whiskNear);
+  const whiskFar = new THREE.CylinderGeometry(0.001, 0.0003, 0.05, 5);
+  keep(whiskFar);
+  const browGeo = new THREE.CylinderGeometry(0.0012, 0.0004, 0.05, 5);
   keep(browGeo);
   for (const wz of [-1, 1]) {
     for (let i = 0; i < 4; i++) {
       // On a pivot at the muzzle, so they splay from one root.
       const root = new THREE.Group();
       root.position.set(0.058, -0.016 + i * 0.008, wz * 0.019);
-      const w = new THREE.Mesh(whiskerGeo, whisker);
-      w.rotation.z = Math.PI / 2;
-      w.position.x = 0.046;
-      root.add(w);
+      const near = new THREE.Mesh(whiskNear, whisker);
+      near.rotation.z = Math.PI / 2;
+      near.position.x = 0.025;
+      root.add(near);
+      /* The bend. Lower whiskers droop further, which is what
+         stops the set of them looking like a comb. */
+      const far = new THREE.Group();
+      far.position.x = 0.05;
+      far.rotation.z = -0.22 - i * 0.07;
+      const tip = new THREE.Mesh(whiskFar, whisker);
+      tip.rotation.z = Math.PI / 2;
+      tip.position.x = 0.025;
+      far.add(tip);
+      root.add(far);
       root.rotation.y = wz * (0.42 + i * 0.13);
-      root.rotation.z = 0.26 - i * 0.17;
+      root.rotation.z = 0.3 - i * 0.17;
       headPivot.add(root);
     }
+    /* Brow hairs. The rotation.z here used to be set twice, the
+       first immediately thrown away by the second. */
     const brow = new THREE.Mesh(browGeo, whisker);
-    brow.rotation.z = Math.PI / 2;
     brow.position.set(0.058, 0.04, wz * 0.026);
     brow.rotation.y = wz * 0.45;
     brow.rotation.z = Math.PI / 2 - 0.4;
@@ -380,8 +404,8 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   tailRoot.position.set(-0.11, 0.075, 0);
   /* Cancels the yaw the whole cat is given when she is placed, so
      the tail runs along the sill rather than into the glass 10cm
-     behind her. */
-  tailRoot.rotation.y = 0.55;
+     behind her. The dance adds to this rather than replacing it. */
+  tailRoot.rotation.y = TAIL_YAW;
   const tailSegs: THREE.Group[] = [];
   let parent: THREE.Object3D = tailRoot;
   for (let i = 0; i < 3; i++) {
@@ -425,6 +449,8 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   const tmp = new THREE.Object3D();
   const groupQuat = new THREE.Quaternion();
   const invGroup = new THREE.Quaternion();
+  const danceQ = new THREE.Quaternion();
+  const danceE = new THREE.Euler();
   const localDir = new THREE.Vector3();
   const aim = new THREE.Vector3();
 
@@ -446,6 +472,24 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
       dance > 0 ? Math.min(1, (DANCE_LEN - dance) / 0.34, dance / 0.65) : 0;
     // Around 86 to the minute, which is a walkable beat.
     const beat = t * 9.0;
+
+    /* Up on the beat, weight shifting side to side on the half
+       beat. Two rates rather than one, or it reads as a pogo
+       stick instead of a dance.
+
+       Computed here rather than at the end because the head and
+       the tail have to be carried through the same transform.
+       They are siblings of the body pivot, not children of it —
+       deliberately, so that breathing does not drag the head
+       around — and that is right for breathing and wrong for
+       this: bobbing the body on its own left her head hanging
+       in the air while her shoulders moved underneath it. */
+    const dBob = danceEnv * Math.abs(Math.sin(beat)) * 0.042;
+    const dRoll = danceEnv * Math.sin(beat * 0.5) * 0.13;
+    const dYaw = danceEnv * Math.sin(beat * 0.5 + 1.1) * 0.24;
+    bodyPivot.position.y = dBob;
+    bodyPivot.rotation.z = dRoll;
+    bodyPivot.rotation.y = dYaw;
 
     // Breathing. Always, whether or not anyone is here.
     const breath = 1 + Math.sin(t * 1.5) * 0.022 + focus * 0.012;
@@ -539,8 +583,16 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     // lookAt puts +Z on the target; the model faces +X.
     tmp.rotateY(-Math.PI / 2);
     // A small tilt when curious. Nothing sells interest like it.
-    tmp.rotateZ(focus * 0.17 * Math.sin(t * 0.8) + danceEnv * 0.34 * Math.sin(beat * 0.5 + 0.6));
+    tmp.rotateZ(focus * 0.17 * Math.sin(t * 0.8) + danceEnv * 0.15 * Math.sin(beat * 0.5 + 0.6));
     headQuat.copy(tmp.quaternion);
+    /* And then the body's own rotation on top, so the head sits
+       on the shoulders rather than steering independently of
+       them. Premultiplied: the body turns the head, the head
+       still aims wherever it was aiming. */
+    if (danceEnv > 0) {
+      danceE.set(0, dYaw, dRoll);
+      headQuat.premultiply(danceQ.setFromEuler(danceE));
+    }
     headPivot.quaternion.slerp(headQuat, Math.min(1, dt * 3.4));
 
     /* Tail.
@@ -575,23 +627,35 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
     const blushWant = Math.max(focus * 0.8, danceEnv * 0.95);
     blushMat.opacity += (blushWant - blushMat.opacity) * Math.min(1, dt * 5);
 
+    let headLift = 0;
     if (stretch > 0) {
       stretch = Math.max(0, stretch - dt * 1.6);
       const s = Math.sin(stretch * Math.PI);
       bodyPivot.scale.x = 1 + s * 0.22;
       bodyPivot.position.x = -s * 0.03;
-      headPivot.position.y = 0.15 + s * 0.02;
+      headLift = s * 0.02;
     } else {
       bodyPivot.position.x = 0;
-      headPivot.position.y = 0.15;
     }
 
-    /* Up on the beat, weight shifting side to side on the half
-       beat. Two rates rather than one, or it reads as a pogo
-       stick instead of a dance. */
-    bodyPivot.position.y = danceEnv * Math.abs(Math.sin(beat)) * 0.042;
-    bodyPivot.rotation.z = danceEnv * Math.sin(beat * 0.5) * 0.13;
-    bodyPivot.rotation.y = danceEnv * Math.sin(beat * 0.5 + 1.1) * 0.24;
+    /* Put a point through the body's transform, so whatever is
+       bolted to the body ends up where the body actually put
+       it. Roll first, then yaw, then the bob and the stretch's
+       shove — the same order the body itself applies them. */
+    const cz = Math.cos(dRoll);
+    const sz = Math.sin(dRoll);
+    const cy = Math.cos(dYaw);
+    const sy = Math.sin(dYaw);
+    const ride = (x: number, y: number, out: THREE.Vector3) => {
+      const rx = x * cz - y * sz;
+      const ry = x * sz + y * cz;
+      out.set(rx * cy + bodyPivot.position.x, ry + dBob, -rx * sy);
+    };
+    ride(0.085, 0.15 + headLift, headPivot.position);
+    ride(-0.11, 0.075, tailRoot.position);
+    // The tail is bolted on the same way the head is.
+    tailRoot.rotation.y = TAIL_YAW + dYaw;
+    tailRoot.rotation.z = dRoll;
   };
 
   return {
@@ -940,33 +1004,55 @@ export function buildWalkingCat(
 
   /* A tabby, where the one on the sill is a solid dark. Two
      cats in the same coat look like one cat rendered twice. */
+  /* A black cat.
+     Unbanded, because a black cat is not a tabby — the striped
+     coat is kept only for its roughness map. And less matte
+     than the white one at 0.72 rather than 0.93: black fur is
+     glossy, and in a room this dark a perfectly matte black
+     animal is a hole in the floor rather than a cat. The sheen
+     off the environment is most of what draws her. */
   const coat = furTexture(7714, true);
   keep(coat.map);
   keep(coat.rough);
-  coat.map.repeat.set(4, 2);
-  const coatFine = coat.map.clone();
+  const plain = furTexture(7715, false);
+  keep(plain.map);
+  plain.map.repeat.set(4, 2);
+  const coatFine = plain.map.clone();
   coatFine.repeat.set(2, 2);
   keep(coatFine);
 
+  /* The value here is doing less work than the gloss is.
+     At 0x17 and roughness 0.72 she was genuinely invisible —
+     measured, by projecting her to screen and cropping in: a
+     void on a dark floor, not a cat. The fix is not to make
+     her grey. Real black fur reads in a dim room because it is
+     shiny and picks up a rim off whatever light there is, so
+     the roughness comes down and the environment is turned up
+     on her specifically. She stays black and gains an edge. */
+  const BLACK = 0x242130;
+  const SHEEN = 2.4;
   const fur = new THREE.MeshStandardMaterial({
-    color: 0x8a6a4e,
-    roughness: 0.93,
-    map: coat.map,
+    color: BLACK,
+    roughness: 0.52,
+    envMapIntensity: SHEEN,
+    map: plain.map,
     roughnessMap: coat.rough,
   });
   const furHead = new THREE.MeshStandardMaterial({
-    color: 0x8a6a4e,
-    roughness: 0.93,
+    color: BLACK,
+    roughness: 0.5,
+    envMapIntensity: SHEEN,
     map: coatFine,
     roughnessMap: coat.rough,
   });
-  const plain = furTexture(7715, false);
-  keep(plain.map);
-  plain.map.repeat.set(2, 2);
+  /* Muzzle and paws, a shade off the coat rather than the pale
+     markings they were — white socks on a black cat would make
+     her a different animal. */
   const furPale = new THREE.MeshStandardMaterial({
-    color: 0xd8c3ab,
-    roughness: 0.93,
-    map: plain.map,
+    color: 0x343040,
+    roughness: 0.55,
+    envMapIntensity: SHEEN,
+    map: coatFine,
   });
   const innerEar = new THREE.MeshStandardMaterial({ color: 0xc98ba6, roughness: 0.9 });
   keep(fur);

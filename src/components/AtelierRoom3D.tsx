@@ -364,11 +364,17 @@ const SHOTS: Shot[] = [
 function Transport({
   api,
   onOff,
+  label,
+  tier = 0,
   big,
   onBig,
 }: {
   api: TVApi | null;
   onOff: () => void;
+  /** Which set this drives. Both can be on at once. */
+  label: string;
+  /** Which row it sits on, counting up from the bottom. */
+  tier?: 0 | 1;
   /** Only the big screen can be blown up; the retro set passes
    *  neither of these and gets no expand button. */
   big?: boolean;
@@ -377,7 +383,8 @@ function Transport({
   if (!api?.tuned) return null;
   const many = api.dial > 1;
   return (
-    <div className="room3d-tvbar">
+    <div className="room3d-tvbar" data-tier={tier}>
+      <span className="room3d-tvbar-who">{label}</span>
       {many ? (
         <button type="button" onClick={() => api.step(-1)} aria-label="Previous channel">
           ⏮
@@ -1658,8 +1665,14 @@ export default function AtelierRoom3D() {
         {ready && flatOn && shot === SOFA_SHOT && !awake ? (
           <>
             <div className="room3d-flat" ref={flatHostRef} />
+            {/* The big screen's controls sit above the set's,
+                because both televisions can be on at once and
+                these two bars used to land on exactly the same
+                spot and stack on top of each other. */}
             <Transport
               api={flatApi}
+              label="Film"
+              tier={1}
               onOff={() => {
                 setFlatOn(false);
                 setFlatBig(false);
@@ -1671,7 +1684,7 @@ export default function AtelierRoom3D() {
         ) : null}
 
         {ready && tvOn && !awake ? (
-          <Transport api={tvApi} onOff={() => setTvOn(false)} />
+          <Transport api={tvApi} label="Set" tier={0} onOff={() => setTvOn(false)} />
         ) : null}
 
         {ready && awake ? (
