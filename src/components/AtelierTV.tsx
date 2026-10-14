@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * The television.
@@ -34,44 +34,50 @@ const DEFAULT_STORE = "atelier.tv";
  * fails is the most useful evidence there is: the code path is
  * fine and the variable is the video.
  */
-const STATIONS: Array<{ name: string; id: string; mobile?: boolean }> = [
+const STATIONS: Station[] = [
   { name: "Star67", id: "8RFbYtOet4g" },
 ];
 
 /**
  * Films for the big screen.
  *
- * `mobile: true` marks the one a phone starts on. The Outsiders
- * stays first and stays the desktop default — it is the film
- * that was asked for and it plays there — but it is a YouTube
- * Movies catalogue title, and that licence does not cover an
- * embedded player on mobile web. Nothing on this side changes
- * that, so a phone starts somewhere that works instead of on an
- * error card.
+ * Two dials, not one list with a starting position.
  *
- * Every id here was checked against
+ * A desktop gets The Outsiders and nothing else. It is the film
+ * that was asked for, it plays there, and with a single entry
+ * there is no skip button to wander off it and no queue handed
+ * to the player either — it cannot end up showing anything
+ * else.
+ *
+ * A phone gets the rest, because The Outsiders is a YouTube
+ * Movies catalogue title and that licence does not reach an
+ * embedded player on mobile web. Nothing on this side changes
+ * that, so rather than opening on an error card a phone opens
+ * on the Halloween trailer and can skip through the others.
+ *
+ * Every id was checked against
  *   https://www.youtube.com/oembed?url=<watch url>&format=json
  * before being added. A 401 or 404 means it will not embed
  * anywhere; an author of "YouTube Movies", or anything ending
- * "- Topic", means it will not play on a phone. Two of the
- * first seven candidates failed outright.
+ * "- Topic", means it will not play on a phone.
  */
-export const FILMS: Array<{ name: string; id: string; mobile?: boolean }> = [
-  // Desktop default. Checked: author "YouTube Movies".
-  { name: "The Outsiders", id: "iOQisO0KAzM" },
-  // Mobile default. Checked: author "CineLife".
-  { name: "Halloween (1978) — trailer", id: "FXKnfIF9w5o", mobile: true },
+export const FILMS: Station[] = [
+  // Checked: author "YouTube Movies" — hence desktop only.
+  { name: "The Outsiders", id: "iOQisO0KAzM", where: "desktop" },
+
+  // Checked: author "CineLife", a distributor.
+  { name: "Halloween (1978) — trailer", id: "FXKnfIF9w5o", where: "mobile" },
   // Checked: author "Warner Bros. Entertainment" — the rights
   // holder's own upload, which is as safe as an embed gets.
-  { name: "Nightmare on Elm Street — 4K trailer", id: "CBcVZcornjI" },
+  { name: "Nightmare on Elm Street — 4K trailer", id: "CBcVZcornjI", where: "mobile" },
   // Checked: author "Park Circus".
-  { name: "Labyrinth — 4K trailer", id: "8bJy0GF2RZ0" },
+  { name: "Labyrinth — 4K trailer", id: "8bJy0GF2RZ0", where: "mobile" },
   // Full features, public domain, all checked.
-  { name: "Carnival of Souls", id: "jW_DftBegZs" },
-  { name: "House on Haunted Hill", id: "IBFRRZ6TsPk" },
-  { name: "A Star Is Born", id: "4h2s1elEYMQ" },
-  { name: "Of Human Bondage", id: "hQQDMVOsR74" },
-  { name: "The Outlaw", id: "tGNCxaHzkXg" },
+  { name: "Carnival of Souls", id: "jW_DftBegZs", where: "mobile" },
+  { name: "House on Haunted Hill", id: "IBFRRZ6TsPk", where: "mobile" },
+  { name: "A Star Is Born", id: "4h2s1elEYMQ", where: "mobile" },
+  { name: "Of Human Bondage", id: "hQQDMVOsR74", where: "mobile" },
+  { name: "The Outlaw", id: "tGNCxaHzkXg", where: "mobile" },
 ];
 
 type Tuned = { kind: "video" | "list"; id: string } | null;
@@ -108,6 +114,24 @@ type Stored = {
    * know to clear it.
    */
   touch?: boolean;
+  /**
+   * How it got pinned.
+   *
+   * "dial" means it was chosen off this device's own list of
+   * channels, so it is only valid while it is still on that
+   * list — take a channel off the dial and the pin dies with
+   * it. "paste" means somebody typed a link in, which belongs
+   * to them and is kept whatever the dial says.
+   *
+   * Without this distinction the staleness check cannot work:
+   * an attempt to keep pasted links by exempting anything "not
+   * on the dial" exempts every stale dial pin too, which is
+   * precisely how a desktop stayed stuck on a trailer meant
+   * for phones. Older pins have no value here and are read as
+   * "dial", which is the safe way round — the worst case is a
+   * pasted link forgotten once.
+   */
+  via?: "dial" | "paste";
 };
 
 /**
@@ -155,6 +179,21 @@ function inAppBrowser(): boolean {
   );
 }
 
+/**
+ * One entry on a dial.
+ *
+ * `where` restricts it to one kind of device. The two sets are
+ * genuinely different — a desktop shows one film and nothing
+ * else, a phone shows the things that will actually play on a
+ * phone — so this is a filter rather than a starting position.
+ * An entry with no `where` appears on both.
+ */
+export type Station = {
+  name: string;
+  id: string;
+  where?: "desktop" | "mobile";
+};
+
 /** A phone or a tablet: no hover, and a finger rather than a pointer. */
 function isTouch(): boolean {
   if (typeof window === "undefined") return false;
@@ -167,7 +206,7 @@ function watchUrl(t: NonNullable<Tuned>): string {
     : `https://www.youtube.com/watch?v=${t.id}`;
 }
 
-function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string; mobile?: boolean }>): string {
+function embedUrl(t: NonNullable<Tuned>, dial: Station[]): string {
   const touch = isTouch();
   /* nocookie on a desktop, the ordinary domain on anything with
      a finger.
@@ -257,10 +296,22 @@ export default function AtelierTV({
   storeKey?: string;
   /** Preset channels. The big set starts with none — it is for
    *  whatever long thing you want to put on. */
-  stations?: Array<{ name: string; id: string; mobile?: boolean }>;
+  stations?: Array<Station>;
   hint?: string;
   kicker?: string;
 }) {
+  /* The entries this device is allowed to see. Everything
+     below works from this rather than the full list, so skip
+     cannot walk onto another device's channels and the player
+     is never handed them as a queue either. */
+  const dialList = useMemo(
+    () =>
+      stations.filter(
+        (x) => !x.where || x.where === (isTouch() ? "mobile" : "desktop"),
+      ),
+    [stations],
+  );
+
   const [tuned, setTuned] = useState<Tuned>(null);
   const [entry, setEntry] = useState("");
   const [bad, setBad] = useState(false);
@@ -387,11 +438,20 @@ export default function AtelierTV({
        there is one. Not a different dial — the same one, opened
        at a different page, so skip still walks the whole list
        and a desktop still starts where it always did. */
-    const first = stations.length
-      ? (isTouch() ? stations.find((x) => x.mobile) ?? stations[0] : stations[0])
+    const fallback: Tuned = dialList.length
+      ? { kind: "video", id: dialList[0].id }
       : null;
-    const fallback: Tuned = first ? { kind: "video", id: first.id } : null;
-    const mine = saved?.pinned === true && saved.touch === isTouch();
+    /* A pin only survives if it was made on this kind of device
+       AND the thing it points at is still on this device's
+       dial. Without the second half, a channel that has since
+       been taken off the dial goes on playing forever for
+       anyone who ever pressed skip onto it — which is exactly
+       how a desktop ended up stuck on a trailer meant for
+       phones. A pasted link is kept either way: it is not on
+       the dial by definition. */
+    const sameDevice = saved?.pinned === true && saved.touch === isTouch();
+    const stillThere = saved ? dialList.some((x) => x.id === saved.id) : false;
+    const mine = sameDevice && (saved?.via === "paste" || stillThere);
     setTuned(mine && saved ? { kind: saved.kind, id: saved.id } : fallback);
     // Only on mount: re-reading storage later would fight the
     // set's own state.
@@ -399,15 +459,15 @@ export default function AtelierTV({
   }, []);
 
   const step = (dir: 1 | -1) => {
-    if (!stations.length) return;
-    const here = tuned && tuned.kind === "video" ? stations.findIndex((x) => x.id === tuned.id) : -1;
-    const next = stations[(Math.max(0, here) + dir + stations.length) % stations.length];
+    if (!dialList.length) return;
+    const here = tuned && tuned.kind === "video" ? dialList.findIndex((x) => x.id === tuned.id) : -1;
+    const next = dialList[(Math.max(0, here) + dir + dialList.length) % dialList.length];
     const t: Tuned = { kind: "video", id: next.id };
     setTuned(t);
     try {
       window.localStorage.setItem(
         storeKey,
-        JSON.stringify({ ...t, pinned: true, touch: isTouch() } satisfies Stored),
+        JSON.stringify({ ...t, pinned: true, touch: isTouch(), via: "dial" } satisfies Stored),
       );
     } catch {
       /* ignore */
@@ -434,7 +494,7 @@ export default function AtelierTV({
     try {
       window.localStorage.setItem(
         storeKey,
-        JSON.stringify({ ...next, pinned: true, touch: isTouch() } satisfies Stored),
+        JSON.stringify({ ...next, pinned: true, touch: isTouch(), via: "paste" } satisfies Stored),
       );
     } catch {
       /* ignore */
@@ -454,7 +514,7 @@ export default function AtelierTV({
   const playingRef = useRef(playing);
   playingRef.current = playing;
   const isTuned = Boolean(tuned);
-  const dial = stations.length;
+  const dial = dialList.length;
 
   /* Republished whenever something the room draws from it
      changes — whether there is a picture, whether seeking is
@@ -495,7 +555,7 @@ export default function AtelierTV({
         <iframe
           ref={frameRef}
           key={`${tuned.kind}-${tuned.id}`}
-          src={embedUrl(tuned, stations)}
+          src={embedUrl(tuned, dialList)}
           title="Television"
           allow="autoplay; encrypted-media; picture-in-picture; clipboard-write"
           allowFullScreen
@@ -561,9 +621,9 @@ export default function AtelierTV({
             of a picture and there is nothing this end can do
             about it. */}
         <p className="tv-foot">Age-restricted videos will not play in an embed.</p>
-        {stations.length ? (
+        {dialList.length ? (
           <ul className="tv-dial">
-            {stations.map((c) => (
+            {dialList.map((c) => (
               <li key={c.id}>
                 <button type="button" onClick={() => tune(c.id)}>
                   {c.name}
