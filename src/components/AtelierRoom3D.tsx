@@ -1167,8 +1167,19 @@ export default function AtelierRoom3D() {
         const cy = Math.round((-projV.y * 0.5 + 0.5) * h);
         /* Real pixels, not a scale factor. Quantised to even
            numbers so a breathing camera does not relayout the
-           player for a half-pixel. */
-        const pw = Math.max(160, Math.round(px / 2) * 2);
+           player for a half-pixel.
+           Clamped at both ends as a safety net: never wider
+           than the frame it has to sit in, and never so small
+           that the player's own controls stop being tappable.
+           On a phone the projected size already lands inside
+           these, so this changes nothing there — it is here so
+           an odd aspect ratio or a mid-flight camera cannot put
+           the picture off the edge. */
+        const roomFor = Math.max(200, w - 24);
+        const pw = Math.min(
+          roomFor,
+          Math.max(Math.min(260, roomFor), Math.round(px / 2) * 2),
+        );
         const ph = Math.round(pw * (built.flat.height / built.flat.width));
         /* Only when it has actually moved. Writing fresh
            geometry every frame relaid out an iframe sixty times

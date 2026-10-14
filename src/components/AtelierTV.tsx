@@ -96,6 +96,12 @@ function inAppBrowser(): boolean {
   );
 }
 
+/** A phone or a tablet: no hover, and a finger rather than a pointer. */
+function isTouch(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean(window.matchMedia?.("(hover: none) and (pointer: coarse)").matches);
+}
+
 function watchUrl(t: NonNullable<Tuned>): string {
   return t.kind === "list"
     ? `https://www.youtube.com/playlist?list=${t.id}`
@@ -103,12 +109,21 @@ function watchUrl(t: NonNullable<Tuned>): string {
 }
 
 function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string }>): string {
-  /* nocookie, because a television in someone's portfolio has no
-     business setting tracking cookies on their visitors — except
-     inside an in-app browser, where the nocookie domain is one
-     more partitioned origin for the webview to refuse and the
-     normal one is measurably more likely to play. */
-  const base = inAppBrowser()
+  const touch = isTouch();
+  /* nocookie on a desktop, the ordinary domain on anything with
+     a finger.
+     The privacy win is real and worth keeping where it works,
+     but youtube-nocookie.com is a different origin from
+     youtube.com, and a phone blocks third-party storage by
+     default — iOS does it to everyone, and an app's built-in
+     browser partitions it further. The player gets far enough
+     to show its poster from cache and then fails the moment
+     the media request needs a session it cannot store, which
+     looks exactly like "it loads, then errors when I press
+     play". This used to switch only for in-app browsers, so
+     plain mobile Safari and Chrome on iOS still got nocookie
+     and still broke. */
+  const base = touch || inAppBrowser()
     ? "https://www.youtube.com/embed"
     : "https://www.youtube-nocookie.com/embed";
   /* enablejsapi, so the player posts its state back and a
@@ -124,9 +139,6 @@ function embedUrl(t: NonNullable<Tuned>, dial: Array<{ name: string; id: string 
    * the player sitting in a denied-autoplay state; without it
    * the player simply shows its poster and its own play button,
    * which is the thing a phone is waiting to be tapped. */
-  const touch =
-    typeof window !== "undefined" &&
-    window.matchMedia?.("(hover: none) and (pointer: coarse)").matches;
   const auto = touch ? "" : "autoplay=1&";
   const common = `${auto}rel=0&modestbranding=1&playsinline=1&enablejsapi=1${origin}`;
   if (t.kind === "list") return `${base}/videoseries?list=${t.id}&${common}`;
@@ -204,7 +216,7 @@ export default function AtelierTV({
   const atRef = useRef(0);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
 
-  useEffect(() => setWebview(inAppBrowser()), []);
+  useEffect(() => setWebview(inAppBrowser() || isTouch()), []);
 
   /**
    * Talk to the player.
