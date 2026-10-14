@@ -61,6 +61,9 @@ export const FILMS: Array<{ name: string; id: string; mobile?: boolean }> = [
   { name: "The Outsiders", id: "iOQisO0KAzM" },
   // Mobile default. Checked: author "CineLife".
   { name: "Halloween (1978) — trailer", id: "FXKnfIF9w5o", mobile: true },
+  // Checked: author "Warner Bros. Entertainment" — the rights
+  // holder's own upload, which is as safe as an embed gets.
+  { name: "Nightmare on Elm Street — 4K trailer", id: "CBcVZcornjI" },
   // Checked: author "Park Circus".
   { name: "Labyrinth — 4K trailer", id: "8bJy0GF2RZ0" },
   // Full features, public domain, all checked.

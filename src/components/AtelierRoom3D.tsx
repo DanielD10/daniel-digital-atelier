@@ -364,9 +364,15 @@ const SHOTS: Shot[] = [
 function Transport({
   api,
   onOff,
+  big,
+  onBig,
 }: {
   api: TVApi | null;
   onOff: () => void;
+  /** Only the big screen can be blown up; the retro set passes
+   *  neither of these and gets no expand button. */
+  big?: boolean;
+  onBig?: () => void;
 }) {
   if (!api?.tuned) return null;
   const many = api.dial > 1;
@@ -408,6 +414,15 @@ function Transport({
           ⏭
         </button>
       ) : null}
+      {onBig ? (
+        <button
+          type="button"
+          onClick={onBig}
+          aria-label={big ? "Fit the picture back to the television" : "Fill the screen"}
+        >
+          {big ? "⤡" : "⤢"}
+        </button>
+      ) : null}
       <button type="button" onClick={() => api.retune()}>
         Tune
       </button>
@@ -437,6 +452,11 @@ export default function AtelierRoom3D() {
      inside the 3D picture cannot be pressed. */
   const [tvApi, setTvApi] = useState<TVApi | null>(null);
   const [flatOn, setFlatOn] = useState(false);
+  /* Blown up to fill the stage rather than sitting on the
+     television. The room is the point, so it is off by default
+     and one tap away — but on a phone the set projects to about
+     350px, which is small for a film. */
+  const [flatBig, setFlatBig] = useState(false);
   /* Lit by default. A dark fireplace under a dark screen is a
      hole in the wall. */
   const [fireOn, setFireOn] = useState(true);
@@ -451,10 +471,11 @@ export default function AtelierRoom3D() {
 
   /* Mutable mirrors, so the render loop never closes over stale
      state and never has to be rebuilt when state changes. */
-  const stateRef = useRef({ awake: false, tvOn: false, flatOn: false, fireOn: true, phase, season, playing: false, shot: 0, view: 0 });
+  const stateRef = useRef({ awake: false, tvOn: false, flatOn: false, flatBig: false, fireOn: true, phase, season, playing: false, shot: 0, view: 0 });
   stateRef.current.awake = awake;
   stateRef.current.tvOn = tvOn;
   stateRef.current.flatOn = flatOn;
+  stateRef.current.flatBig = flatBig;
   stateRef.current.fireOn = fireOn;
   stateRef.current.phase = phase;
   stateRef.current.season = season;
@@ -1176,23 +1197,29 @@ export default function AtelierRoom3D() {
            an odd aspect ratio or a mid-flight camera cannot put
            the picture off the edge. */
         const roomFor = Math.max(200, w - 24);
-        const pw = Math.min(
-          roomFor,
-          Math.max(Math.min(260, roomFor), Math.round(px / 2) * 2),
-        );
-        const ph = Math.round(pw * (built.flat.height / built.flat.width));
+        const ar = built.flat.height / built.flat.width;
+        /* Expanded: the largest 16:9 rectangle that fits the
+           stage with the transport bar still clear of it.
+           Otherwise: the television's own projected size. */
+        const pw = s.flatBig
+          ? Math.round(Math.min(roomFor, (h - 150) / ar) / 2) * 2
+          : Math.min(roomFor, Math.max(Math.min(260, roomFor), Math.round(px / 2) * 2));
+        const ph = Math.round(pw * ar);
         /* Only when it has actually moved. Writing fresh
            geometry every frame relaid out an iframe sixty times
            a second off a camera that never stops breathing,
            which is what made the picture shimmer. */
-        if (cx !== flatAt.x || cy !== flatAt.y || pw !== flatAt.fit) {
-          flatAt.x = cx;
+        const key = s.flatBig ? -cx : cx;
+        if (key !== flatAt.x || cy !== flatAt.y || pw !== flatAt.fit) {
+          flatAt.x = key;
           flatAt.y = cy;
           flatAt.fit = pw;
           flatEl.style.width = `${pw}px`;
           flatEl.style.height = `${ph}px`;
-          flatEl.style.left = `${Math.round(cx - pw / 2)}px`;
-          flatEl.style.top = `${Math.round(cy - ph / 2)}px`;
+          const atX = s.flatBig ? Math.round((w - pw) / 2) : Math.round(cx - pw / 2);
+          const atY = s.flatBig ? Math.round((h - ph) / 2 - 24) : Math.round(cy - ph / 2);
+          flatEl.style.left = `${atX}px`;
+          flatEl.style.top = `${atY}px`;
         }
       }
       cur.flatI = lerp(cur.flatI, flatLive ? 1.5 : 0, Math.min(1, dt * 3));
@@ -1631,7 +1658,15 @@ export default function AtelierRoom3D() {
         {ready && flatOn && shot === SOFA_SHOT && !awake ? (
           <>
             <div className="room3d-flat" ref={flatHostRef} />
-            <Transport api={flatApi} onOff={() => setFlatOn(false)} />
+            <Transport
+              api={flatApi}
+              onOff={() => {
+                setFlatOn(false);
+                setFlatBig(false);
+              }}
+              big={flatBig}
+              onBig={() => setFlatBig((v) => !v)}
+            />
           </>
         ) : null}
 
