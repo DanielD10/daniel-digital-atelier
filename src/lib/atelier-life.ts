@@ -126,6 +126,251 @@ function hitBox(
    THE CAT
    ══════════════════════════════════════════════════════════════ */
 
+/* ══════════════════════════════════════════════════════════════
+   FUR AND EARS — the two things that were obviously geometry
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * Shell fur.
+ *
+ * A texture of hair painted on a sphere is a picture of fur. This
+ * is the real-time technique for the actual thing: draw the same
+ * surface a dozen times over, each copy pushed a little further
+ * out along its own normals, and punch the same field of holes
+ * through every copy. What survives is a forest of tapering
+ * strands standing off the skin, and because each shell is lit
+ * normally it catches light down its length the way a coat does.
+ *
+ * Three details carry it:
+ *
+ *  - the strand tapers. The hole radius shrinks with the layer,
+ *    so a strand is a cone rather than a bristle, and the tips
+ *    thin out instead of ending in a flat disc.
+ *  - the roots are dark. Light does not reach the skin between
+ *    hairs, and faking that occlusion is most of what makes a
+ *    coat look deep rather than furry-looking.
+ *  - the tips sag. Gravity on the outer shells, squared so it
+ *    is nothing at the root and obvious at the end, which stops
+ *    the whole thing reading as a hedgehog.
+ *
+ * Patched into MeshStandardMaterial rather than written from
+ * scratch, so the fur still takes the room's lights, its shadows
+ * and its environment reflections. All layers share one compiled
+ * program and differ only by uniform.
+ */
+type FurOpts = {
+  /** Total height of the coat, in metres. */
+  length: number;
+  /** Strand cells per metre. Higher is finer. */
+  density: number;
+  /** How far the tips sag, in metres. */
+  droop: number;
+  /** Darkness at the skin, 0..1. */
+  rootDark: number;
+};
+
+const FUR_CHUNK = `
+  float furHash(vec3 p) {
+    p = fract(p * 0.1031);
+    p += dot(p, p.zyx + 31.32);
+    return fract((p.x + p.y) * p.z);
+  }
+`;
+
+function furMaterial(
+  base: THREE.MeshStandardMaterial,
+  layer: number,
+  o: FurOpts,
+): THREE.MeshStandardMaterial {
+  const m = base.clone();
+  m.transparent = false;
+  m.side = THREE.FrontSide;
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uFurLayer = { value: layer };
+    shader.uniforms.uFurLen = { value: o.length };
+    shader.uniforms.uFurDroop = { value: o.droop };
+    shader.uniforms.uFurDensity = { value: o.density };
+    shader.uniforms.uFurRoot = { value: o.rootDark };
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+         uniform float uFurLayer;
+         uniform float uFurLen;
+         uniform float uFurDroop;
+         varying float vFurL;
+         varying vec3 vFurPos;`,
+      )
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+         vFurL = uFurLayer;
+         vFurPos = position;
+         transformed += objectNormal * (uFurLayer * uFurLen);
+         // Gravity, squared: nothing at the root, plenty at the tip.
+         transformed.y -= uFurLayer * uFurLayer * uFurDroop;`,
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+         uniform float uFurDensity;
+         uniform float uFurRoot;
+         varying float vFurL;
+         varying vec3 vFurPos;
+         ${FUR_CHUNK}`,
+      )
+      .replace(
+        "#include <clipping_planes_fragment>",
+        `#include <clipping_planes_fragment>
+         if (vFurL > 0.0) {
+           /* Strands are placed in the model's own space, not in
+              UV. A sphere's UVs pinch to nothing at the poles,
+              so a grid laid out in UV smears into concentric
+              rings there — which on a cat's head and rump read
+              as crochet. In object space the lattice is even
+              everywhere and has no poles to pinch at. Density
+              is cells per metre, so a strand is about 2mm. */
+           vec3 wp = vFurPos * uFurDensity;
+           /* Turned off every axis before it is diced. The
+              lattice is axis-aligned and so is a capsule, so
+              where the surface runs tangent to a lattice plane
+              the strands line up into rings — visible on the
+              flank as tree-ring arcs. Rotating the lattice to
+              an angle the body never matches kills it, and
+              costs three dot products. */
+           wp = vec3(
+             dot(wp, vec3(0.862, 0.371, -0.345)),
+             dot(wp, vec3(-0.308, 0.903, 0.301)),
+             dot(wp, vec3(0.402, -0.219, 0.889))
+           );
+           vec3 cell = wp;
+           vec3 id = floor(cell);
+           float h = furHash(id);
+           // Strands of differing length, so the coat has a
+           // broken edge rather than a mown one.
+           if (h < vFurL * 0.88) discard;
+           // Round, tapering cross-section.
+           vec3 f = fract(cell) - 0.5;
+           // Lean each strand its own way, more as it rises.
+           f -= (vec3(furHash(id + 11.3), furHash(id + 5.7), furHash(id + 23.1)) - 0.5)
+                * vFurL * 0.6;
+           float r = 0.46 * (1.0 - vFurL * 0.8);
+           if (dot(f, f) > r * r) discard;
+         }`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+         // Light does not reach the skin between hairs.
+         diffuseColor.rgb *= mix(uFurRoot, 1.0, vFurL);`,
+      );
+  };
+  // One program for every shell; they differ only by uniform.
+  m.customProgramCacheKey = () => "atelier-fur";
+  return m;
+}
+
+/**
+ * Clothe a mesh.
+ *
+ * Adds `count` shells as children of the mesh, so they inherit
+ * every animation it already has for free. Shells do not cast
+ * shadows — a dozen alpha-tested shadow passes for an animal
+ * this size is a lot of GPU for a slightly furrier shadow.
+ */
+function addFur(
+  host: THREE.Mesh,
+  base: THREE.MeshStandardMaterial,
+  count: number,
+  o: FurOpts,
+  keep: (x: { dispose: () => void }) => void,
+) {
+  for (let i = 1; i <= count; i++) {
+    const m = furMaterial(base, i / count, o);
+    keep(m);
+    const shell = new THREE.Mesh(host.geometry, m);
+    shell.castShadow = false;
+    shell.receiveShadow = false;
+    host.add(shell);
+  }
+}
+
+/**
+ * An ear, built as an ear.
+ *
+ * It was a cone, which is a party hat. A cat's ear is a thin
+ * curved plate: wide and rounded at the base, swept to a point
+ * that leans outward, with a notch on the outer edge and a
+ * cupped pink inside that does not reach the rim. This is that
+ * outline, extruded thin and bevelled so the edge catches light,
+ * with the inner surface as a second smaller plate sitting
+ * proud of the front.
+ */
+function buildEar(
+  size: number,
+  fur: THREE.Material,
+  inner: THREE.Material,
+  keep: (x: { dispose: () => void }) => void,
+): THREE.Group {
+  const g = new THREE.Group();
+  const S = size;
+
+  /* Narrow and pointed. The first attempt at this was 1.08
+     wide for 1.0 tall with soft curves on every edge, which
+     came out as a rounded flap — nearer a bear than a cat. A
+     cat's ear is a touch taller than its base is wide and the
+     outer edge is close to straight. */
+  const shape = new THREE.Shape();
+  shape.moveTo(-0.34 * S, 0);
+  // Outer edge: almost straight, with the faintest bow.
+  shape.quadraticCurveTo(-0.33 * S, 0.6 * S, -0.1 * S, 1.06 * S);
+  // The tip. Barely rounded — sharp is the whole character.
+  shape.quadraticCurveTo(-0.02 * S, 1.14 * S, 0.04 * S, 1.02 * S);
+  // Inner edge, with the shallow notch a cat has low down.
+  shape.quadraticCurveTo(0.2 * S, 0.5 * S, 0.32 * S, 0.08 * S);
+  shape.quadraticCurveTo(0.06 * S, -0.06 * S, -0.34 * S, 0);
+
+  const geo = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.1 * S,
+    bevelEnabled: true,
+    bevelThickness: 0.05 * S,
+    bevelSize: 0.05 * S,
+    bevelSegments: 3,
+    curveSegments: 14,
+  });
+  /* Deliberately not centred: the shape is drawn with its base
+     at y=0 so the caller can sit it straight on the skull, and
+     the inner plate below is drawn in the very same space. */
+  keep(geo);
+  const plate = new THREE.Mesh(geo, fur);
+  plate.castShadow = true;
+  g.add(plate);
+
+  // The pink inside, a smaller plate proud of the front face.
+  const inShape = new THREE.Shape();
+  inShape.moveTo(-0.19 * S, 0.1 * S);
+  inShape.quadraticCurveTo(-0.19 * S, 0.54 * S, -0.05 * S, 0.78 * S);
+  inShape.quadraticCurveTo(0.09 * S, 0.44 * S, 0.17 * S, 0.14 * S);
+  inShape.quadraticCurveTo(0.0 * S, 0.04 * S, -0.19 * S, 0.1 * S);
+  const inGeo = new THREE.ExtrudeGeometry(inShape, {
+    depth: 0.04 * S,
+    bevelEnabled: true,
+    bevelThickness: 0.02 * S,
+    bevelSize: 0.02 * S,
+    bevelSegments: 2,
+    curveSegments: 12,
+  });
+  keep(inGeo);
+  const pink = new THREE.Mesh(inGeo, inner);
+  pink.position.set(0, 0.05 * S, 0.09 * S);
+  g.add(pink);
+
+  return g;
+}
+
 /** The tail's resting yaw: see where it is applied. */
 const TAIL_YAW = 0.55;
 
@@ -197,6 +442,10 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
      pivot, whose scale the breathing owns. */
   body.scale.set(1.1, 1, 0.84);
   body.position.y = 0.085;
+  /* The body coat is the long one. Shells are children of the
+     mesh, so they inherit every bit of animation it already
+     has — the breathing, the dance, all of it — for nothing. */
+  addFur(body, fur, 11, { length: 0.0068, density: 430, droop: 0.0026, rootDark: 0.46 }, keep);
   body.castShadow = true;
   bodyPivot.add(body);
 
@@ -257,6 +506,9 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
   head.scale.set(1, 0.94, 1.02);
   head.castShadow = true;
   headPivot.add(head);
+  /* A short coat on the head — shorter than the body, because
+     the hair on a cat's skull is. */
+  addFur(head, furHead, 9, { length: 0.0042, density: 520, droop: 0.0012, rootDark: 0.5 }, keep);
 
   const muzzleGeo = new THREE.SphereGeometry(0.034, 16, 12);
   keep(muzzleGeo);
@@ -274,25 +526,18 @@ export function buildCat(keep: (x: { dispose: () => void }) => void): Life {
 
   /* Ears, each on its own pivot at the base so they can rotate
      forward rather than slide. */
-  const earGeo = new THREE.ConeGeometry(0.029, 0.058, 12);
-  keep(earGeo);
-  const earInGeo = new THREE.ConeGeometry(0.017, 0.036, 10);
-  keep(earInGeo);
-
   const ears: THREE.Group[] = [];
   for (const ez of [-0.036, 0.036]) {
     const pivot = new THREE.Group();
-    pivot.position.set(-0.004, 0.048, ez);
-    const ear = new THREE.Mesh(earGeo, fur);
-    ear.position.y = 0.028;
-    ear.castShadow = true;
+    pivot.position.set(-0.004, 0.044, ez);
+    const ear = buildEar(0.062, fur, innerEar, keep);
+    /* The plate is drawn in XY facing +Z; the cat faces +X, so
+       it turns a quarter to look the way she does. */
+    ear.rotation.y = -Math.PI / 2;
     pivot.add(ear);
-    const inner = new THREE.Mesh(earInGeo, innerEar);
-    inner.position.set(0.006, 0.026, 0);
-    pivot.add(inner);
     // Resting splay: ears sit out and slightly back.
-    pivot.rotation.x = ez > 0 ? 0.22 : -0.22;
-    pivot.rotation.z = -0.1;
+    pivot.rotation.x = ez > 0 ? 0.26 : -0.26;
+    pivot.rotation.z = -0.12;
     headPivot.add(pivot);
     ears.push(pivot);
   }
@@ -1068,6 +1313,10 @@ export function buildWalkingCat(
   body.rotation.z = Math.PI / 2;
   body.castShadow = true;
   bodyPivot.add(body);
+  /* Sleeker than the sitting cat's: a short-haired black cat,
+     and a long coat on her would read as a different animal. */
+  const WALK_FUR = { length: 0.005, density: 470, droop: 0.0018, rootDark: 0.42 };
+  addFur(body, fur, 10, WALK_FUR, keep);
 
   const chestGeo = new THREE.SphereGeometry(0.058, 16, 12);
   keep(chestGeo);
@@ -1075,6 +1324,7 @@ export function buildWalkingCat(
   chest.position.set(0.09, -0.004, 0);
   chest.castShadow = true;
   bodyPivot.add(chest);
+  addFur(chest, fur, 8, WALK_FUR, keep);
   const rump = new THREE.Mesh(chestGeo, fur);
   rump.position.set(-0.1, 0.004, 0);
   rump.scale.setScalar(1.05);
@@ -1091,6 +1341,7 @@ export function buildWalkingCat(
   const head = new THREE.Mesh(headGeo, furHead);
   head.castShadow = true;
   headPivot.add(head);
+  addFur(head, furHead, 9, { length: 0.0035, density: 560, droop: 0.001, rootDark: 0.44 }, keep);
   const muzzleGeo = new THREE.SphereGeometry(0.028, 14, 10);
   keep(muzzleGeo);
   const muzzle = new THREE.Mesh(muzzleGeo, furPale);
@@ -1098,22 +1349,15 @@ export function buildWalkingCat(
   muzzle.scale.set(0.85, 0.7, 1.1);
   headPivot.add(muzzle);
 
-  const earGeo = new THREE.ConeGeometry(0.024, 0.046, 10);
-  keep(earGeo);
-  const earInGeo = new THREE.ConeGeometry(0.013, 0.028, 8);
-  keep(earInGeo);
   const ears: THREE.Group[] = [];
   for (const ez of [-0.03, 0.03]) {
     const pivot = new THREE.Group();
-    pivot.position.set(-0.006, 0.04, ez);
-    const ear = new THREE.Mesh(earGeo, fur);
-    ear.position.y = 0.022;
-    ear.castShadow = true;
+    pivot.position.set(-0.006, 0.036, ez);
+    const ear = buildEar(0.05, fur, innerEar, keep);
+    ear.rotation.y = -Math.PI / 2;
     pivot.add(ear);
-    const inner = new THREE.Mesh(earInGeo, innerEar);
-    inner.position.set(0.005, 0.02, 0);
-    pivot.add(inner);
-    pivot.rotation.x = ez > 0 ? 0.2 : -0.2;
+    pivot.rotation.x = ez > 0 ? 0.24 : -0.24;
+    pivot.rotation.z = -0.08;
     headPivot.add(pivot);
     ears.push(pivot);
   }
