@@ -30,7 +30,7 @@ export type EffectId =
   | "hud"
   | "ghost"
   | "wings"
-  | "horns"
+  | "corona"
   | "leaves"
   | "petals";
 
@@ -143,6 +143,10 @@ export type Unit = {
   miles: number;
   /** Where the chip lives, when it isn't the hem. */
   chip?: string;
+  /** Leg length of bottoms, as a fraction of the thigh (default 0.36). */
+  inseam?: number;
+  /** A try-on from the shop, not one of the numbered units. */
+  showroom?: boolean;
   /**
    * Accessories break the one-finish-one-effect rule on purpose: each
    * accessory carries its own effect, whatever its finish.
@@ -362,9 +366,9 @@ export const units: Unit[] = [
     concept: true,
     chip: "NFC in the cuff label",
     effect: {
-      id: "horns",
-      name: "Horns",
-      line: "Obsidian horns with lava in the cracks, shedding embers off the tips.",
+      id: "corona",
+      name: "Corona",
+      line: "A ring of fire burns around your head like a total eclipse, throwing solar flares off the rim.",
     },
   },
   {

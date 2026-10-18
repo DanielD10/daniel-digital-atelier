@@ -71,6 +71,8 @@ float mask(vec2 p) { return texture2D(u_mask, p / u_res).r; }
 const FIRE = `${NOISE}
 uniform vec2 u_dir;
 uniform float u_pal;
+uniform vec2 u_center;
+uniform float u_radial;
 
 vec3 ramp(float T) {
   vec3 tip = mix(vec3(0.75, 0.08, 0.03), vec3(0.85, 0.12, 0.45), u_pal);
@@ -84,11 +86,27 @@ vec3 ramp(float T) {
 
 void main() {
   vec2 p = px();
-  vec2 D = normalize(u_dir);
+  vec2 D;
+  float n1;
+  float n2;
+  if (u_radial > 0.5) {
+    // flames lick outward from a centre (a corona). The noise is
+    // sampled on the direction vector, so it has no seam all the way
+    // around, and flows outward with radius.
+    vec2 d = p - u_center;
+    float rad = length(d);
+    D = d / max(rad, 0.001);
+    float s = rad / u_size;
+    n1 = fbm(D * 2.4 + vec2(0.71, 0.7) * (s * 0.9 - u_t * 1.8));
+    n2 = fbm(D * 6.0 + n1 * 1.4 + vec2(0.7, 0.71) * (s * 2.2 - u_t * 4.0));
+  } else {
+    D = normalize(u_dir);
+    vec2 P0 = vec2(-D.y, D.x);
+    vec2 q = vec2(dot(p, P0), dot(p, D)) / u_size;
+    n1 = fbm(vec2(q.x * 1.6, q.y * 0.9 - u_t * 2.2));
+    n2 = fbm(vec2(q.x * 3.6 + n1 * 1.4, q.y * 2.2 - u_t * 4.4));
+  }
   vec2 P = vec2(-D.y, D.x);
-  vec2 q = vec2(dot(p, P), dot(p, D)) / u_size;
-  float n1 = fbm(vec2(q.x * 1.6, q.y * 0.9 - u_t * 2.2));
-  float n2 = fbm(vec2(q.x * 3.6 + n1 * 1.4, q.y * 2.2 - u_t * 4.4));
   vec2 off = P * (n1 - 0.5) * u_size * 0.38;
   // smear heat along the flame direction: each blob becomes a tongue
   float h = 0.0;
@@ -189,7 +207,9 @@ export class GLField {
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
-    this.fire = this.program(FIRE, ["u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_dir", "u_pal"]);
+    this.fire = this.program(FIRE, [
+      "u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_dir", "u_pal", "u_center", "u_radial",
+    ]);
     this.fog = this.program(FOG, [
       "u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_flow", "u_c1", "u_c2", "u_c3", "u_detail",
     ]);
@@ -276,7 +296,15 @@ export class GLField {
    * Renders the mask as fire. `dir` is the way the flames lick (screen
    * space, need not be unit), `size` the emitter scale in stage px.
    */
-  renderFire(o: { t: number; dir: Vec; size: number; alpha?: number; palette?: "heat" | "lava" }) {
+  renderFire(o: {
+    t: number;
+    dir: Vec;
+    size: number;
+    alpha?: number;
+    palette?: "heat" | "lava";
+    /** lick outward from this stage-space point instead of along `dir` */
+    center?: Vec;
+  }) {
     const gl = this.gl;
     return this.run(this.fire, (u) => {
       gl.uniform1f(u.u_t, o.t);
@@ -284,6 +312,8 @@ export class GLField {
       gl.uniform1f(u.u_alpha, o.alpha ?? 1);
       gl.uniform2f(u.u_dir, o.dir.x, o.dir.y);
       gl.uniform1f(u.u_pal, o.palette === "lava" ? 0 : 1);
+      gl.uniform2f(u.u_center, (o.center?.x ?? 0) * this.res, (o.center?.y ?? 0) * this.res);
+      gl.uniform1f(u.u_radial, o.center ? 1 : 0);
     });
   }
 

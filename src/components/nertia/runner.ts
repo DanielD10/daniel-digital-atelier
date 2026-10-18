@@ -132,7 +132,7 @@ export class DemoScene {
     const fill = this.garmentFill(ctx, hip, sh, Hb, finish);
     const topFill = region === "top" ? fill : base;
     const shortFill = region === "bottom" ? fill : base;
-    const shortLen = region === "bottom" ? 0.36 : 0.4;
+    const shortLen = region === "bottom" ? (unit.inseam ?? 0.36) : 0.4;
     const shoe =
       region === "feet" ? this.shoeFill(ctx, hipX, groundY, Hb, finish) : "#2a2a32";
 

@@ -2729,212 +2729,213 @@ class Wings implements Effect {
   }
 }
 
-/* ═══════════════════════ HEADWEAR — HORNS ══════════════════════════
-   Obsidian horns with lava running in the cracks. Side-on they sweep
-   back like an ibex; facing the camera they curve out and up. Embers
-   lift off the tips. Higher levels grow them longer. */
+/* ═══════════════════════ HEADWEAR — CORONA ═════════════════════════
+   A total solar eclipse, worn. The head is the moon: a ring of fire
+   burns around it (the fire shader, licking outward from the centre),
+   prominences loop off the rim and fall back, faint streamers reach
+   out into the dark, and a thin chromosphere line hugs the edge. When
+   the chip is read, a diamond-ring flash breaks out on one side.
+   Higher levels widen the ring and throw bigger, more frequent flares. */
 
-type Horn = { pts: Vec[]; w: number; alpha: number };
+type Prominence = { a0: number; a1: number; h: number; age: number; life: number };
 
-class Horns implements Effect {
+class Corona implements Effect {
   private t = 0;
   private grow = 0;
-  private horns: Horn[] = [];
-  private embers: P[] = [];
+  private head: Emitter["head"] | null = null;
   private last: Emitter | null = null;
-  private dot: HTMLCanvasElement;
-  private glow: HTMLCanvasElement;
+  private loops: Prominence[] = [];
+  private loopAt = 0.4;
+  private sparks: P[] = [];
+  private flash: { a: number; age: number } | null = null;
   private blob = softSprite("rgba(255,255,255,1)", 64);
+  private glow = softSprite("rgba(255,140,90,0.55)", 128);
+  private flare = softSprite("rgba(255,255,255,1)", 128, 0.05);
+  private dot = softSprite("rgba(255,210,150,1)", 16, 0.3);
+  private rays: { a: number; len: number; w: number; seed: number }[] = [];
 
   constructor() {
-    this.dot = softSprite("rgba(255,170,80,1)", 16, 0.25);
-    this.glow = softSprite("rgba(255,92,26,0.6)", 64);
+    // streamers: uneven, like a real corona, longer near the "equator"
+    for (let i = 0; i < 34; i++) {
+      const a = (i / 34) * Math.PI * 2 + rand(-0.06, 0.06);
+      const eq = Math.abs(Math.cos(a));
+      this.rays.push({ a, len: 1.6 + 3.2 * eq * Math.random() + Math.random() * 0.8, w: rand(0.06, 0.16), seed: Math.random() * 10 });
+    }
   }
 
   update(dt: number, e: Emitter | null, intensity: number) {
     this.t += dt;
     if (e) this.last = e;
+    if (e?.head) this.head = e.head;
     const target = intensity > 0.3 ? 1 : 0;
-    this.grow += (target - this.grow) * (1 - Math.exp(-(target ? 2 : 6) * dt));
+    this.grow += (target - this.grow) * (1 - Math.exp(-(target ? 1.8 : 6) * dt));
+    const h = this.head;
+    const power = this.last?.power ?? 1;
     const air = this.last?.worldVel ?? { x: 0, y: 0 };
-    const h = e?.head;
-    if (h && this.grow > 0.01) {
-      this.horns = this.build(h, e!.power ?? 1);
-      for (const hn of this.horns) {
-        if (Math.random() < dt * 22 * (e!.power ?? 1) * this.grow * hn.alpha) {
-          const tip = hn.pts[hn.pts.length - 1];
-          this.embers.push({
-            x: tip.x, y: tip.y,
-            vx: (e!.bodyVel.x ?? 0) * 0.5 + rand(-0.4, 0.4) * h.r,
-            vy: -rand(0.6, 1.4) * h.r,
-            age: 0, life: rand(0.5, 1.1), size: rand(0.8, 1.5), seed: Math.random() * 10, k: 0,
-          });
-        }
+
+    if (h && this.grow > 0.4) {
+      this.loopAt -= dt * (0.6 + 0.6 * power);
+      if (this.loopAt <= 0) {
+        this.loopAt = rand(0.5, 1.1);
+        const a0 = Math.random() * Math.PI * 2;
+        const span = rand(0.3, 0.65);
+        this.loops.push({ a0, a1: a0 + span * (Math.random() < 0.5 ? 1 : -1), h: h.r * rand(0.5, 1.1) * (0.6 + 0.5 * power), age: 0, life: rand(1.2, 1.9) });
       }
-    } else if (!h) {
-      this.horns = [];
+      // sparks thrown off the rim
+      if (Math.random() < dt * 30 * power * this.grow && this.sparks.length < 140) {
+        const a = Math.random() * Math.PI * 2;
+        const R = h.r * 1.35;
+        const sp = h.r * rand(1.2, 3);
+        this.sparks.push({
+          x: h.c.x + Math.cos(a) * R, y: h.c.y + Math.sin(a) * R,
+          vx: Math.cos(a) * sp + (e?.bodyVel.x ?? 0) * 0.5, vy: Math.sin(a) * sp,
+          age: 0, life: rand(0.4, 0.9), size: rand(0.7, 1.4), seed: Math.random() * 10, k: 0,
+        });
+      }
     }
-    for (let i = this.embers.length - 1; i >= 0; i--) {
-      const p = this.embers[i];
+    for (let i = this.loops.length - 1; i >= 0; i--) {
+      this.loops[i].age += dt;
+      if (this.loops[i].age > this.loops[i].life) this.loops.splice(i, 1);
+    }
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const p = this.sparks[i];
       p.age += dt;
       if (p.age >= p.life) {
-        this.embers.splice(i, 1);
+        this.sparks.splice(i, 1);
         continue;
       }
-      const f = 1 - Math.exp(-1.5 * dt);
+      const f = 1 - Math.exp(-2 * dt);
       p.vx += (air.x - p.vx) * f;
-      p.vx += Math.sin(this.t * 6 + p.seed) * 20 * dt;
       p.x += p.vx * dt;
       p.y += p.vy * dt;
     }
-  }
-
-  private build(h: NonNullable<Emitter["head"]>, power: number): Horn[] {
-    const r = h.r;
-    const L = r * (2.3 + 1.3 * power) * (0.2 + 0.8 * this.grow);
-    const up = h.up;
-    const fw = h.fwd;
-    const P = (o: Vec, u: number, f: number): Vec => ({
-      x: o.x + up.x * u + fw.x * f,
-      y: o.y + up.y * u + fw.y * f,
-    });
-    const curve = (p0: Vec, p1: Vec, p2: Vec, p3: Vec) => {
-      const pts: Vec[] = [];
-      for (let i = 0; i <= 14; i++) pts.push(cubic(p0, p1, p2, p3, i / 14));
-      return pts;
-    };
-    if (!h.front) {
-      const near = P(h.c, r * 0.6, r * 0.1);
-      const far = P(h.c, r * 0.64, -r * 0.08);
-      const sweep = (o: Vec) =>
-        curve(o, P(o, L * 0.7, L * 0.05), P(o, L * 0.95, -L * 0.55), P(o, L * 0.5, -L * 1.0));
-      return [
-        { pts: sweep(far), w: r * 0.46, alpha: 0.6 },
-        { pts: sweep(near), w: r * 0.52, alpha: 1 },
-      ];
+    if (this.flash) {
+      this.flash.age += dt;
+      if (this.flash.age > 1.1) this.flash = null;
     }
-    return [-1, 1].map((sd) => {
-      const o = P(h.c, r * 0.55, sd * r * 0.55);
-      return {
-        pts: curve(o, P(o, L * 0.45, sd * L * 0.35), P(o, L * 0.95, sd * L * 0.6), P(o, L * 1.1, sd * L * 0.15)),
-        w: r * 0.5,
-        alpha: 1,
-      };
-    });
   }
 
-  ignite() {
-    this.grow = Math.max(this.grow, 0.02);
+  ignite(e: Emitter) {
+    this.grow = Math.max(this.grow, 0.05);
+    const h = e.head;
+    // the diamond ring breaks out up and forward
+    if (h) this.flash = { a: Math.atan2(h.up.y + h.fwd.y * 0.8, h.up.x + h.fwd.x * 0.8), age: 0 };
   }
 
   clear() {
     this.grow = 0;
-    this.horns = [];
-    this.embers.length = 0;
+    this.loops.length = 0;
+    this.sparks.length = 0;
+    this.flash = null;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
-    if (this.grow < 0.01) return;
+    const h = this.head;
+    if (!h || this.grow < 0.01) return;
+    const power = this.last?.power ?? 1;
+    const r = h.r;
+    const c = h.c;
+    const R = r * (1.32 + 0.08 * power);
+    const W = ctx.canvas.width;
+    const H = ctx.canvas.height;
     ctx.save();
-    for (const hn of this.horns) {
-      const n = hn.pts.length;
-      const left: Vec[] = [];
-      const right: Vec[] = [];
-      for (let i = 0; i < n; i++) {
-        const a = hn.pts[Math.max(0, i - 1)];
-        const b = hn.pts[Math.min(n - 1, i + 1)];
-        const d = normV({ x: b.x - a.x, y: b.y - a.y });
-        const w = hn.w * Math.pow(1 - i / (n - 1), 0.85) * (0.4 + 0.6 * this.grow);
-        left.push({ x: hn.pts[i].x - d.y * w, y: hn.pts[i].y + d.x * w });
-        right.push({ x: hn.pts[i].x + d.y * w, y: hn.pts[i].y - d.x * w });
-      }
-      const shape = new Path2D();
-      shape.moveTo(left[0].x, left[0].y);
-      for (const p of left.slice(1)) shape.lineTo(p.x, p.y);
-      for (const p of right.reverse()) shape.lineTo(p.x, p.y);
-      shape.closePath();
+    ctx.globalCompositeOperation = "lighter";
 
-      ctx.globalAlpha = this.grow * hn.alpha;
-      ctx.globalCompositeOperation = "source-over";
-      const g = ctx.createLinearGradient(hn.pts[0].x, hn.pts[0].y, hn.pts[n - 1].x, hn.pts[n - 1].y);
-      g.addColorStop(0, "#241718");
-      g.addColorStop(1, "#0d0a0b");
+    // streamers: long, faint, slowly breathing
+    for (const ray of this.rays) {
+      const L = r * ray.len * (0.55 + 0.45 * power) * this.grow * (0.85 + 0.15 * Math.sin(this.t * 0.7 + ray.seed));
+      const x0 = c.x + Math.cos(ray.a) * R * 0.9;
+      const y0 = c.y + Math.sin(ray.a) * R * 0.9;
+      const x1 = c.x + Math.cos(ray.a) * (R + L);
+      const y1 = c.y + Math.sin(ray.a) * (R + L);
+      const nx = -Math.sin(ray.a) * r * ray.w;
+      const ny = Math.cos(ray.a) * r * ray.w;
+      const g = ctx.createLinearGradient(x0, y0, x1, y1);
+      g.addColorStop(0, "rgba(255,220,196,0.5)");
+      g.addColorStop(0.4, "rgba(255,170,150,0.16)");
+      g.addColorStop(1, "rgba(255,150,150,0)");
+      ctx.globalAlpha = this.grow;
       ctx.fillStyle = g;
-      ctx.shadowColor = "rgba(255,92,26,0.8)";
-      ctx.shadowBlur = hn.w * 0.9;
-      ctx.fill(shape);
-      ctx.shadowBlur = 0;
-
-      // ram ridges
-      ctx.strokeStyle = "rgba(255,255,255,0.08)";
-      ctx.lineWidth = Math.max(0.8, hn.w * 0.06);
       ctx.beginPath();
-      for (let i = 2; i < n - 2; i += 2) {
-        ctx.moveTo(left[i].x, left[i].y);
-        const rr = right[right.length - 1 - i];
-        ctx.lineTo(rr.x, rr.y);
-      }
-      ctx.stroke();
-
-      // lava in the cracks, pulsing
-      ctx.globalCompositeOperation = "lighter";
-      const pulse = 0.55 + 0.45 * Math.sin(this.t * 4);
-      ctx.strokeStyle = `rgba(255,${Math.round(110 + 60 * pulse)},40,${0.7 * pulse})`;
-      ctx.lineWidth = Math.max(1, hn.w * 0.1);
-      ctx.lineJoin = "round";
-      ctx.beginPath();
-      for (let i = 1; i < n - 2; i++) {
-        const p = hn.pts[i];
-        const j = Math.sin(i * 2.7 + 1.3) * hn.w * 0.25 * (1 - i / n);
-        const q = { x: p.x + j, y: p.y - j * 0.5 };
-        if (i === 1) ctx.moveTo(q.x, q.y);
-        else ctx.lineTo(q.x, q.y);
-      }
-      ctx.stroke();
-      // rim light
-      ctx.strokeStyle = `rgba(255,92,26,${0.35 + 0.25 * pulse})`;
-      ctx.lineWidth = Math.max(1, hn.w * 0.07);
-      ctx.stroke(shape);
-      // hot tip
-      const tip = hn.pts[n - 1];
-      const d = hn.w * 2.4;
-      ctx.globalAlpha = this.grow * hn.alpha * pulse;
-      ctx.drawImage(this.glow, tip.x - d / 2, tip.y - d / 2, d, d);
+      ctx.moveTo(x0 + nx, y0 + ny);
+      ctx.lineTo(x1, y1);
+      ctx.lineTo(x0 - nx, y0 - ny);
+      ctx.closePath();
+      ctx.fill();
     }
-    // the tips burn
+    // inner corona glow
+    ctx.globalAlpha = 0.55 * this.grow;
+    const gd = R * 4.2;
+    ctx.drawImage(this.glow, c.x - gd / 2, c.y - gd / 2, gd, gd);
+
+    // the ring of fire and the prominences, through the fire shader
     const gl = GLField.get();
-    const e = this.last;
-    if (gl && e && this.horns.length) {
-      const W = ctx.canvas.width;
-      const H = ctx.canvas.height;
+    if (gl) {
       const m = gl.begin(W, H);
-      for (const h of this.horns) {
-        const n = h.pts.length;
-        for (let i = n - 4; i < n; i++) {
-          const p = h.pts[i];
-          const r = h.w * (0.6 + 0.25 * (i - n + 4)) * this.grow;
-          m.globalAlpha = 0.45 * h.alpha * this.grow;
-          m.drawImage(this.blob, p.x - r, p.y - r, r * 2, r * 2);
+      const N = 44;
+      for (let i = 0; i < N; i++) {
+        const a = (i / N) * Math.PI * 2;
+        const flick = 0.72 + 0.28 * Math.sin(this.t * 3.1 + i * 1.7) * Math.sin(this.t * 1.3 + i);
+        const br = r * (0.34 + 0.08 * power);
+        m.globalAlpha = 0.55 * this.grow * flick;
+        m.drawImage(this.blob, c.x + Math.cos(a) * R - br, c.y + Math.sin(a) * R - br, br * 2, br * 2);
+      }
+      for (const L of this.loops) {
+        const f = L.age / L.life;
+        const rise = Math.sin(Math.PI * Math.min(1, f * 1.15));
+        for (let k = 0; k <= 14; k++) {
+          const u = k / 14;
+          const a = L.a0 + (L.a1 - L.a0) * u;
+          const rr = R + L.h * Math.sin(Math.PI * u) * rise;
+          const br = r * 0.2;
+          m.globalAlpha = 0.65 * this.grow * (1 - f * 0.6);
+          m.drawImage(this.blob, c.x + Math.cos(a) * rr - br, c.y + Math.sin(a) * rr - br, br * 2, br * 2);
         }
       }
-      const air = e.worldVel;
-      const fire = gl.renderFire({
-        t: this.t,
-        dir: { x: Math.max(-0.9, Math.min(0.9, air.x / (e.scale * 6))), y: -1 },
-        size: (e.head?.r ?? 20) * 2.2,
-        palette: "lava",
-      });
-      ctx.globalCompositeOperation = "lighter";
+      const fire = gl.renderFire({ t: this.t, dir: { x: 0, y: -1 }, size: r * (1.5 + 0.5 * power), palette: "heat", center: c });
       ctx.globalAlpha = 1;
       ctx.drawImage(fire, 0, 0, W, H);
+    } else {
+      // 2D fallback: a glowing ring
+      ctx.globalAlpha = this.grow;
+      ctx.strokeStyle = "rgba(255,140,60,0.9)";
+      ctx.lineWidth = r * 0.25;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, R, 0, Math.PI * 2);
+      ctx.stroke();
     }
-    ctx.globalCompositeOperation = "lighter";
-    const r0 = this.last?.head?.r ?? 20;
-    for (const p of this.embers) {
+
+    // chromosphere: a thin pink-red line hugging the moon's edge
+    ctx.globalAlpha = 0.85 * this.grow;
+    ctx.strokeStyle = "#ff4f74";
+    ctx.lineWidth = Math.max(1, r * 0.05);
+    ctx.shadowColor = "rgba(255,79,116,0.9)";
+    ctx.shadowBlur = r * 0.3;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, r * 1.08, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // sparks
+    for (const p of this.sparks) {
       const f = p.age / p.life;
       ctx.globalAlpha = (1 - f) * this.grow;
-      const d = p.size * (r0 / 28) * 4;
+      const d = p.size * (r / 26) * 4;
       ctx.drawImage(this.dot, p.x - d / 2, p.y - d / 2, d, d);
+    }
+
+    // the diamond ring
+    if (this.flash) {
+      const f = this.flash.age / 1.1;
+      const a = Math.pow(1 - f, 1.6);
+      const x = c.x + Math.cos(this.flash.a) * r * 1.08;
+      const y = c.y + Math.sin(this.flash.a) * r * 1.08;
+      ctx.globalAlpha = a;
+      const d = r * 3.2;
+      ctx.drawImage(this.flare, x - d / 2, y - d / 2, d, d);
+      ctx.globalAlpha = a * 0.8;
+      ctx.drawImage(this.flare, x - d * 2.2, y - d * 0.03, d * 4.4, d * 0.06);
+      ctx.drawImage(this.flare, x - d * 0.03, y - d * 1.4, d * 0.06, d * 2.8);
     }
     ctx.restore();
   }
@@ -3360,8 +3361,8 @@ export function createEffect(id: EffectId): Effect {
       return new Ghost();
     case "wings":
       return new Wings();
-    case "horns":
-      return new Horns();
+    case "corona":
+      return new Corona();
     case "leaves":
       return new Leaves();
     case "petals":

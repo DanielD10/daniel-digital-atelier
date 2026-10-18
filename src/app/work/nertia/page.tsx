@@ -99,7 +99,8 @@ export default function NertiaPage() {
               own effect. Shoes (chip in the heel tab, QR on the tongue as
               backup) get Footstrike, Frost Step or Ember Prints. Headwear
               gets Victory Laurel, a nod to the Greek and Roman roots the
-              brand started from, plus Steam, a Visor HUD and Horns. The
+              brand started from, plus Steam, a Visor HUD and Corona, a ring
+              of fire around your head like a total eclipse. The
               Night Shell leaves a Ghost Runner behind you and the Aero
               Singlet grows Wings. All of it is labelled concept.
             </p>
