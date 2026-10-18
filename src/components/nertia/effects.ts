@@ -2404,6 +2404,264 @@ export class LinkArc {
   }
 }
 
+
+/* ═══════════════════════ GREEN SHIFT — LEAF DRIFT ══════════════════
+   Leaves peel off the fabric and tumble in the air behind you, each one
+   flipping as it turns (front face lit, back face darker), and at the
+   end of its life it breaks into a few motes of mint light. Earth to
+   energy. Leaves are pre-rendered sprites, so a hundred of them cost a
+   hundred drawImage calls and nothing else. */
+
+class Leaves extends System {
+  protected max = 160;
+  private fronts: HTMLCanvasElement[];
+  private backs: HTMLCanvasElement[];
+  private motes: P[] = [];
+  private mote: HTMLCanvasElement;
+
+  constructor() {
+    super();
+    const fronts = ["#7a9a2e", "#2fae63", "#8fe6b8", "#4cc27a"];
+    const backs = ["#4d6219", "#1a6e3d", "#5aa882", "#2c7d4c"];
+    this.fronts = fronts.map((c) => Leaves.leaf(c, true));
+    this.backs = backs.map((c) => Leaves.leaf(c, false));
+    this.mote = softSprite("rgba(160,255,210,1)", 16, 0.25);
+  }
+
+  /** a pointed leaf with a midrib, drawn along +x */
+  private static leaf(color: string, front: boolean): HTMLCanvasElement {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 32;
+    const g = c.getContext("2d")!;
+    g.translate(32, 16);
+    g.beginPath();
+    g.moveTo(-30, 0);
+    g.bezierCurveTo(-14, -15, 14, -13, 30, 0);
+    g.bezierCurveTo(14, 13, -14, 15, -30, 0);
+    g.closePath();
+    const grad = g.createLinearGradient(0, -14, 0, 14);
+    grad.addColorStop(0, front ? "rgba(255,255,255,0.35)" : "rgba(0,0,0,0)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0)");
+    g.fillStyle = color;
+    g.fill();
+    g.fillStyle = grad;
+    g.fill();
+    g.strokeStyle = front ? "rgba(235,255,225,0.7)" : "rgba(0,0,0,0.25)";
+    g.lineWidth = 1.4;
+    g.beginPath();
+    g.moveTo(-28, 0);
+    g.quadraticCurveTo(0, -1.5, 28, 0);
+    for (const x of [-14, -2, 10]) {
+      g.moveTo(x, -0.6);
+      g.lineTo(x + 7, -6);
+      g.moveTo(x, 0.4);
+      g.lineTo(x + 7, 5.5);
+    }
+    g.stroke();
+    return c;
+  }
+
+  protected rate(e: Emitter) {
+    return 26 + e.scale * 0.3;
+  }
+
+  protected spawn(e: Emitter, at: Vec): P {
+    const s = e.scale;
+    return {
+      x: at.x + rand(-0.04, 0.04) * s,
+      y: at.y + rand(-0.04, 0.04) * s,
+      vx: e.bodyVel.x * 0.7 + rand(-0.4, 0.4) * s,
+      vy: e.bodyVel.y * 0.7 - rand(0.3, 0.9) * s,
+      age: 0,
+      life: rand(1.3, 2.3),
+      size: rand(0.11, 0.18) * s,
+      seed: Math.random() * 100,
+      k: Math.floor(Math.random() * 4),
+    };
+  }
+
+  protected step(p: P, dt: number, e: Emitter | null) {
+    const s = e ? e.scale : 100;
+    this.drag(p, dt, e, 1.8);
+    p.vy += s * 0.45 * dt; // leaves fall, slowly
+    p.vx += Math.sin(this.t * 4 + p.seed) * s * 1.3 * dt;
+    p.vy += Math.cos(this.t * 3 + p.seed) * s * 0.6 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+
+  protected onDeath(p: P) {
+    // the leaf breaks into light
+    for (let i = 0; i < 3 && this.motes.length < 220; i++) {
+      this.motes.push({
+        x: p.x + rand(-1, 1) * p.size,
+        y: p.y + rand(-1, 1) * p.size,
+        vx: p.vx * 0.4 + rand(-0.3, 0.3) * p.size * 6,
+        vy: p.vy * 0.2 - rand(0.4, 1) * p.size * 6,
+        age: 0,
+        life: rand(0.4, 0.8),
+        size: rand(0.8, 1.6),
+        seed: 0,
+        k: 0,
+      });
+    }
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    super.update(dt, e, intensity);
+    for (let i = this.motes.length - 1; i >= 0; i--) {
+      const m = this.motes[i];
+      m.age += dt;
+      if (m.age >= m.life) {
+        this.motes[i] = this.motes[this.motes.length - 1];
+        this.motes.pop();
+        continue;
+      }
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+    }
+  }
+
+  clear() {
+    super.clear();
+    this.motes.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    for (const p of this.ps) {
+      const f = p.age / p.life;
+      const spin = ((p.seed % 1) - 0.5) * 7;
+      const ang = p.seed + p.age * spin + Math.atan2(p.vy, p.vx) * 0.3;
+      const flip = Math.cos(p.age * (3 + (p.seed % 3)) + p.seed);
+      ctx.globalAlpha = Math.min(1, f * 8) * (f > 0.8 ? (1 - f) / 0.2 : 1);
+      ctx.setTransform(1, 0, 0, 1, p.x, p.y);
+      ctx.rotate(ang);
+      ctx.scale(1, Math.max(0.12, Math.abs(flip)));
+      const L = p.size * 2;
+      ctx.drawImage(flip >= 0 ? this.fronts[p.k] : this.backs[p.k], -L / 2, -L / 4, L, L / 2);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "lighter";
+    const s0 = this.last?.scale ?? 100;
+    for (const m of this.motes) {
+      ctx.globalAlpha = 1 - m.age / m.life;
+      const d = m.size * (s0 / 110) * 4;
+      ctx.drawImage(this.mote, m.x - d / 2, m.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ PEACH SHIFT — PETALS ══════════════════════
+   Petals spill off the shoulders and drift down in your wake, slower
+   and softer than leaves: each one sways, spins and flips through
+   peach, blush and coral, with a warm haze where they're thickest. */
+
+class Petals extends System {
+  protected max = 170;
+  private sprites: HTMLCanvasElement[];
+  private haze: HTMLCanvasElement;
+
+  constructor() {
+    super();
+    const pairs: [string, string][] = [
+      ["#ffe4d2", "#ffb38a"],
+      ["#ffe0e6", "#ff9aa8"],
+      ["#ffd6cc", "#ff6f61"],
+      ["#fff0e4", "#ffc9a8"],
+    ];
+    this.sprites = pairs.map(([tip, base]) => Petals.petal(tip, base));
+    this.haze = softSprite("rgba(255,150,130,0.35)", 96);
+  }
+
+  /** a rounded petal with a notch at the wide end, tip pointing up */
+  private static petal(tip: string, base: string): HTMLCanvasElement {
+    const c = document.createElement("canvas");
+    c.width = 40;
+    c.height = 56;
+    const g = c.getContext("2d")!;
+    g.translate(20, 28);
+    const L = 26;
+    const W = 17;
+    g.beginPath();
+    g.moveTo(0, -L);
+    g.bezierCurveTo(W, -L * 0.45, W * 0.95, L * 0.7, W * 0.3, L);
+    g.quadraticCurveTo(0, L * 0.78, -W * 0.3, L);
+    g.bezierCurveTo(-W * 0.95, L * 0.7, -W, -L * 0.45, 0, -L);
+    g.closePath();
+    const grad = g.createLinearGradient(0, -L, 0, L);
+    grad.addColorStop(0, base);
+    grad.addColorStop(0.75, tip);
+    grad.addColorStop(1, "#ffffff");
+    g.fillStyle = grad;
+    g.fill();
+    g.strokeStyle = "rgba(255,255,255,0.35)";
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, -L * 0.8);
+    g.lineTo(0, L * 0.6);
+    g.stroke();
+    return c;
+  }
+
+  protected rate(e: Emitter) {
+    return 22 + e.scale * 0.28;
+  }
+
+  protected spawn(e: Emitter, at: Vec): P {
+    const s = e.scale;
+    return {
+      x: at.x + rand(-0.05, 0.05) * s,
+      y: at.y + rand(-0.05, 0.05) * s,
+      vx: e.bodyVel.x * 0.6 + rand(-0.3, 0.3) * s,
+      vy: e.bodyVel.y * 0.6 - rand(0.1, 0.5) * s,
+      age: 0,
+      life: rand(1.8, 3),
+      size: rand(0.09, 0.14) * s,
+      seed: Math.random() * 100,
+      k: Math.floor(Math.random() * 4),
+    };
+  }
+
+  protected step(p: P, dt: number, e: Emitter | null) {
+    const s = e ? e.scale : 100;
+    this.drag(p, dt, e, 1.4);
+    p.vy += s * 0.32 * dt;
+    p.vx += Math.sin(this.t * 2.2 + p.seed) * s * 0.9 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    // a warm haze where the petals are thickest
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < this.ps.length; i += 6) {
+      const p = this.ps[i];
+      const f = p.age / p.life;
+      ctx.globalAlpha = Math.sin(Math.PI * f) * 0.12;
+      const d = p.size * 10;
+      ctx.drawImage(this.haze, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.globalCompositeOperation = "source-over";
+    for (const p of this.ps) {
+      const f = p.age / p.life;
+      const ang = p.seed + p.age * (((p.seed % 1) - 0.5) * 5) + Math.sin(this.t * 2 + p.seed) * 0.4;
+      const flip = Math.cos(p.age * (2 + (p.seed % 2)) + p.seed);
+      ctx.globalAlpha = Math.min(1, f * 6) * (f > 0.75 ? (1 - f) / 0.25 : 1) * (flip >= 0 ? 1 : 0.8);
+      ctx.setTransform(1, 0, 0, 1, p.x, p.y);
+      ctx.rotate(ang);
+      ctx.scale(Math.max(0.15, Math.abs(flip)), 1);
+      const H = p.size * 2.2;
+      ctx.drawImage(this.sprites[p.k], (-H * 0.714) / 2, -H / 2, H * 0.714, H);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.restore();
+  }
+}
+
 /* ─────────────────────────── factory ─────────────────────────── */
 
 export function createEffect(id: EffectId): Effect {
@@ -2436,6 +2694,10 @@ export function createEffect(id: EffectId): Effect {
       return new Wings();
     case "horns":
       return new Horns();
+    case "leaves":
+      return new Leaves();
+    case "petals":
+      return new Petals();
   }
 }
 

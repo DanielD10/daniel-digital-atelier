@@ -674,7 +674,10 @@ function Certificate({
         </div>
         <div>
           <dt>Finish</dt>
-          <dd>{f.name}</dd>
+          <dd>
+            {f.name}
+            {f.note ? ` · ${f.note}` : ""}
+          </dd>
         </div>
         <div>
           <dt>Effect license</dt>

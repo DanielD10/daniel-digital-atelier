@@ -12,7 +12,9 @@ export type FinishId =
   | "deep-space"
   | "bone-pearl"
   | "liquid-chrome"
-  | "full-reflect";
+  | "full-reflect"
+  | "green-shift"
+  | "peach-shift";
 
 export type EffectId =
   | "flames"
@@ -28,7 +30,9 @@ export type EffectId =
   | "hud"
   | "ghost"
   | "wings"
-  | "horns";
+  | "horns"
+  | "leaves"
+  | "petals";
 
 export type Finish = {
   id: FinishId;
@@ -41,6 +45,8 @@ export type Finish = {
   ramp: string[];
   /** The accent used for UI chrome and the silhouette's rim light. */
   accent: string;
+  /** e.g. "Women's exclusive" */
+  note?: string;
 };
 
 export const finishes: Record<FinishId, Finish> = {
@@ -88,6 +94,25 @@ export const finishes: Record<FinishId, Finish> = {
     effectLine: "Long-exposure light streaks, like headlights catching the fabric.",
     ramp: ["#8d9096", "#b7bac0", "#f4f6fa", "#9a9da3"],
     accent: "#f4f6fa",
+  },
+  "green-shift": {
+    id: "green-shift",
+    name: "Green Shift",
+    effect: "leaves",
+    effectName: "Leaf Drift",
+    effectLine: "Leaves peel off the fabric and tumble behind you, turning to light as they go.",
+    ramp: ["#6b7f2a", "#1f9e5a", "#7fe0b0", "#3fae6a"],
+    accent: "#3fd18a",
+  },
+  "peach-shift": {
+    id: "peach-shift",
+    name: "Peach Shift",
+    effect: "petals",
+    effectName: "Petals",
+    effectLine: "Peach and coral petals spill off your shoulders and drift down in your wake.",
+    ramp: ["#ffb38a", "#ff9aa8", "#ff6f61", "#ffc9a8"],
+    accent: "#ff8f7a",
+    note: "Women's exclusive",
   },
 };
 
@@ -189,6 +214,28 @@ export const units: Unit[] = [
     unit: 7,
     of: 40,
     washes: 3,
+  },
+  {
+    id: "singlet-green-058",
+    miles: 150,
+    product: "First Law Singlet",
+    fit: "M",
+    finish: "green-shift",
+    region: "top",
+    unit: 58,
+    of: 140,
+    washes: 14,
+  },
+  {
+    id: "singlet-peach-019",
+    miles: 330,
+    product: "First Law Singlet",
+    fit: "W",
+    finish: "peach-shift",
+    region: "top",
+    unit: 19,
+    of: 140,
+    washes: 22,
   },
   {
     id: "runner-heat-001",
