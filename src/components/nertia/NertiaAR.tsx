@@ -113,6 +113,20 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     }, READ_MS);
   }, []);
 
+  // The lookbook's "See it in AR" buttons land here.
+  useEffect(() => {
+    const onTap = (e: Event) => {
+      const id = (e as CustomEvent<string>).detail;
+      const u = units.find((x) => x.id === id);
+      if (!u) return;
+      setCat(categoryOf(u.region));
+      tap(u);
+      stageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    window.addEventListener("nertia:tap", onTap);
+    return () => window.removeEventListener("nertia:tap", onTap);
+  }, [tap]);
+
   // Read the first chip by itself once the stage is in view, so a
   // visitor who only scrolls still sees the system work.
   useEffect(() => {

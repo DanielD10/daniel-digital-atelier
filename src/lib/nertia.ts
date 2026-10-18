@@ -392,3 +392,46 @@ export function partnerFor(u: Unit): Unit {
   const pick = (id: string) => units.find((x) => x.id === id)!;
   return u.id === "singlet-space-023" ? pick("tee-heat-087") : pick("singlet-space-023");
 }
+
+/* ─────────────────────────── lookbook ─────────────────────────── */
+
+/** Product sheets for Drop 001. `unit` links a sheet to its AR unit. */
+export type Sheet = {
+  id: string;
+  file: string;
+  title: string;
+  kind: string;
+  caption: string;
+  alt: string;
+  unit?: string;
+};
+
+export const lookbook: Sheet[] = [
+  {
+    id: "lineup",
+    file: "drop-001-lineup.webp",
+    title: "Drop 001: Liquid Series",
+    kind: "The full lineup",
+    caption:
+      "630 numbered units across seven finishes, every one in a men's and a women's fit. Peach Shift is the women's exclusive.",
+    alt: "Drop 001 lineup sheet: men's and women's singlets and shorts in seven finishes, Liquid Chrome through Peach Shift, with the build standard along the bottom.",
+  },
+  {
+    id: "first-law",
+    file: "first-law-singlet.webp",
+    title: "First Law Singlet",
+    kind: "$95 · M → 2XL, XS → XL",
+    caption: "The everyday singlet. Solution-dyed yarn, so the color lives in the fiber.",
+    alt: "First Law Singlet product sheet: men's and women's singlets in Liquid Chrome, Deep Space, Green Shift and Peach Shift, with finish swatches and detail crops.",
+    unit: "singlet-chrome-112",
+  },
+  {
+    id: "full-reflect",
+    file: "full-reflect-singlet.webp",
+    title: "Full Reflect Singlet LTD",
+    kind: "$130 · Event-night exclusive",
+    caption: "Grey by day, white fire in headlights. Reflective taping and a reflective drawcord.",
+    alt: "Full Reflect Singlet LTD product sheet: a man and a woman in white retroreflective singlets and shorts, with fabric, taping and drawcord detail crops.",
+    unit: "singlet-reflect-007",
+  },
+];

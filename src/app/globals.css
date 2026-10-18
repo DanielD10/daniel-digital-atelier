@@ -3818,11 +3818,11 @@ main { position: relative; z-index: 3; }
    accent follows the tapped unit's finish via --nx-accent. */
 
 .art-nertia {
+  /* the real Drop 001 lineup, cropped from the product sheet */
   background:
-    radial-gradient(38% 30% at 30% 70%, rgba(255, 92, 26, 0.5), transparent 70%),
-    radial-gradient(36% 34% at 68% 38%, rgba(138, 124, 255, 0.4), transparent 70%),
-    radial-gradient(30% 26% at 78% 74%, rgba(63, 209, 198, 0.3), transparent 72%),
-    linear-gradient(165deg, #121117 0%, #0a0a0d 58%, #050506 100%);
+    linear-gradient(180deg, rgba(5, 4, 4, 0.1), rgba(5, 4, 4, 0.3)),
+    url("/images/nertia/lineup-models.webp") center 20% / cover no-repeat,
+    #070605;
 }
 
 .nx {
@@ -4294,4 +4294,176 @@ main { position: relative; z-index: 3; }
 @media (prefers-reduced-motion: reduce) {
   .nx-ring, .nx-cue { animation: none; }
   .nx-ring { opacity: 0.6; }
+}
+
+/* ── NERTIA lookbook: the real product next to the prototype ── */
+.nx-look {
+  margin: 0 0 clamp(72px, 10vw, 130px);
+  border-top: 1px solid rgba(74, 69, 62, 0.5);
+  padding-top: clamp(28px, 4vw, 48px);
+}
+.nx-look-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px clamp(20px, 4vw, 64px);
+  align-items: end;
+  margin-bottom: clamp(20px, 3vw, 36px);
+}
+.nx-look-head .micro { grid-column: 1 / -1; }
+.nx-look-head h2 {
+  font-family: var(--f-display);
+  font-weight: 400;
+  font-size: clamp(28px, 3.6vw, 48px);
+  line-height: 1.05;
+  margin: 0;
+  color: #f3efe7;
+  text-wrap: balance;
+}
+.nx-look-lede {
+  margin: 0;
+  max-width: 46ch;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #cfc9bf;
+}
+.nx-look-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.nx-sheet { margin: 0; min-width: 0; }
+.nx-sheet.is-lineup { grid-row: span 2; }
+.nx-sheet-img {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid rgba(74, 69, 62, 0.5);
+  background: #050505;
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.nx-sheet-img img {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  transition: transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.nx-sheet-img:hover img { transform: scale(1.025); }
+.nx-sheet-zoom {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(239, 234, 225, 0.25);
+  background: rgba(7, 6, 5, 0.6);
+  color: var(--bone);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.nx-sheet-img:hover .nx-sheet-zoom,
+.nx-sheet-img:focus-visible .nx-sheet-zoom { opacity: 1; }
+.nx-sheet-zoom svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.nx-sheet figcaption {
+  display: grid;
+  gap: 4px;
+  padding: 12px 2px 0;
+}
+.nx-sheet-title { font-family: var(--f-display); font-size: 19px; color: #f3efe7; }
+.nx-sheet-kind {
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-sheet-cap { font-size: 13.5px; line-height: 1.6; color: #cfc9bf; max-width: 52ch; }
+.nx-sheet-try {
+  justify-self: start;
+  margin-top: 6px;
+  padding: 0 0 3px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--bone);
+  border-bottom: 1px solid var(--nx-accent, #ff5c1a);
+}
+.nx-sheet-try:hover { color: var(--nx-accent, #ff5c1a); }
+
+.nx-lightbox {
+  width: 100vw;
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+    max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  border: 0;
+  background: transparent;
+  color: var(--bone);
+}
+.nx-lightbox::backdrop {
+  background: rgba(4, 4, 4, 0.88);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.nx-lightbox-inner {
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  gap: 10px;
+}
+.nx-lightbox-inner img {
+  width: auto;
+  height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  border: 1px solid rgba(74, 69, 62, 0.5);
+}
+.nx-lightbox-bar {
+  width: min(100%, 1100px);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--bone-soft);
+}
+.nx-lightbox-bar b { font-weight: 500; color: var(--bone); }
+.nx-lightbox-tools { display: inline-flex; gap: 6px; }
+.nx-lightbox-tools button {
+  min-width: 38px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(239, 234, 225, 0.25);
+  background: rgba(7, 6, 5, 0.6);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.nx-lightbox-tools button:hover { border-color: rgba(239, 234, 225, 0.55); }
+
+@media (max-width: 900px) {
+  .nx-look-head { grid-template-columns: minmax(0, 1fr); }
+  .nx-look-grid { grid-template-columns: minmax(0, 1fr); }
+  .nx-sheet.is-lineup { grid-row: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nx-sheet-img img { transition: none; }
 }
