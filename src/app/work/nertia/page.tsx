@@ -91,12 +91,13 @@ export default function NertiaPage() {
               ))}
             </ul>
             <p style={{ marginTop: "24px" }}>
-              <b>Footwear, as a concept.</b> Shoes break the one-finish rule
-              on purpose. The chip sits in the heel tab, with a printed QR on
-              the tongue as a backup, and every pair gets the same effect:
-              each footstrike lands as a shockwave and the shoes leave light
-              on the road. Footwear is a different manufacturing problem from
-              apparel, so it&rsquo;s labelled concept and kept out of Drop
+              <b>Footwear and headwear, as concepts.</b> Accessories break
+              the one-finish rule on purpose: each one carries its own effect.
+              The Motion Runner has two, Footstrike and Frost Step, with the
+              chip in the heel tab and a printed QR on the tongue as backup.
+              The Race Cap grows a gold Victory Laurel, a nod to the Greek and
+              Roman roots the brand started from, and the Race Headband rolls
+              off Steam. All of it is labelled concept and kept out of Drop
               001.
             </p>
           </section>

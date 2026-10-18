@@ -29,6 +29,11 @@ export type Emitter = {
   worldVel: Vec;
   /** Footwear only: where a foot touched down this frame. */
   strikes?: Vec[];
+  /**
+   * Headwear only: the head as a circle. `up` points out of the crown,
+   * `fwd` out of the face; both are unit vectors in screen space.
+   */
+  head?: { c: Vec; r: number; up: Vec; fwd: Vec };
 };
 
 export interface Effect {
@@ -903,6 +908,485 @@ class Strike implements Effect {
   }
 }
 
+
+/* ═══════════════════════ FOOTWEAR — FROST STEP ═════════════════════
+   Each touchdown freezes a patch of road: an ice print with crystal
+   branches growing out of it, a puff of cold air and a few shards. The
+   prints stay put in the world, so a runner leaves a line of them that
+   melts away behind. */
+
+type Print = {
+  x: number;
+  y: number;
+  s: number;
+  age: number;
+  /** crystal branches in unit space: [angle, length, [tickAt, tickLen][]] */
+  arms: [number, number, [number, number][]][];
+};
+
+class Frost implements Effect {
+  private t = 0;
+  private prints: Print[] = [];
+  private shards: P[] = [];
+  private puffs: P[] = [];
+  private trails: Trail[] = [[], []];
+  private last: Emitter | null = null;
+  private intensity = 0;
+  private puff: HTMLCanvasElement;
+  private glint: HTMLCanvasElement;
+  private static LIFE = 2.2;
+
+  constructor() {
+    this.puff = softSprite("rgba(214,240,255,0.55)", 96);
+    this.glint = softSprite("rgba(230,250,255,1)", 24, 0.2);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    this.intensity = intensity;
+    if (e) this.last = e;
+    const air = (this.last ?? e)?.worldVel ?? { x: 0, y: 0 };
+    const s = this.last?.scale ?? 100;
+
+    for (let i = 0; i < 2; i++) {
+      const tr = this.trails[i];
+      for (const q of tr) {
+        q.age += dt;
+        q.x += air.x * dt;
+        q.y += air.y * dt;
+      }
+      while (tr.length && tr[0].age > 0.3) tr.shift();
+      const foot = e?.path[i];
+      if (foot && intensity > 0.05) tr.push({ x: foot.x, y: foot.y, age: 0 });
+      else if (!e) tr.length = 0;
+    }
+
+    if (e?.strikes && intensity > 0.3) for (const at of e.strikes) this.freeze(at, e);
+
+    for (let i = this.prints.length - 1; i >= 0; i--) {
+      const p = this.prints[i];
+      p.age += dt;
+      p.x += air.x * dt;
+      p.y += air.y * dt;
+      if (p.age > Frost.LIFE) this.prints.splice(i, 1);
+    }
+    const tick = (list: P[], grav: number, k: number) => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i];
+        p.age += dt;
+        if (p.age >= p.life) {
+          list[i] = list[list.length - 1];
+          list.pop();
+          continue;
+        }
+        const f = 1 - Math.exp(-k * dt);
+        p.vx += (air.x - p.vx) * f;
+        p.vy += grav * s * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
+    };
+    tick(this.shards, 6, 2);
+    tick(this.puffs, -0.15, 2.5);
+  }
+
+  private freeze(at: Vec, e: Emitter) {
+    const s = e.scale;
+    const arms: Print["arms"] = [];
+    const n = 7 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + rand(-0.25, 0.25);
+      const len = rand(0.45, 0.95);
+      const ticks: [number, number][] = [];
+      for (let k = 0; k < 3; k++) ticks.push([rand(0.3, 0.85), rand(0.12, 0.28)]);
+      arms.push([a, len, ticks]);
+    }
+    this.prints.push({ x: at.x, y: at.y, s, age: 0, arms });
+    if (this.prints.length > 14) this.prints.shift();
+
+    for (let i = 0; i < 10 && this.shards.length < 200; i++) {
+      const a = -Math.PI / 2 + rand(-1.3, 1.3);
+      const sp = rand(0.8, 2.2) * s;
+      this.shards.push({
+        x: at.x, y: at.y,
+        vx: Math.cos(a) * sp + e.worldVel.x * 0.4,
+        vy: Math.sin(a) * sp * 0.7,
+        age: 0, life: rand(0.35, 0.6), size: rand(0.02, 0.04) * s,
+        seed: Math.random() * Math.PI * 2, k: 0,
+      });
+    }
+    for (let i = 0; i < 4 && this.puffs.length < 60; i++) {
+      this.puffs.push({
+        x: at.x + rand(-0.15, 0.15) * s, y: at.y - rand(0, 0.06) * s,
+        vx: e.worldVel.x * 0.5 + rand(-0.4, 0.4) * s, vy: -rand(0.05, 0.25) * s,
+        age: 0, life: rand(0.8, 1.3), size: rand(0.25, 0.45) * s,
+        seed: 0, k: 0,
+      });
+    }
+  }
+
+  ignite(e: Emitter) {
+    for (const f of e.path) this.freeze(f, e);
+  }
+
+  clear() {
+    this.prints.length = 0;
+    this.shards.length = 0;
+    this.puffs.length = 0;
+    this.trails = [[], []];
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const s0 = this.last?.scale ?? 100;
+    ctx.save();
+    ctx.lineCap = "round";
+
+    // ice prints: a glassy pool plus crystal arms that grow out fast
+    for (const p of this.prints) {
+      const f = p.age / Frost.LIFE;
+      const grow = 1 - Math.pow(1 - Math.min(1, p.age / 0.28), 3);
+      const melt = f < 0.55 ? 1 : 1 - (f - 0.55) / 0.45;
+      const flat = 0.2; // ground plane squash
+      ctx.globalCompositeOperation = "screen";
+      ctx.globalAlpha = 0.32 * melt;
+      ctx.fillStyle = "#bfe9ff";
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, p.s * 0.34 * grow, p.s * 0.34 * grow * flat, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "#e6f8ff";
+      for (const [a, len, ticks] of p.arms) {
+        const L = p.s * len * grow;
+        const ex = p.x + Math.cos(a) * L;
+        const ey = p.y + Math.sin(a) * L * flat;
+        ctx.globalAlpha = 0.85 * melt;
+        ctx.lineWidth = Math.max(1, p.s * 0.012);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(ex, ey);
+        for (const [at, tl] of ticks) {
+          const bx = p.x + Math.cos(a) * L * at;
+          const by = p.y + Math.sin(a) * L * at * flat;
+          const tL = p.s * tl * grow;
+          for (const side of [-0.7, 0.7]) {
+            ctx.moveTo(bx, by);
+            ctx.lineTo(bx + Math.cos(a + side) * tL, by + Math.sin(a + side) * tL * flat);
+          }
+        }
+        ctx.stroke();
+      }
+      if (p.age < 0.2) {
+        ctx.globalAlpha = (1 - p.age / 0.2) * 0.9;
+        const d = p.s * 0.8;
+        ctx.drawImage(this.glint, p.x - d / 2, p.y - d / 4, d, d / 2);
+      }
+    }
+
+    // cold air
+    ctx.globalCompositeOperation = "screen";
+    for (const q of this.puffs) {
+      const f = q.age / q.life;
+      ctx.globalAlpha = Math.sin(Math.PI * f) * 0.35;
+      const d = q.size * (1 + f * 1.5) * 2;
+      ctx.drawImage(this.puff, q.x - d / 2, q.y - d / 2, d, d * 0.6);
+    }
+
+    // icy ribbons off the shoes
+    ctx.globalCompositeOperation = "lighter";
+    for (const tr of this.trails) {
+      for (let i = 1; i < tr.length; i++) {
+        const a = tr[i - 1];
+        const b = tr[i];
+        const life = 1 - b.age / 0.3;
+        if (life <= 0) continue;
+        ctx.globalAlpha = life * 0.7 * this.intensity;
+        ctx.strokeStyle = life > 0.6 ? "#f2fcff" : "#7fd3ff";
+        ctx.lineWidth = Math.max(1, s0 * 0.022 * life);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    // shards: tiny spinning diamonds
+    ctx.fillStyle = "#eafaff";
+    for (const p of this.shards) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = 1 - f;
+      const r = p.size;
+      const a = p.seed + p.age * 14;
+      ctx.beginPath();
+      ctx.moveTo(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r);
+      ctx.lineTo(p.x + Math.cos(a + 1.9) * r * 0.4, p.y + Math.sin(a + 1.9) * r * 0.4);
+      ctx.lineTo(p.x + Math.cos(a + Math.PI) * r, p.y + Math.sin(a + Math.PI) * r);
+      ctx.lineTo(p.x + Math.cos(a - 1.2) * r * 0.4, p.y + Math.sin(a - 1.2) * r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ HEADWEAR — VICTORY LAUREL ═════════════════
+   The one effect that is an object, not a particle system: a laurel
+   wreath of gold light that grows leaf by leaf around the head, with
+   dust shedding off it. A nod to where the brand started — Greek and
+   Roman victors wore laurel. */
+
+class Laurel implements Effect {
+  private t = 0;
+  private grow = 0;
+  private dust: P[] = [];
+  private head: Emitter["head"] | null = null;
+  private last: Emitter | null = null;
+  private glow: HTMLCanvasElement;
+  private mote: HTMLCanvasElement;
+  private static LEAVES = 13; // per branch
+
+  constructor() {
+    this.glow = softSprite("rgba(255,200,90,0.5)", 96);
+    this.mote = softSprite("rgba(255,224,150,1)", 16, 0.25);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    if (e) this.last = e;
+    if (e?.head) this.head = e.head;
+    // leaves arrive one by one, fall away faster
+    const target = intensity > 0.3 ? 1 : 0;
+    this.grow += (target - this.grow) * (1 - Math.exp(-(target ? 1.6 : 6) * dt));
+
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+    const h = e?.head;
+    if (h && this.grow > 0.6 && this.dust.length < 160) {
+      const n = Math.random() < dt * 70 ? 1 : 0;
+      for (let i = 0; i < n; i++) {
+        const t = Math.random() * Math.PI * 2;
+        const p = this.ring(h, t);
+        this.dust.push({
+          x: p.x, y: p.y,
+          vx: (e?.bodyVel.x ?? 0) * 0.6 + rand(-0.2, 0.2) * h.r,
+          vy: -rand(0.3, 0.9) * h.r,
+          age: 0, life: rand(0.9, 1.8), size: rand(0.07, 0.15) * h.r,
+          seed: Math.random() * 100, k: 0,
+        });
+      }
+    }
+    for (let i = this.dust.length - 1; i >= 0; i--) {
+      const p = this.dust[i];
+      p.age += dt;
+      if (p.age >= p.life) {
+        this.dust.splice(i, 1);
+        continue;
+      }
+      const f = 1 - Math.exp(-1.8 * dt);
+      p.vx += (air.x - p.vx) * f;
+      p.vx += Math.sin(this.t * 3 + p.seed) * 0.6 * (this.head?.r ?? 20) * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+  }
+
+  /** a point on the wreath; t = 0 is the front of the head */
+  private ring(h: NonNullable<Emitter["head"]>, t: number): Vec {
+    const c = { x: h.c.x + h.up.x * h.r * 0.3, y: h.c.y + h.up.y * h.r * 0.3 };
+    const rx = h.r * 1.3;
+    const ry = h.r * 0.4;
+    const x = Math.cos(t) * rx;
+    const y = Math.sin(t) * ry;
+    // fwd is the ring's long axis, up tilts it with the head
+    return {
+      x: c.x + h.fwd.x * x - h.up.x * y,
+      y: c.y + h.fwd.y * x - h.up.y * y,
+    };
+  }
+
+  ignite() {
+    this.grow = Math.max(this.grow, 0.05);
+  }
+
+  clear() {
+    this.dust.length = 0;
+    this.grow = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const h = this.head;
+    if (!h || this.grow < 0.01) return;
+    ctx.save();
+
+    // a warm halo behind everything
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.5 * this.grow;
+    const hc = this.ring(h, Math.PI / 2);
+    const d = h.r * 7;
+    ctx.drawImage(this.glow, (h.c.x + hc.x) / 2 - d / 2, (h.c.y + hc.y) / 2 - d / 2, d, d);
+
+    // two branches start at the back of the head and meet at the brow
+    const N = Laurel.LEAVES;
+    const shown = this.grow * N;
+    for (const pass of [0, 1]) {
+      for (const side of [1, -1]) {
+        for (let i = 0; i < N; i++) {
+          const k = Math.min(1, Math.max(0, shown - i));
+          if (k <= 0) continue;
+          // from the back (π) toward the front (0, 2π)
+          const u = (i + 0.5) / N;
+          const t = side > 0 ? Math.PI - u * Math.PI * 0.92 : Math.PI + u * Math.PI * 0.92;
+          // back half (sin > 0 after the up-flip) sits behind the head
+          const behind = Math.sin(t) > 0;
+          if ((pass === 0) !== behind) continue;
+          const p = this.ring(h, t);
+          const q = this.ring(h, t - side * 0.15);
+          const ang = Math.atan2(q.y - p.y, q.x - p.x);
+          const sway = Math.sin(this.t * 2.2 + i * 0.7) * 0.08;
+          const len = h.r * 0.55 * k * (1 - u * 0.2);
+          const wid = len * 0.36;
+          for (const out of [-1, 1]) {
+            const a = ang + out * (0.55 + sway);
+            this.leaf(ctx, p, a, len, wid, behind ? 0.45 : 1);
+          }
+        }
+      }
+    }
+
+    // a ribbon knot at the back
+    const back = this.ring(h, Math.PI);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.globalAlpha = 0.8 * this.grow;
+    ctx.fillStyle = "#ffd36b";
+    ctx.beginPath();
+    ctx.arc(back.x, back.y, h.r * 0.07, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (const p of this.dust) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = (1 - f) * (0.6 + 0.4 * Math.sin(this.t * 12 + p.seed));
+      const dd = p.size * 4;
+      ctx.drawImage(this.mote, p.x - dd / 2, p.y - dd / 2, dd, dd);
+    }
+    ctx.restore();
+  }
+
+  private leaf(ctx: CanvasRenderingContext2D, at: Vec, a: number, len: number, wid: number, alpha: number) {
+    // the stage draws in device pixels with an identity transform
+    ctx.setTransform(1, 0, 0, 1, at.x, at.y);
+    ctx.rotate(a);
+    const g = ctx.createLinearGradient(0, -wid, len, wid);
+    g.addColorStop(0, "#fff0b8");
+    g.addColorStop(0.5, "#ffc94d");
+    g.addColorStop(1, "#b6873f");
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = alpha * Math.min(1, this.grow * 1.4);
+    ctx.shadowColor = "rgba(255,190,80,0.9)";
+    ctx.shadowBlur = wid * 1.6;
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.quadraticCurveTo(len * 0.45, -wid, len, 0);
+    ctx.quadraticCurveTo(len * 0.45, wid, 0, 0);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha *= 0.6;
+    ctx.strokeStyle = "rgba(120,80,20,0.7)";
+    ctx.lineWidth = Math.max(0.6, wid * 0.12);
+    ctx.beginPath();
+    ctx.moveTo(len * 0.08, 0);
+    ctx.lineTo(len * 0.85, 0);
+    ctx.stroke();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+}
+
+/* ═══════════════════════ HEADWEAR — STEAM ══════════════════════════
+   Heat coming off a hard effort: steam rolls up off the crown and the
+   air blows it back, and every couple of strides a breath hangs in
+   front of the face. */
+
+class Steam extends System {
+  protected max = 220;
+  private sprites: HTMLCanvasElement[];
+  private breathAt = 0.6;
+
+  constructor() {
+    super();
+    this.sprites = [
+      softSprite("rgba(240,244,248,0.5)", 128),
+      softSprite("rgba(226,234,242,0.45)", 128),
+      softSprite("rgba(255,255,255,0.55)", 128),
+    ];
+  }
+
+  protected rate(e: Emitter) {
+    return 16 + e.scale * 0.2;
+  }
+
+  protected spawn(e: Emitter, at: Vec): P {
+    const r = e.head?.r ?? e.scale * 0.3;
+    const up = e.head?.up ?? { x: 0, y: -1 };
+    return {
+      x: at.x,
+      y: at.y,
+      vx: e.bodyVel.x * 0.7 + up.x * r * 1.2 + rand(-0.3, 0.3) * r,
+      vy: e.bodyVel.y * 0.7 + up.y * r * rand(1.2, 2.4),
+      age: 0,
+      life: rand(1.2, 2.2),
+      size: rand(0.5, 0.9) * r,
+      seed: Math.random() * 100,
+      k: Math.floor(Math.random() * 3),
+    };
+  }
+
+  protected step(p: P, dt: number, e: Emitter | null) {
+    const r = e?.head?.r ?? 20;
+    this.drag(p, dt, e, 1.4);
+    p.vy -= r * 1.6 * dt; // warm air keeps rising
+    p.vx += Math.sin(this.t * 1.7 + p.seed) * r * 1.4 * dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    super.update(dt, e, intensity);
+    if (!e?.head || intensity < 0.5) return;
+    this.breathAt -= dt;
+    if (this.breathAt > 0) return;
+    this.breathAt = rand(0.9, 1.4);
+    const h = e.head;
+    const mouth = {
+      x: h.c.x + h.fwd.x * h.r * 1.05 - h.up.x * h.r * 0.45,
+      y: h.c.y + h.fwd.y * h.r * 1.05 - h.up.y * h.r * 0.45,
+    };
+    for (let i = 0; i < 5 && this.ps.length < this.max; i++) {
+      this.ps.push({
+        x: mouth.x,
+        y: mouth.y,
+        vx: e.bodyVel.x + h.fwd.x * h.r * rand(1.5, 3),
+        vy: e.bodyVel.y + h.fwd.y * h.r * rand(1.5, 3) + rand(-0.3, 0.2) * h.r,
+        age: 0,
+        life: rand(0.8, 1.3),
+        size: rand(0.35, 0.6) * h.r,
+        seed: Math.random() * 100,
+        k: 2,
+      });
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (const p of this.ps) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.2)) * (p.k === 2 ? 0.45 : 0.32);
+      const d = p.size * (1 + f * 2.4) * 2;
+      ctx.drawImage(this.sprites[p.k], p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
 /* ─────────────────────────── factory ─────────────────────────── */
 
 export function createEffect(id: EffectId): Effect {
@@ -919,6 +1403,12 @@ export function createEffect(id: EffectId): Effect {
       return new Streaks();
     case "strike":
       return new Strike();
+    case "frost":
+      return new Frost();
+    case "laurel":
+      return new Laurel();
+    case "steam":
+      return new Steam();
   }
 }
 

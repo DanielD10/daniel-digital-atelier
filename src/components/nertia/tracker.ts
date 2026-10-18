@@ -13,6 +13,11 @@ const MODEL =
   "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
 // BlazePose indices
+const NOSE = 0;
+const L_EYE = 2;
+const R_EYE = 5;
+const L_EAR = 7;
+const R_EAR = 8;
 const L_SH = 11;
 const R_SH = 12;
 const L_HIP = 23;
@@ -25,7 +30,7 @@ const L_HEEL = 29;
 const R_HEEL = 30;
 const L_TOE = 31;
 const R_TOE = 32;
-const USED = [L_SH, R_SH, L_HIP, R_HIP, L_KNEE, R_KNEE, L_ANK, R_ANK, L_HEEL, R_HEEL, L_TOE, R_TOE];
+const USED = [NOSE, L_EYE, R_EYE, L_EAR, R_EAR, L_SH, R_SH, L_HIP, R_HIP, L_KNEE, R_KNEE, L_ANK, R_ANK, L_HEEL, R_HEEL, L_TOE, R_TOE];
 
 export type Fit = { s: number; ox: number; oy: number; vw: number; vh: number; mirror: boolean };
 
@@ -100,7 +105,9 @@ export class PoseTracker {
         ? [L_SH, R_SH, L_HIP, R_HIP]
         : region === "bottom"
           ? [L_HIP, R_HIP, L_KNEE, R_KNEE]
-          : [L_ANK, R_ANK, L_TOE, R_TOE];
+          : region === "feet"
+            ? [L_ANK, R_ANK, L_TOE, R_TOE]
+            : [NOSE];
     for (const i of need) {
       if ((pose[i].visibility ?? 1) < 0.45) return null;
     }
@@ -128,8 +135,38 @@ export class PoseTracker {
     let scale: number;
     let center: Vec;
     let strikes: Vec[] | undefined;
+    let head: Emitter["head"];
 
-    if (region === "feet") {
+    if (region === "head") {
+      // at least one ear, or a side-on head has nothing to anchor to
+      const vis = (i: number) => (pose[i].visibility ?? 1) >= 0.35;
+      if (!vis(L_EAR) && !vis(R_EAR)) return null;
+      const earMid = vis(L_EAR) && vis(R_EAR) ? mid(P[L_EAR], P[R_EAR]) : vis(L_EAR) ? P[L_EAR] : P[R_EAR];
+      const c = lerp(earMid, P[NOSE], 0.25);
+      const r = Math.max(
+        dist(P[L_EAR], P[R_EAR]) * 0.6,
+        dist(P[L_EYE], P[R_EYE]) * 1.6,
+        dist(P[NOSE], earMid) * 1.1,
+        20,
+      );
+      const up =
+        vis(L_SH) && vis(R_SH) ? norm(sub(c, mid(P[L_SH], P[R_SH]))) : { x: 0, y: -1 };
+      // facing: the nose's offset from the ears, across the up axis
+      const side = { x: -up.y, y: up.x };
+      const toNose = sub(P[NOSE], earMid);
+      const d = toNose.x * side.x + toNose.y * side.y;
+      const fwd = Math.abs(d) > r * 0.3 && d < 0 ? mul(side, -1) : side;
+
+      scale = r / 0.27; // matches the demo runner's head-to-scale ratio
+      head = { c, r, up, fwd };
+      path = [];
+      for (let i = 0; i <= 6; i++) {
+        const th = -1.25 + (i / 6) * 2.5;
+        path.push(add(c, add(mul(up, Math.cos(th) * r), mul(fwd, Math.sin(th) * r))));
+      }
+      fabric = [];
+      center = c;
+    } else if (region === "feet") {
       // shoe size sets the scale; fall back to ankle spacing when the
       // feet are side-on and the heel-to-toe line is foreshortened
       const shoeL = Math.max(dist(P[L_HEEL], P[L_TOE]), dist(P[R_HEEL], P[R_TOE]));
@@ -207,6 +244,7 @@ export class PoseTracker {
         // the phone is still, so the air is still
         worldVel: { x: 0, y: 0 },
         strikes,
+        head,
       },
       fabric,
     };

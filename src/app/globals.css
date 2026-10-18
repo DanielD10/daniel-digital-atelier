@@ -3994,6 +3994,28 @@ main { position: relative; z-index: 3; }
 }
 .nx-side-label { margin: 2px 0 0; }
 
+.nx-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--nx-line);
+}
+.nx-tabs button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 6px;
+  padding: 10px 6px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+  transition: background 200ms ease, color 200ms ease;
+}
+.nx-tabs button + button { border-left: 1px solid var(--nx-line); }
+.nx-tabs button span { font-size: 9px; letter-spacing: 0; opacity: 0.7; }
+.nx-tabs button:hover { color: var(--bone); }
+.nx-tabs button[aria-pressed="true"] { background: var(--bone); color: var(--ink); }
+
 .nx-units {
   list-style: none;
   margin: 0;

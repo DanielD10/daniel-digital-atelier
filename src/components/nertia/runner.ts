@@ -138,6 +138,11 @@ export class DemoScene {
     ctx.beginPath();
     ctx.ellipse(head.x, head.y, Hb * 0.056, Hb * 0.064, lean, 0, Math.PI * 2);
     ctx.fill();
+    if (region === "head") {
+      ctx.shadowBlur = 0;
+      this.drawHeadgear(ctx, head, lean, Hb, finish, unit.headgear ?? "cap");
+      ctx.shadowBlur = Hb * 0.035;
+    }
 
     // near leg, then the short over it, then the top over the waist
     drawLeg(ctx, near, Hb, skin, shoe, region === "feet");
@@ -169,7 +174,22 @@ export class DemoScene {
     let emitPath: Pt[];
     if (region === "top") emitPath = torso.back;
     else if (region === "bottom") emitPath = shortsHem(hip, near, far, Hb, lean, shortLen);
-    else emitPath = [footAt(far), footAt(near)];
+    else if (region === "feet") emitPath = [footAt(far), footAt(near)];
+    else emitPath = [];
+
+    // the head as a circle, for headwear effects
+    const up: Pt = { x: Math.sin(lean), y: -Math.cos(lean) };
+    const fwd: Pt = { x: Math.cos(lean), y: Math.sin(lean) };
+    const headR = Hb * 0.064;
+    if (region === "head") {
+      for (let i = 0; i <= 6; i++) {
+        const th = -1.25 + (i / 6) * 2.5;
+        emitPath.push({
+          x: head.x + up.x * Math.cos(th) * headR + fwd.x * Math.sin(th) * headR,
+          y: head.y + up.y * Math.cos(th) * headR + fwd.y * Math.sin(th) * headR,
+        });
+      }
+    }
 
     // body moves only vertically on screen — the stride's bounce
     return {
@@ -180,8 +200,60 @@ export class DemoScene {
         bodyVel: { x: 0, y: 0 },
         worldVel: { x: -runSpeed, y: 0 },
         strikes,
+        head: { c: head, r: headR, up, fwd },
       },
     };
+  }
+
+  /** A cap (crown and brim) or a headband, in the unit's finish. */
+  private drawHeadgear(
+    ctx: CanvasRenderingContext2D,
+    head: Pt,
+    lean: number,
+    Hb: number,
+    finish: Finish,
+    kind: "cap" | "band",
+  ) {
+    const rx = Hb * 0.058;
+    const ry = Hb * 0.066;
+    const fill = this.shoeFill(ctx, head.x, head.y, Hb, finish);
+    ctx.save();
+    ctx.translate(head.x, head.y);
+    ctx.rotate(lean);
+    if (kind === "cap") {
+      // brim first, poking out over the face
+      ctx.fillStyle = fill;
+      ctx.beginPath();
+      ctx.ellipse(rx * 0.95, -ry * 0.12, rx * 0.62, ry * 0.12, 0.08, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx * 1.04, ry * 1.04, 0, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.fillStyle = fill;
+    if (kind === "cap") {
+      ctx.fillRect(-rx * 1.2, -ry * 1.2, rx * 2.4, ry * 1.05);
+      // seam and button
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = Math.max(1, Hb * 0.003);
+      ctx.beginPath();
+      ctx.moveTo(0, -ry * 1.05);
+      ctx.quadraticCurveTo(rx * 0.25, -ry * 0.6, rx * 0.2, -ry * 0.16);
+      ctx.stroke();
+    } else {
+      ctx.fillRect(-rx * 1.2, -ry * 0.62, rx * 2.4, ry * 0.36);
+    }
+    // sheen
+    const f = (this.sheen % 2.6) / 2.6;
+    const g = ctx.createLinearGradient(-rx + f * rx * 3, 0, -rx + f * rx * 3 + rx * 0.6, 0);
+    g.addColorStop(0, "rgba(255,255,255,0)");
+    g.addColorStop(0.5, finish.id === "full-reflect" ? "rgba(255,255,255,0.9)" : "rgba(255,255,255,0.35)");
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = g;
+    if (kind === "cap") ctx.fillRect(-rx * 1.2, -ry * 1.2, rx * 2.4, ry * 1.05);
+    else ctx.fillRect(-rx * 1.2, -ry * 0.62, rx * 2.4, ry * 0.36);
+    ctx.restore();
   }
 
   /** The shoe's iridescence, sliding along the ground line as it runs. */

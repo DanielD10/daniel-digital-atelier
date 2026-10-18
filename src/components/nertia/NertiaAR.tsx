@@ -1,7 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { finishes, units, unitEffect, unitLabel, type Unit } from "@/lib/nertia";
+import {
+  categoryOf,
+  finishes,
+  units,
+  unitEffect,
+  unitLabel,
+  type Category,
+  type Unit,
+} from "@/lib/nertia";
+
+const CATEGORIES: { id: Category; label: string }[] = [
+  { id: "apparel", label: "Apparel" },
+  { id: "footwear", label: "Footwear" },
+  { id: "headwear", label: "Headwear" },
+];
 import { createEffect, type Effect, type Emitter, type Vec } from "./effects";
 import { DemoScene } from "./runner";
 import { coverFit, PoseTracker } from "./tracker";
@@ -39,6 +53,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const [inFrame, setInFrame] = useState(true);
   const [paused, setPaused] = useState(false);
   const [touched, setTouched] = useState(false);
+  const [cat, setCat] = useState<Category>("apparel");
 
   // The render loop reads these through refs so React re-renders never
   // restart it.
@@ -424,7 +439,9 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
               ? "Step back until your shoulders and hips are in frame"
               : unit.region === "bottom"
                 ? "Step back until your hips and knees are in frame"
-                : "Point the camera at your feet, or step back until they're in frame"}
+                : unit.region === "feet"
+                  ? "Point the camera at your feet, or step back until they're in frame"
+                  : "Face the camera so your head and ears are in frame"}
           </p>
         ) : null}
         {cam.kind === "error" ? (
@@ -437,8 +454,24 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
 
       <div className="nx-side">
         <p className="micro nx-side-label">Drop 001 · Liquid Series — tap a chip</p>
+        <div className="nx-tabs" role="group" aria-label="Category">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              aria-pressed={cat === c.id}
+              onClick={() => {
+                setTouched(true);
+                setCat(c.id);
+              }}
+            >
+              {c.label}
+              <span>{units.filter((u) => categoryOf(u.region) === c.id).length}</span>
+            </button>
+          ))}
+        </div>
         <ul className="nx-units">
-          {units.map((u) => {
+          {units.filter((u) => categoryOf(u.region) === cat).map((u) => {
             const f = finishes[u.finish];
             const on = u.id === unit.id && chip !== "idle";
             return (
@@ -499,7 +532,7 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
       </header>
 
       <p className="nx-cert-kicker">
-        Certificate of unit{unit.concept ? " · footwear concept" : ""}
+        Certificate of unit{unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}
       </p>
       <p className="nx-cert-no">
         {no}
@@ -523,10 +556,10 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
             <b>{fx.name}</b> — bound to this unit
           </dd>
         </div>
-        {unit.region === "feet" ? (
+        {unit.chip ? (
           <div>
             <dt>Chip</dt>
-            <dd>NFC in the heel tab, printed QR on the tongue as backup</dd>
+            <dd>{unit.chip}</dd>
           </div>
         ) : (
           <div>
@@ -541,7 +574,7 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
         )}
         <div>
           <dt>Owner</dt>
-          <dd>You — the effect transfers with the {unit.region === "feet" ? "pair" : "garment"} at resale</dd>
+          <dd>You — the effect transfers with the {unit.region === "feet" ? "pair" : unit.region === "head" ? "piece" : "garment"} at resale</dd>
         </div>
       </dl>
 

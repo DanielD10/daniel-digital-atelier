@@ -14,7 +14,16 @@ export type FinishId =
   | "liquid-chrome"
   | "full-reflect";
 
-export type EffectId = "flames" | "stars" | "mist" | "bubbles" | "streaks" | "strike";
+export type EffectId =
+  | "flames"
+  | "stars"
+  | "mist"
+  | "bubbles"
+  | "streaks"
+  | "strike"
+  | "frost"
+  | "laurel"
+  | "steam";
 
 export type Finish = {
   id: FinishId;
@@ -77,7 +86,13 @@ export const finishes: Record<FinishId, Finish> = {
   },
 };
 
-export type Region = "top" | "bottom" | "feet";
+export type Region = "top" | "bottom" | "feet" | "head";
+
+export type Category = "apparel" | "footwear" | "headwear";
+
+export function categoryOf(r: Region): Category {
+  return r === "feet" ? "footwear" : r === "head" ? "headwear" : "apparel";
+}
 
 export type Unit = {
   id: string;
@@ -90,11 +105,15 @@ export type Unit = {
   unit: number;
   of: number;
   washes: number;
-  /** Footwear is outside Drop 001 — labelled as a concept everywhere. */
+  /** Footwear and headwear are outside Drop 001 — labelled as concepts everywhere. */
   concept?: boolean;
+  /** How the demo runner draws headwear. */
+  headgear?: "cap" | "band";
+  /** Where the chip lives, when it isn't the hem. */
+  chip?: string;
   /**
-   * Footwear breaks the one-finish-one-effect rule on purpose: every
-   * shoe gets the footstrike effect, colored by its finish.
+   * Accessories break the one-finish-one-effect rule on purpose: each
+   * accessory carries its own effect, whatever its finish.
    */
   effect?: { id: EffectId; name: string; line: string };
 };
@@ -169,10 +188,64 @@ export const units: Unit[] = [
     of: 100,
     washes: 0,
     concept: true,
+    chip: "NFC in the heel tab, printed QR on the tongue as backup",
     effect: {
       id: "strike",
       name: "Footstrike",
       line: "Every footstrike lands as a shockwave, and the shoes leave light on the road.",
+    },
+  },
+  {
+    id: "runner-chrome-014",
+    product: "Motion Runner",
+    fit: "W",
+    finish: "liquid-chrome",
+    region: "feet",
+    unit: 14,
+    of: 100,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the heel tab, printed QR on the tongue as backup",
+    effect: {
+      id: "frost",
+      name: "Frost Step",
+      line: "Each step freezes the road. Ice prints spread under you and melt behind.",
+    },
+  },
+  {
+    id: "cap-pearl-009",
+    product: "Race Cap",
+    fit: "M",
+    finish: "bone-pearl",
+    region: "head",
+    headgear: "cap",
+    unit: 9,
+    of: 80,
+    washes: 0,
+    concept: true,
+    chip: "NFC sealed in the brim",
+    effect: {
+      id: "laurel",
+      name: "Victory Laurel",
+      line: "A gold laurel of light grows around your head and sheds dust as you run.",
+    },
+  },
+  {
+    id: "band-reflect-031",
+    product: "Race Headband",
+    fit: "W",
+    finish: "full-reflect",
+    region: "head",
+    headgear: "band",
+    unit: 31,
+    of: 80,
+    washes: 0,
+    concept: true,
+    chip: "NFC woven into the band's seam",
+    effect: {
+      id: "steam",
+      name: "Steam",
+      line: "Heat rolls off you as steam, and every breath hangs in the cold.",
     },
   },
 ];
