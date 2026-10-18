@@ -10,8 +10,13 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    // camera=(self): the NERTIA prototype (/work/nertia) opens the
+    // camera on request. It can't be scoped to that one route — the
+    // policy belongs to the document, and a client-side navigation
+    // from any other page keeps the policy that page loaded with.
+    // (self) still blocks every embedded third-party frame.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+    value: "camera=(self), microphone=(), geolocation=(), interest-cohort=()",
   },
   {
     key: "Strict-Transport-Security",

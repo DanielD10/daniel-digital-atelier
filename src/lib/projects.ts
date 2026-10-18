@@ -43,6 +43,15 @@ export const projects: Project[] = [
       "Music discovery driven by how a track feels rather than how it is tagged.",
   },
   {
+    slug: "nertia",
+    name: "NERTIA",
+    kind: "Running brand · AR",
+    tags: ["Own venture", "In development", "AR prototype"],
+    artClass: "art-nertia",
+    summary:
+      "Numbered running wear where each garment's chip unlocks its own AR effect. Flames, stars, mist, chrome, light.",
+  },
+  {
     slug: "altura",
     name: "ALTURA",
     kind: "Automotive concept",

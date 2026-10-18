@@ -21,7 +21,7 @@ export default function WorkIndex() {
 
         <h1>Selected work</h1>
         <p className="lede">
-          Four projects. Each labelled for what it is — concept work says
+          Five projects. Each labelled for what it is — concept work says
           concept, client work says client.
         </p>
 

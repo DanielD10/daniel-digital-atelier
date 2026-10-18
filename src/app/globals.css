@@ -3811,3 +3811,423 @@ main { position: relative; z-index: 3; }
   letter-spacing: 0.05em;
   color: rgba(243, 238, 230, 0.4);
 }
+
+/* ═══════════════ NERTIA — AR PROTOTYPE ═══════════════
+   The case page is the prototype. The stage is a canvas; everything
+   around it is ordinary DOM so it stays accessible and crisp. The
+   accent follows the tapped unit's finish via --nx-accent. */
+
+.art-nertia {
+  background:
+    radial-gradient(38% 30% at 30% 70%, rgba(255, 92, 26, 0.5), transparent 70%),
+    radial-gradient(36% 34% at 68% 38%, rgba(138, 124, 255, 0.4), transparent 70%),
+    radial-gradient(30% 26% at 78% 74%, rgba(63, 209, 198, 0.3), transparent 72%),
+    linear-gradient(165deg, #121117 0%, #0a0a0d 58%, #050506 100%);
+}
+
+.nx {
+  --nx-accent: #ff5c1a;
+  --nx-line: rgba(74, 69, 62, 0.5);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 20px;
+  margin: 0 0 clamp(72px, 10vw, 130px);
+  align-items: start;
+}
+
+.nx-stage {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  min-height: 380px;
+  background: #070708;
+  border: 1px solid var(--nx-line);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.nx-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* The video only feeds the canvas. Kept in the tree (not display:none)
+   because iOS Safari stops decoding frames for hidden videos. */
+.nx-video {
+  position: absolute;
+  width: 2px;
+  height: 2px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nx-bar {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  z-index: 2;
+}
+
+.nx-seg {
+  display: inline-flex;
+  border: 1px solid rgba(239, 234, 225, 0.22);
+  background: rgba(7, 6, 5, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.nx-seg button {
+  padding: 10px 14px;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-soft);
+  transition: background 200ms ease, color 200ms ease;
+}
+.nx-seg button[aria-pressed="true"] {
+  background: var(--bone);
+  color: var(--ink);
+}
+.nx-seg button:not([aria-pressed="true"]):hover { color: var(--bone); }
+
+.nx-tools { display: flex; gap: 6px; }
+.nx-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(239, 234, 225, 0.22);
+  background: rgba(7, 6, 5, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--bone-soft);
+  transition: color 200ms ease, border-color 200ms ease;
+}
+.nx-icon:hover { color: var(--bone); border-color: rgba(239, 234, 225, 0.5); }
+.nx-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* the chip being read: three rings off the hem */
+.nx-read {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 3;
+  pointer-events: none;
+  background: radial-gradient(40% 40% at 50% 50%, rgba(7, 6, 5, 0.55), transparent 80%);
+}
+.nx-ring {
+  grid-area: 1 / 1;
+  width: 64px;
+  height: 64px;
+  border: 1px solid var(--nx-accent);
+  border-radius: 50%;
+  opacity: 0;
+  animation: nxRing 950ms cubic-bezier(0.2, 0.6, 0.2, 1) infinite;
+}
+.nx-ring:nth-child(2) { animation-delay: 160ms; }
+.nx-ring:nth-child(3) { animation-delay: 320ms; }
+.nx-read p {
+  grid-area: 1 / 1;
+  margin: 120px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+@keyframes nxRing {
+  0% { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+
+.nx-note,
+.nx-cue {
+  position: absolute;
+  left: 50%;
+  bottom: 62px;
+  transform: translateX(-50%);
+  z-index: 2;
+  margin: 0;
+  max-width: min(88%, 440px);
+  padding: 10px 14px;
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: var(--bone);
+  background: rgba(7, 6, 5, 0.72);
+  border: 1px solid rgba(239, 234, 225, 0.18);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.nx-note.is-error { border-color: rgba(255, 92, 26, 0.55); }
+.nx-cue {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  animation: nxCue 2.4s ease-in-out infinite;
+}
+@keyframes nxCue {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* ── side: units + certificate ── */
+.nx-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+.nx-side-label { margin: 2px 0 0; }
+
+.nx-units {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.nx-unit {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  text-align: left;
+  border: 1px solid var(--nx-line);
+  background: #0b0a09;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.nx-unit:hover { border-color: rgba(239, 234, 225, 0.35); }
+.nx-unit[aria-pressed="true"] {
+  border-color: var(--nx-accent);
+  background: #100e0c;
+}
+.nx-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--sw);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+.nx-unit-text { display: grid; gap: 3px; min-width: 0; }
+.nx-unit-name {
+  font-size: 13px;
+  color: var(--bone);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nx-unit-name i {
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--bone-dim);
+  margin-left: 4px;
+}
+.nx-unit-meta {
+  font-size: 9.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-unit-no {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--bone-dim);
+}
+.nx-unit[aria-pressed="true"] .nx-unit-no { color: var(--nx-accent); }
+
+.nx-cert {
+  border: 1px solid var(--nx-line);
+  padding: 20px 20px 18px;
+  background:
+    radial-gradient(80% 50% at 100% 0%, color-mix(in srgb, var(--nx-accent) 14%, transparent), transparent 70%),
+    #0b0a09;
+  transition: opacity 300ms ease;
+}
+.nx-cert-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--nx-line);
+}
+.nx-cert-brand {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  color: var(--bone);
+}
+.nx-cert-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-cert.is-live .nx-cert-status { color: var(--nx-accent); }
+.nx-cert-status svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.nx-cert-kicker {
+  margin: 16px 0 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-cert-no {
+  margin: 0 0 14px;
+  font-family: var(--f-display);
+  font-size: 58px;
+  line-height: 1;
+  color: #f6f2ea;
+}
+.nx-cert-no span {
+  font-family: var(--f-micro);
+  font-size: 13px;
+  margin-left: 8px;
+  color: var(--bone-dim);
+}
+.nx-cert-rows { margin: 0; display: grid; gap: 10px; }
+.nx-cert-rows > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+.nx-cert-rows dt {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-cert-rows dd {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d8d3ca;
+}
+.nx-cert-rows b { font-weight: 500; color: var(--bone); }
+.nx-meter {
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  background: rgba(239, 234, 225, 0.12);
+}
+.nx-meter span {
+  display: block;
+  height: 100%;
+  background: var(--nx-accent);
+  transition: width 600ms ease;
+}
+.nx-cert-line {
+  margin: 16px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--nx-line);
+  font-family: var(--f-display);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #e6e1d8;
+}
+.nx-cert.is-idle .nx-cert-rows,
+.nx-cert.is-idle .nx-cert-no,
+.nx-cert.is-reading .nx-cert-rows,
+.nx-cert.is-reading .nx-cert-no { opacity: 0.4; }
+
+/* ── write-up ── */
+.nx-write {
+  display: grid;
+  gap: clamp(48px, 7vw, 84px);
+  max-width: 64ch;
+}
+.nx-write section > h2 { margin-bottom: 18px; }
+.nx-h { margin-bottom: 12px !important; }
+.nx-write b { font-weight: 500; color: var(--bone); }
+.nx-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--nx-line);
+}
+.nx-list li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--nx-line);
+}
+.nx-list b { font-weight: 400; color: var(--bone); }
+.nx-list span:last-child {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.nx-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+.nx-stack { margin-top: -24px; }
+
+@media (max-width: 900px) {
+  .nx { grid-template-columns: minmax(0, 1fr); }
+  .nx-stage {
+    aspect-ratio: 4 / 5;
+    max-height: 78svh;
+    min-height: 0;
+    width: 100%;
+  }
+  /* a thumb strip, not a stacked list, so the stage stays in view */
+  .nx-units {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(240px, 78%);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    margin: 0 calc(var(--gut) * -1);
+    padding: 0 var(--gut);
+    scroll-padding: 0 var(--gut);
+  }
+  .nx-units::-webkit-scrollbar { display: none; }
+  .nx-units li { scroll-snap-align: start; }
+}
+
+@media (max-width: 480px) {
+  .nx-seg button { padding: 9px 10px; letter-spacing: 0.12em; }
+  .nx-bar { padding: 10px; }
+  .nx-cert-rows > div { grid-template-columns: 84px minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-ring, .nx-cue { animation: none; }
+  .nx-ring { opacity: 0.6; }
+}

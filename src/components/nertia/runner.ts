@@ -1,0 +1,571 @@
+/**
+ * The demo runner — a side-on athlete on a night road, drawn
+ * procedurally so the page needs no video asset and no camera.
+ *
+ * The camera tracks the runner, so the world slides left at running
+ * pace. The runner reports that as `worldVel`, and the effect engine
+ * treats it exactly like still air in camera mode. Same physics,
+ * different camera.
+ */
+
+import type { Finish, Unit } from "@/lib/nertia";
+import type { Emitter, Vec } from "./effects";
+
+type Pt = Vec;
+
+const add = (a: Pt, b: Pt): Pt => ({ x: a.x + b.x, y: a.y + b.y });
+const mul = (a: Pt, k: number): Pt => ({ x: a.x * k, y: a.y * k });
+/** angle measured from straight down, positive = forward (+x) */
+const dir = (a: number): Pt => ({ x: Math.sin(a), y: Math.cos(a) });
+
+type Limb = { a: Pt; b: Pt; c: Pt; foot?: Pt };
+
+export type RunnerFrame = {
+  emitter: Emitter;
+  hip: Pt;
+};
+
+/* ─────────────────────────── the world ─────────────────────────── */
+
+type Building = { x: number; w: number; h: number; lit: number[] };
+
+export class DemoScene {
+  private phase = 0;
+  private scroll = 0;
+  private skyline: Building[] = [];
+  private skylineWidth = 0;
+  private sheen = 0;
+
+  constructor() {
+    // A generic skyline with one needle-and-saucer tower — a nod to
+    // San Antonio's skyline without reproducing any one building.
+    let x = 0;
+    for (let i = 0; i < 26; i++) {
+      const w = 0.03 + Math.random() * 0.05;
+      const h = 0.04 + Math.random() * 0.1;
+      const lit: number[] = [];
+      for (let j = 0; j < 6; j++) lit.push(Math.random());
+      this.skyline.push({ x, w, h, lit });
+      x += w + 0.004 + Math.random() * 0.012;
+    }
+    this.skylineWidth = x;
+  }
+
+  /** Draws the scene and runner; returns where the garment emits from. */
+  frame(
+    ctx: CanvasRenderingContext2D,
+    W: number,
+    H: number,
+    dt: number,
+    unit: Unit,
+    finish: Finish,
+    active: boolean,
+  ): RunnerFrame {
+    const groundY = H * 0.86;
+    // body height: fit the frame on phones and wide desktops alike
+    const Hb = Math.min(H * 0.62, W * 0.95);
+    const runSpeed = Hb * 1.55; // px/s the world slides by
+    const cadence = 1.42; // full gait cycles per second
+
+    this.phase += dt * Math.PI * 2 * cadence;
+    this.scroll += runSpeed * dt;
+    this.sheen += dt;
+
+    this.drawWorld(ctx, W, H, groundY, finish, active);
+
+    const hipX = W * 0.52;
+    const r = this.pose(this.phase, Hb);
+
+    // pin the lower foot to the road — that is what makes the stride
+    // bounce, rather than a hand-tuned sine bob
+    const lowest = Math.max(r.nearLeg.c.y, r.farLeg.c.y);
+    const footPad = Hb * 0.03;
+    const off: Pt = { x: hipX, y: groundY - footPad - lowest };
+    const T = (p: Pt) => add(p, off);
+    const near = mapLimb(r.nearLeg, T);
+    const far = mapLimb(r.farLeg, T);
+    const nearArm = mapLimb(r.nearArm, T);
+    const farArm = mapLimb(r.farArm, T);
+    const hip = T(r.hip);
+    const sh = T(r.shoulder);
+    const head = T(r.head);
+
+    // ground shadow
+    ctx.save();
+    const sg = ctx.createRadialGradient(hipX, groundY, 0, hipX, groundY, Hb * 0.32);
+    sg.addColorStop(0, "rgba(0,0,0,0.55)");
+    sg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = sg;
+    ctx.scale(1, 0.12);
+    ctx.fillRect(hipX - Hb * 0.4, groundY / 0.12 - Hb * 0.4, Hb * 0.8, Hb * 0.8);
+    ctx.restore();
+
+    const skin = "#18181e";
+    const skinFar = "#0f0f13";
+    const base = "#1f1f26"; // the neutral half of the kit
+    const rim = finish.accent;
+    const lean = r.lean;
+    const glow = hexA(rim, active ? 0.6 : 0.28);
+
+    ctx.save();
+    ctx.shadowColor = glow;
+    ctx.shadowBlur = Hb * 0.035;
+
+    // far side first, a shade darker
+    drawArm(ctx, farArm, Hb, skinFar);
+    drawLeg(ctx, far, Hb, skinFar);
+
+    const torso = torsoPath(hip, sh, lean, Hb);
+    const fill = this.garmentFill(ctx, hip, sh, Hb, finish);
+    const isTop = unit.region === "top";
+    const shortFill = isTop ? base : fill;
+    const shortLen = isTop ? 0.4 : 0.36;
+
+    // far thigh of the short
+    ctx.shadowBlur = 0;
+    capsule(ctx, far.a, lerp(far.a, far.b, shortLen), Hb * 0.06, Hb * 0.043, shortFill);
+    if (unit.sleeves) drawSleeve(ctx, farArm, Hb, fill, 0.6);
+
+    // torso, neck, head
+    ctx.shadowBlur = Hb * 0.035;
+    ctx.fillStyle = skin;
+    ctx.fill(torso.path);
+    const neckTop = { x: head.x - Hb * 0.012, y: head.y + Hb * 0.045 };
+    capsule(ctx, sh, neckTop, Hb * 0.026, Hb * 0.022, skin);
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(head.x, head.y, Hb * 0.056, Hb * 0.064, lean, 0, Math.PI * 2);
+    ctx.fill();
+
+    // near leg, then the short over it, then the top over the waist
+    drawLeg(ctx, near, Hb, skin);
+    ctx.shadowBlur = 0;
+    // seat of the short
+    ctx.fillStyle = shortFill;
+    ctx.beginPath();
+    ctx.ellipse(hip.x - Hb * 0.006, hip.y - Hb * 0.004, Hb * 0.07, Hb * 0.05, -lean, 0, Math.PI * 2);
+    ctx.fill();
+    capsule(ctx, near.a, lerp(near.a, near.b, shortLen), Hb * 0.062, Hb * 0.044, shortFill);
+
+    let emitPath: Pt[];
+    if (isTop) {
+      ctx.fillStyle = fill;
+      ctx.fill(torso.garment);
+      this.garmentSheen(ctx, torso.garment, hip, sh, Hb, finish);
+      emitPath = torso.back;
+    } else {
+      this.garmentSheenStroke(ctx, near, Hb, finish);
+      ctx.fillStyle = base;
+      ctx.fill(torso.garment);
+      emitPath = shortsHem(hip, near, far, Hb, lean, shortLen);
+    }
+
+    // near arm in front of everything
+    ctx.shadowBlur = Hb * 0.035;
+    drawArm(ctx, nearArm, Hb, skin);
+    ctx.shadowBlur = 0;
+    if (unit.sleeves) drawSleeve(ctx, nearArm, Hb, fill, 1);
+    ctx.restore();
+
+    // body moves only vertically on screen — the stride's bounce
+    return {
+      hip,
+      emitter: {
+        path: emitPath,
+        scale: Hb * 0.24,
+        bodyVel: { x: 0, y: 0 },
+        worldVel: { x: -runSpeed, y: 0 },
+      },
+    };
+  }
+
+  /* ─────────────────────── gait ─────────────────────── */
+
+  private pose(phi: number, Hb: number) {
+    const thighL = Hb * 0.245;
+    const shinL = Hb * 0.25;
+    const upperL = Hb * 0.17;
+    const foreL = Hb * 0.155;
+    const torsoL = Hb * 0.3;
+    const lean = 0.17;
+
+    const hip: Pt = { x: 0, y: 0 };
+    const shoulder = add(hip, { x: Math.sin(lean) * torsoL, y: -Math.cos(lean) * torsoL });
+    const head = add(shoulder, { x: Math.sin(lean) * Hb * 0.1 + Hb * 0.02, y: -Hb * 0.1 });
+
+    const leg = (p: number): Limb => {
+      const th = 0.56 * Math.sin(p) - 0.06;
+      const kn = 0.26 + 1.2 * Math.pow(Math.max(0, Math.cos(p + 0.45)), 1.4);
+      const knee = add(hip, mul(dir(th), thighL));
+      const shinA = th - kn;
+      const ankle = add(knee, mul(dir(shinA), shinL));
+      // foot points forward, toes dropping through swing
+      const footA = shinA + Math.PI / 2 + 0.15 * Math.sin(p);
+      const foot = add(ankle, mul(dir(footA), Hb * 0.075));
+      return { a: hip, b: knee, c: ankle, foot };
+    };
+
+    const arm = (p: number): Limb => {
+      const ua = 0.78 * Math.sin(p) - 0.05;
+      const fa = ua + 1.5 + 0.22 * Math.sin(p);
+      const elbow = add(shoulder, mul(dir(ua), upperL));
+      const hand = add(elbow, mul(dir(fa), foreL));
+      return { a: shoulder, b: elbow, c: hand };
+    };
+
+    return {
+      hip,
+      shoulder,
+      head,
+      lean,
+      nearLeg: leg(phi),
+      farLeg: leg(phi + Math.PI),
+      // arms swing opposite their own-side leg
+      nearArm: arm(phi + Math.PI),
+      farArm: arm(phi),
+    };
+  }
+
+  /* ─────────────────────── world ─────────────────────── */
+
+  private drawWorld(
+    ctx: CanvasRenderingContext2D,
+    W: number,
+    H: number,
+    groundY: number,
+    finish: Finish,
+    active: boolean,
+  ) {
+    const sky = ctx.createLinearGradient(0, 0, 0, groundY);
+    sky.addColorStop(0, "#070708");
+    sky.addColorStop(0.75, "#0d0d11");
+    sky.addColorStop(1, "#15141a");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, groundY);
+
+    // horizon glow takes the finish's color once a unit is live
+    const glow = ctx.createRadialGradient(W * 0.5, groundY, 0, W * 0.5, groundY, W * 0.7);
+    glow.addColorStop(0, hexA(finish.accent, active ? 0.16 : 0.06));
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, groundY);
+
+    // skyline, slow parallax
+    const unitW = Math.max(W, 700);
+    const span = this.skylineWidth * unitW;
+    const sx = -((this.scroll * 0.06) % span);
+    ctx.fillStyle = "#0e0e12";
+    for (let rep = 0; rep < 3; rep++) {
+      const base = sx + rep * span;
+      if (base > W) break;
+      for (const b of this.skyline) {
+        const x = base + b.x * unitW;
+        const w = b.w * unitW;
+        if (x > W || x + w < 0) continue;
+        const h = b.h * H;
+        ctx.fillRect(x, groundY - h, w, h);
+        // a few lit windows
+        ctx.fillStyle = "rgba(255,190,120,0.16)";
+        for (let j = 0; j < b.lit.length; j++) {
+          if (b.lit[j] > 0.55) continue;
+          ctx.fillRect(x + w * (0.2 + (j % 2) * 0.45), groundY - h + h * (0.15 + j * 0.13), 2, 2);
+        }
+        ctx.fillStyle = "#0e0e12";
+      }
+      // the needle-and-saucer tower
+      const tx = base + span * 0.42;
+      if (tx > -60 && tx < W + 60) {
+        const th = H * 0.36;
+        ctx.fillRect(tx - 3, groundY - th, 6, th);
+        ctx.beginPath();
+        ctx.ellipse(tx, groundY - th, 22, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(tx - 1, groundY - th - 30, 2, 24);
+        ctx.fillStyle = "rgba(255,92,26,0.8)";
+        ctx.fillRect(tx - 1.5, groundY - th - 32, 3, 3);
+        ctx.fillStyle = "#0e0e12";
+      }
+    }
+
+    // road
+    const road = ctx.createLinearGradient(0, groundY, 0, H);
+    road.addColorStop(0, "#111115");
+    road.addColorStop(1, "#060607");
+    ctx.fillStyle = road;
+    ctx.fillRect(0, groundY, W, H - groundY);
+
+    ctx.strokeStyle = "rgba(239,234,225,0.16)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, groundY + 0.5);
+    ctx.lineTo(W, groundY + 0.5);
+    ctx.stroke();
+
+    // lane dashes — nearer rows move faster
+    const rows = [0.25, 0.55, 0.9];
+    rows.forEach((r, i) => {
+      const y = groundY + (H - groundY) * r;
+      const speed = 1 + i * 0.6;
+      const dash = 46 + i * 30;
+      const gap = 70 + i * 50;
+      const period = dash + gap;
+      const o = -((this.scroll * speed) % period);
+      ctx.strokeStyle = `rgba(239,234,225,${0.08 + i * 0.04})`;
+      ctx.lineWidth = 1 + i;
+      ctx.beginPath();
+      for (let x = o; x < W; x += period) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + dash, y);
+      }
+      ctx.stroke();
+    });
+  }
+
+  /* ─────────────────────── garment ─────────────────────── */
+
+  /** Iridescence: the ramp slides across the fabric as the body moves. */
+  private garmentFill(
+    ctx: CanvasRenderingContext2D,
+    hip: Pt,
+    sh: Pt,
+    Hb: number,
+    finish: Finish,
+  ): CanvasGradient {
+    const shift = frac(this.sheen * 0.18 + Math.sin(this.phase) * 0.06);
+    const a = Math.sin(this.phase * 0.5) * 0.3;
+    const cx = (hip.x + sh.x) / 2;
+    const cy = (hip.y + sh.y) / 2;
+    const L = Hb * 0.35;
+    const g = ctx.createLinearGradient(
+      cx - Math.cos(0.9 + a) * L,
+      cy - Math.sin(0.9 + a) * L,
+      cx + Math.cos(0.9 + a) * L,
+      cy + Math.sin(0.9 + a) * L,
+    );
+    const ramp = finish.ramp;
+    const stops: [number, string][] = [];
+    const n = ramp.length;
+    for (let rep = 0; rep < 2; rep++) {
+      for (let i = 0; i < n; i++) {
+        const o = (i / n) * 0.5 + rep * 0.5 + shift * 0.5;
+        stops.push([frac(o), ramp[i]]);
+      }
+    }
+    stops.sort((p, q) => p[0] - q[0]);
+    for (const [o, c] of stops) g.addColorStop(o, c);
+    return g;
+  }
+
+  private garmentSheen(
+    ctx: CanvasRenderingContext2D,
+    clip: Path2D,
+    hip: Pt,
+    sh: Pt,
+    Hb: number,
+    finish: Finish,
+  ) {
+    ctx.save();
+    ctx.clip(clip);
+    const reflect = finish.id === "full-reflect";
+    // a band of light travelling down the fabric; on Full Reflect it
+    // is a headlight, and the fabric goes white-hot under it
+    const period = reflect ? 2.4 : 3.2;
+    const f = (this.sheen % period) / period;
+    const y = sh.y - Hb * 0.1 + f * Hb * 0.55;
+    const g = ctx.createLinearGradient(0, y - Hb * 0.08, 0, y + Hb * 0.08);
+    g.addColorStop(0, "rgba(255,255,255,0)");
+    g.addColorStop(0.5, `rgba(255,255,255,${reflect ? 0.85 : 0.28})`);
+    g.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.globalCompositeOperation = reflect ? "lighter" : "screen";
+    ctx.fillStyle = g;
+    ctx.fillRect(hip.x - Hb * 0.3, sh.y - Hb * 0.2, Hb * 0.6, Hb * 0.7);
+
+    if (finish.id === "deep-space") {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      for (let i = 0; i < 9; i++) {
+        const tw = Math.sin(this.sheen * 3 + i * 1.7);
+        if (tw < 0.2) continue;
+        const px = hip.x - Hb * 0.06 + ((i * 37) % 13) / 13 * Hb * 0.14;
+        const py = sh.y + ((i * 53) % 17) / 17 * Hb * 0.3;
+        ctx.globalAlpha = tw;
+        ctx.fillRect(px, py, 1.5, 1.5);
+      }
+    }
+    ctx.restore();
+  }
+
+  private garmentSheenStroke(ctx: CanvasRenderingContext2D, leg: Limb, Hb: number, finish: Finish) {
+    if (finish.id !== "bone-pearl") return;
+    const f = (Math.sin(this.sheen * 2) + 1) / 2;
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.strokeStyle = `rgba(255,255,255,${0.12 + f * 0.18})`;
+    ctx.lineWidth = Hb * 0.02;
+    ctx.lineCap = "round";
+    const m = lerp(leg.a, leg.b, 0.15);
+    const e = lerp(leg.a, leg.b, 0.28);
+    ctx.beginPath();
+    ctx.moveTo(m.x - Hb * 0.015, m.y);
+    ctx.lineTo(e.x - Hb * 0.015, e.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* ─────────────────────────── drawing helpers ─────────────────── */
+
+function mapLimb(l: Limb, T: (p: Pt) => Pt): Limb {
+  return { a: T(l.a), b: T(l.b), c: T(l.c), foot: l.foot ? T(l.foot) : undefined };
+}
+
+function lerp(a: Pt, b: Pt, t: number): Pt {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+/**
+ * A tapered capsule: two circles joined by their outer tangents. Every
+ * limb is built from these, which is what makes the runner read as a
+ * body rather than a stick figure.
+ */
+function capsule(
+  ctx: CanvasRenderingContext2D,
+  a: Pt,
+  b: Pt,
+  ra: number,
+  rb: number,
+  fill: string | CanvasGradient,
+) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const L = Math.hypot(dx, dy) || 1;
+  const ang = Math.atan2(dy, dx);
+  const d = Math.asin(Math.max(-1, Math.min(1, (ra - rb) / L)));
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, ra, ang + Math.PI / 2 + d, ang + (3 * Math.PI) / 2 - d);
+  ctx.arc(b.x, b.y, rb, ang - Math.PI / 2 - d, ang + Math.PI / 2 + d);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawLeg(ctx: CanvasRenderingContext2D, l: Limb, Hb: number, color: string) {
+  // thigh, then a calf that swells before it narrows to the ankle
+  capsule(ctx, l.a, l.b, Hb * 0.058, Hb * 0.036, color);
+  const calf = lerp(l.b, l.c, 0.32);
+  capsule(ctx, l.b, calf, Hb * 0.036, Hb * 0.039, color);
+  capsule(ctx, calf, l.c, Hb * 0.039, Hb * 0.019, color);
+  if (l.foot) {
+    // the shoe, a touch lighter, with a heat-orange sole line
+    const heel = add(l.c, mul({ x: l.c.x - l.foot.x, y: l.c.y - l.foot.y }, 0.18));
+    capsule(ctx, heel, l.foot, Hb * 0.024, Hb * 0.016, "#2a2a32");
+    const shadow = ctx.shadowBlur;
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,92,26,0.85)";
+    ctx.lineWidth = Math.max(1, Hb * 0.006);
+    ctx.lineCap = "round";
+    const n = { x: -(l.foot.y - heel.y), y: l.foot.x - heel.x };
+    const m = Math.hypot(n.x, n.y) || 1;
+    const o = mul({ x: n.x / m, y: n.y / m }, -Hb * 0.016);
+    ctx.beginPath();
+    ctx.moveTo(heel.x + o.x, heel.y + o.y);
+    ctx.lineTo(l.foot.x + o.x * 0.7, l.foot.y + o.y * 0.7);
+    ctx.stroke();
+    ctx.shadowBlur = shadow;
+  }
+}
+
+function drawArm(ctx: CanvasRenderingContext2D, l: Limb, Hb: number, color: string) {
+  capsule(ctx, l.a, l.b, Hb * 0.03, Hb * 0.022, color);
+  capsule(ctx, l.b, l.c, Hb * 0.022, Hb * 0.016, color);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(l.c.x, l.c.y, Hb * 0.021, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function torsoPath(hip: Pt, sh: Pt, lean: number, Hb: number) {
+  // f: toward the chest; the torso axis runs hip → shoulder
+  const f: Pt = { x: Math.cos(lean), y: Math.sin(lean) };
+  const at = (t: number, side: number, w: number): Pt => {
+    const p = lerp(hip, sh, t);
+    return add(p, mul(f, side * w * Hb));
+  };
+
+  const path = new Path2D();
+  const bHip = at(-0.05, -1, 0.07);
+  const bMid = at(0.5, -1, 0.05);
+  const bSh = at(1.0, -1, 0.06);
+  const fSh = at(1.0, 1, 0.055);
+  const chest = at(0.72, 1, 0.075);
+  const belly = at(0.3, 1, 0.058);
+  const fHip = at(-0.05, 1, 0.06);
+  path.moveTo(bHip.x, bHip.y);
+  path.quadraticCurveTo(bMid.x - Hb * 0.012, bMid.y, bSh.x, bSh.y);
+  path.quadraticCurveTo((bSh.x + fSh.x) / 2, Math.min(bSh.y, fSh.y) - Hb * 0.03, fSh.x, fSh.y);
+  path.quadraticCurveTo(chest.x + Hb * 0.01, chest.y, belly.x, belly.y);
+  path.quadraticCurveTo(fHip.x + Hb * 0.004, fHip.y - Hb * 0.02, fHip.x, fHip.y);
+  path.closePath();
+
+  // the garment: same body, hem a touch below the hip, scoop neck
+  const garment = new Path2D();
+  const gbHip = at(-0.1, -1, 0.074);
+  const gfHip = at(-0.1, 1, 0.064);
+  const gbSh = at(0.98, -1, 0.062);
+  const neckF = at(0.84, 1, 0.05);
+  garment.moveTo(gbHip.x, gbHip.y);
+  garment.quadraticCurveTo(bMid.x - Hb * 0.014, bMid.y, gbSh.x, gbSh.y);
+  garment.quadraticCurveTo(
+    (gbSh.x + neckF.x) / 2,
+    Math.min(gbSh.y, neckF.y) - Hb * 0.012,
+    neckF.x,
+    neckF.y,
+  );
+  garment.quadraticCurveTo(chest.x + Hb * 0.012, chest.y, belly.x + Hb * 0.002, belly.y);
+  garment.quadraticCurveTo(gfHip.x + Hb * 0.006, gfHip.y - Hb * 0.02, gfHip.x, gfHip.y);
+  garment.closePath();
+
+  // emission edge: the back panel, shoulder blade to hem
+  const back: Pt[] = [];
+  for (let i = 0; i <= 6; i++) back.push(at(-0.05 + (i / 6) * 1.0, -1, 0.068));
+  back.push(at(1.0, 0, 0)); // and the top of the shoulders
+
+  return { path, garment, back };
+}
+
+function shortsHem(hip: Pt, near: Limb, far: Limb, Hb: number, lean: number, len: number): Pt[] {
+  const nh = lerp(near.a, near.b, len);
+  const fh = lerp(far.a, far.b, len);
+  const back = add(hip, { x: -Math.cos(lean) * Hb * 0.08, y: Hb * 0.01 });
+  // the hem of both legs plus the seat — mist rolls off all of it
+  return [
+    { x: fh.x - Hb * 0.045, y: fh.y },
+    { x: fh.x + Hb * 0.045, y: fh.y },
+    back,
+    { x: nh.x - Hb * 0.05, y: nh.y },
+    { x: nh.x + Hb * 0.05, y: nh.y },
+  ];
+}
+
+function drawSleeve(
+  ctx: CanvasRenderingContext2D,
+  arm: Limb,
+  Hb: number,
+  fill: string | CanvasGradient,
+  alpha: number,
+) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  capsule(ctx, arm.a, lerp(arm.a, arm.b, 0.42), Hb * 0.04, Hb * 0.032, fill);
+  ctx.restore();
+}
+
+/** fractional part, always in [0, 1) — gradient stops reject negatives */
+function frac(v: number) {
+  return ((v % 1) + 1) % 1;
+}
+
+function hexA(hex: string, a: number) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
