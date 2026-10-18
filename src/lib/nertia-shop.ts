@@ -45,6 +45,8 @@ export type Product = {
   /** how the AR demo wears it; absent = no AR try-on */
   ar?: { region: Region; sleeves?: boolean; inseam?: number };
   fitNote?: Partial<Record<Fit, string>>;
+  /** one design for everyone: no fit choice */
+  unisex?: boolean;
 };
 
 const shot = (src: string, w: number, h: number, contain = false): Shot => ({ src, w, h, contain });
@@ -215,9 +217,9 @@ export const catalog: Product[] = [
       ["Tested to 50 washes", "Free repair or replace"],
     ],
     finishes: [
-      { id: "peach-shift", W: shot("women-look-0", 300, 723) },
-      { id: "green-shift", W: shot("women-look-1", 300, 717) },
-      { id: "deep-space", W: shot("women-look-2", 300, 717) },
+      { id: "peach-shift", W: shot("women-look-0", 300, 782) },
+      { id: "green-shift", W: shot("women-look-1", 300, 776) },
+      { id: "deep-space", W: shot("women-look-2", 300, 776) },
       { id: "bone-pearl", unshot: ["W"] },
     ],
     details: [{ shot: shot("women-d-bra", 408, 210, true), label: "Front, back, Deep Space" }],
@@ -239,10 +241,10 @@ export const catalog: Product[] = [
       ["Tested to 50 washes", "Free repair or replace"],
     ],
     finishes: [
-      { id: "peach-shift", W: shot("women-look-0", 300, 723) },
-      { id: "green-shift", W: shot("women-look-1", 300, 717) },
-      { id: "deep-space", W: shot("women-look-2", 300, 717) },
-      { id: "bone-pearl", W: shot("women-look-7", 300, 717) },
+      { id: "bone-pearl", W: shot("women-look-7", 300, 776) },
+      { id: "peach-shift", W: shot("women-look-0", 300, 782) },
+      { id: "green-shift", W: shot("women-look-1", 300, 776) },
+      { id: "deep-space", W: shot("women-look-2", 300, 776) },
     ],
     details: [{ shot: shot("women-d-tight", 372, 210, true), label: "Peach, Green, Deep Space" }],
     sheet: "womens-line",
@@ -263,9 +265,9 @@ export const catalog: Product[] = [
       ["Tested to 50 washes", "Free repair or replace"],
     ],
     finishes: [
-      { id: "peach-shift", W: shot("women-look-3", 300, 717) },
-      { id: "bone-pearl", W: shot("women-look-4", 300, 717) },
-      { id: "deep-space", W: shot("women-look-5", 300, 723) },
+      { id: "peach-shift", W: shot("women-look-3", 300, 776) },
+      { id: "bone-pearl", W: shot("women-look-4", 300, 776) },
+      { id: "deep-space", W: shot("women-look-5", 300, 782) },
       { id: "green-shift", unshot: ["W"] },
     ],
     details: [{ shot: shot("women-d-tank", 412, 210, true), label: "Peach front and back, Pearl, Deep Space" }],
@@ -300,6 +302,7 @@ export const catalog: Product[] = [
       { shot: shot("pouch-d-cross", 400, 314), label: "Crossbody" },
     ],
     sheet: "pouch",
+    unisex: true,
   },
 ];
 

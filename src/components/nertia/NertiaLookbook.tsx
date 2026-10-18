@@ -12,19 +12,20 @@ type Props = {
 };
 
 /**
- * The real product, next to the prototype. Each sheet opens full size
- * (they're dense with detail), and sheets tied to a unit can jump the
- * prototype straight to it.
+ * Every Drop 001 product sheet in one rail. Each sheet opens full size
+ * (they're dense with detail), and every figure on a sheet is a button:
+ * into the AR prototype, or into the shop for pieces without AR.
  */
 export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const railRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<number | null>(null);
 
-  const show = (i: number) => {
+  const show = useCallback((i: number) => {
     setOpen(i);
     const d = dialogRef.current;
     if (d && !d.open) d.showModal();
-  };
+  }, []);
   const close = useCallback(() => {
     dialogRef.current?.close();
   }, []);
@@ -48,15 +49,33 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
     };
   }, [step]);
 
-  const tryUnit = (id: string) => {
+  // the shop's "Product sheet" button lands here
+  useEffect(() => {
+    const onSheet = (e: Event) => {
+      const i = lookbook.findIndex((s) => s.id === (e as CustomEvent<string>).detail);
+      if (i >= 0) show(i);
+    };
+    window.addEventListener("nertia:sheet", onSheet);
+    return () => window.removeEventListener("nertia:sheet", onSheet);
+  }, [show]);
+
+  const go = (sp: Spot) => {
     close();
-    window.dispatchEvent(new CustomEvent("nertia:tap", { detail: id }));
+    if (sp.product) window.dispatchEvent(new CustomEvent("nertia:product", { detail: sp.product }));
+    else window.dispatchEvent(new CustomEvent("nertia:tap", { detail: sp.unit ?? sp.try }));
   };
-  const tryOn = (s: Sheet) => {
-    if (s.unit) tryUnit(s.unit);
+  const shopIt = (s: Sheet) => {
+    if (!s.product) return;
+    close();
+    window.dispatchEvent(new CustomEvent("nertia:product", { detail: s.product }));
   };
 
-  /** every figure on a sheet is a button straight into AR */
+  const scrollRail = (k: number) => {
+    const r = railRef.current;
+    if (r) r.scrollBy({ left: k * r.clientWidth * 0.8, behavior: "smooth" });
+  };
+
+  /** every figure on a sheet is a button */
   const spots = (list: Spot[] | undefined) =>
     list?.map((sp, i) => (
       <button
@@ -64,8 +83,8 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
         type="button"
         className="nx-spot"
         style={{ left: `${sp.x}%`, top: `${sp.y}%`, width: `${sp.w}%`, height: `${sp.h}%` }}
-        onClick={() => tryUnit(sp.unit)}
-        aria-label={`${sp.label}: see it in AR`}
+        onClick={() => go(sp)}
+        aria-label={`${sp.label}: ${sp.product ? "open in the shop" : "see it in AR"}`}
       >
         <span className="nx-spot-mark" aria-hidden="true" />
         <span className="nx-spot-label">{sp.label}</span>
@@ -77,15 +96,24 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
   return (
     <section className="nx-look" aria-labelledby="nx-look-title">
       <header className="nx-look-head">
-        <p className="micro">The line</p>
+        <p className="micro">Product sheets · {lookbook.length}</p>
         <h2 id="nx-look-title">What the chips are sewn into.</h2>
-        <p className="nx-look-lede">
-          Drop 001 product sheets. Tap any garment to see it in AR, or open a
-          sheet to read it full size.
-        </p>
+        <div className="nx-look-side">
+          <p className="nx-look-lede">
+            Tap any garment to see it in AR, or open a sheet to read it full size.
+          </p>
+          <div className="nx-rail-nav">
+            <button type="button" onClick={() => scrollRail(-1)} aria-label="Previous sheets">
+              &#8592;
+            </button>
+            <button type="button" onClick={() => scrollRail(1)} aria-label="Next sheets">
+              &#8594;
+            </button>
+          </div>
+        </div>
       </header>
 
-      <div className="nx-look-grid">
+      <div className="nx-rail" ref={railRef}>
         {lookbook.map((s, i) => (
           <figure key={s.id} className={`nx-sheet is-${s.id}`}>
             <div className="nx-sheet-media">
@@ -104,9 +132,9 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
               <span className="nx-sheet-title">{s.title}</span>
               <span className="nx-sheet-kind">{s.kind}</span>
               <span className="nx-sheet-cap">{s.caption}</span>
-              {s.unit ? (
-                <button type="button" className="nx-sheet-try" onClick={() => tryOn(s)}>
-                  See it in AR <span aria-hidden="true">&#8594;</span>
+              {s.product ? (
+                <button type="button" className="nx-sheet-try" onClick={() => shopIt(s)}>
+                  Shop it <span aria-hidden="true">&#8594;</span>
                 </button>
               ) : null}
             </figcaption>
@@ -134,9 +162,9 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
                 <b>{cur.title}</b> · {cur.kind}
               </span>
               <span className="nx-lightbox-tools">
-                {cur.unit ? (
-                  <button type="button" onClick={() => tryOn(cur)}>
-                    See it in AR
+                {cur.product ? (
+                  <button type="button" onClick={() => shopIt(cur)}>
+                    Shop it
                   </button>
                 ) : null}
                 <button type="button" onClick={() => step(-1)} aria-label="Previous sheet">

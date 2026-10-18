@@ -3,6 +3,7 @@ import Link from "next/link";
 import Masthead from "@/components/Masthead";
 import NertiaAR from "@/components/nertia/NertiaAR";
 import NertiaLookbook from "@/components/nertia/NertiaLookbook";
+import NertiaShop from "@/components/nertia/NertiaShop";
 import { finishes } from "@/lib/nertia";
 import { getProject } from "@/lib/projects";
 
@@ -48,6 +49,8 @@ export default function NertiaPage() {
         </p>
 
         <NertiaAR />
+
+        <NertiaShop />
 
         <NertiaLookbook />
 

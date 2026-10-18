@@ -455,11 +455,25 @@ export type Sheet = {
   caption: string;
   alt: string;
   unit?: string;
+  /** the shop product this sheet is for */
+  product?: string;
   /** clickable figures on the sheet, in % of the image */
   spots?: Spot[];
 };
 
-export type Spot = { x: number; y: number; w: number; h: number; unit: string; label: string };
+export type Spot = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  label: string;
+  /** a numbered unit to read in AR */
+  unit?: string;
+  /** a product and finish to try on in AR */
+  try?: { product: string; finish: FinishId; fit: "M" | "W" };
+  /** a product to open in the shop */
+  product?: string;
+};
 
 export const lookbook: Sheet[] = [
   {
@@ -494,6 +508,7 @@ export const lookbook: Sheet[] = [
     caption: "The everyday singlet. Solution-dyed yarn, so the color lives in the fiber.",
     alt: "First Law Singlet product sheet: men's and women's singlets in Liquid Chrome, Deep Space, Green Shift and Peach Shift, with finish swatches and detail crops.",
     unit: "singlet-chrome-112",
+    product: "first-law",
     spots: [
       { x: 10.37, y: 25.36, w: 19.94, h: 30.14, unit: "singlet-chrome-112", label: "Liquid Chrome · men's" },
       { x: 30.94, y: 25.36, w: 22.01, h: 30.14, unit: "singlet-space-023", label: "Deep Space · men's" },
@@ -512,9 +527,98 @@ export const lookbook: Sheet[] = [
     caption: "Grey by day, white fire in headlights. Reflective taping and a reflective drawcord.",
     alt: "Full Reflect Singlet LTD product sheet: a man and a woman in white retroreflective singlets and shorts, with fabric, taping and drawcord detail crops.",
     unit: "singlet-reflect-007",
+    product: "full-reflect",
     spots: [
       { x: 36.84, y: 15.31, w: 20.26, h: 58.69, unit: "singlet-reflect-007", label: "Full Reflect · men's" },
       { x: 57.42, y: 18.82, w: 15.95, h: 55.18, unit: "singlet-reflect-007", label: "Full Reflect · women's" },
+    ],
+  },
+  {
+    id: "split-short",
+    file: "split-short.webp",
+    title: '5" Split Short',
+    kind: "$140 · Hero product",
+    caption: "Built for speed. Deep Space, Heat Shift and Green Shift, front and back.",
+    alt: "5 inch Split Short product sheet: men's and women's shorts in Deep Space, Heat Shift and Green Shift, front and back, with detail crops of the side split, zip-pocket waistband, liner, drawcord and fabric.",
+    product: "split-short",
+    spots: [
+      { x: 24.88, y: 10.21, w: 24.4, h: 28.07, try: { product: "split-short", finish: "deep-space", fit: "M" }, label: "Deep Space · men's" },
+      { x: 49.76, y: 10.21, w: 24.08, h: 28.07, try: { product: "split-short", finish: "heat-shift", fit: "M" }, label: "Heat Shift · men's" },
+      { x: 74.32, y: 10.21, w: 23.92, h: 28.07, try: { product: "split-short", finish: "green-shift", fit: "M" }, label: "Green Shift · men's" },
+      { x: 24.88, y: 44.34, w: 24.4, h: 28.55, try: { product: "split-short", finish: "deep-space", fit: "W" }, label: "Deep Space · women's" },
+      { x: 49.76, y: 44.34, w: 24.08, h: 28.55, try: { product: "split-short", finish: "heat-shift", fit: "W" }, label: "Heat Shift · women's" },
+      { x: 74.32, y: 44.34, w: 23.92, h: 28.55, try: { product: "split-short", finish: "green-shift", fit: "W" }, label: "Green Shift · women's" },
+    ],
+  },
+  {
+    id: "lined-short",
+    file: "lined-short.webp",
+    title: '3" Lined Short (W)',
+    kind: "$140 · Women's exclusive",
+    caption: "High rise, built-in liner with a drop-in pocket. Four finishes.",
+    alt: "3 inch Lined Short product sheet: women's shorts in Bone Pearl, Liquid Chrome, Green Shift and Peach Shift, with the liner, pocket and back views.",
+    product: "lined-short",
+    spots: [
+      { x: 28.55, y: 5.9, w: 17.07, h: 40.19, try: { product: "lined-short", finish: "bone-pearl", fit: "W" }, label: "Bone Pearl · women's" },
+      { x: 45.77, y: 5.9, w: 17.07, h: 40.19, try: { product: "lined-short", finish: "liquid-chrome", fit: "W" }, label: "Liquid Chrome · women's" },
+      { x: 63.0, y: 5.9, w: 17.22, h: 40.19, try: { product: "lined-short", finish: "green-shift", fit: "W" }, label: "Green Shift · women's" },
+      { x: 80.38, y: 5.9, w: 17.38, h: 40.19, try: { product: "lined-short", finish: "peach-shift", fit: "W" }, label: "Peach Shift · women's" },
+    ],
+  },
+  {
+    id: "tee",
+    file: "performance-tee.webp",
+    title: "Performance Tee",
+    kind: "$110 · UPF 50",
+    caption: "Lightweight, breathable, reflective front and back. Peach Shift for women.",
+    alt: "Performance Tee product sheet: men's tees in Heat Shift, Deep Space and Green Shift and women's tees adding Peach Shift, with finish swatches and detail crops.",
+    product: "tee",
+    spots: [
+      { x: 33.33, y: 4.94, w: 21.69, h: 27.35, try: { product: "tee", finish: "heat-shift", fit: "M" }, label: "Heat Shift · men's" },
+      { x: 55.02, y: 4.94, w: 21.37, h: 27.35, try: { product: "tee", finish: "deep-space", fit: "M" }, label: "Deep Space · men's" },
+      { x: 76.4, y: 4.94, w: 21.37, h: 27.35, try: { product: "tee", finish: "green-shift", fit: "M" }, label: "Green Shift · men's" },
+      { x: 33.33, y: 37.32, w: 16.11, h: 26.08, try: { product: "tee", finish: "heat-shift", fit: "W" }, label: "Heat Shift · women's" },
+      { x: 49.44, y: 37.32, w: 16.11, h: 26.08, try: { product: "tee", finish: "deep-space", fit: "W" }, label: "Deep Space · women's" },
+      { x: 65.55, y: 37.32, w: 16.11, h: 26.08, try: { product: "tee", finish: "green-shift", fit: "W" }, label: "Green Shift · women's" },
+      { x: 81.66, y: 37.32, w: 16.11, h: 26.08, try: { product: "tee", finish: "peach-shift", fit: "W" }, label: "Peach Shift · women's" },
+    ],
+  },
+  {
+    id: "womens-line",
+    file: "womens-line.webp",
+    title: "Women's Line",
+    kind: "Bra · Half Tight · Bra Tank",
+    caption: "Three core pieces in four finishes, styled nine ways.",
+    alt: "Women's Line sheet: Motion Bra, Motion Half Tight and Longline Bra Tank in Peach Shift, Green Shift, Bone Pearl and Deep Space, styled in nine outfits.",
+    product: "motion-bra",
+    spots: [
+      { x: 2.39, y: 48.8, w: 10.53, h: 25.36, try: { product: "motion-bra", finish: "peach-shift", fit: "W" }, label: "Motion Bra · Peach Shift" },
+      { x: 12.92, y: 48.8, w: 10.61, h: 25.36, try: { product: "motion-bra", finish: "green-shift", fit: "W" }, label: "Motion Bra · Green Shift" },
+      { x: 23.52, y: 48.8, w: 10.61, h: 25.36, try: { product: "motion-bra", finish: "deep-space", fit: "W" }, label: "Motion Bra · Deep Space" },
+      { x: 34.13, y: 48.8, w: 10.61, h: 25.36, try: { product: "bra-tank", finish: "peach-shift", fit: "W" }, label: "Longline Bra Tank · Peach Shift" },
+      { x: 44.74, y: 48.8, w: 10.61, h: 25.36, try: { product: "bra-tank", finish: "bone-pearl", fit: "W" }, label: "Longline Bra Tank · Bone Pearl" },
+      { x: 55.34, y: 48.8, w: 10.53, h: 25.36, try: { product: "bra-tank", finish: "deep-space", fit: "W" }, label: "Longline Bra Tank · Deep Space" },
+      { x: 65.87, y: 48.8, w: 10.61, h: 25.36, try: { product: "half-tight", finish: "peach-shift", fit: "W" }, label: "Half Tight · Peach Shift" },
+      { x: 76.48, y: 48.8, w: 10.61, h: 25.36, try: { product: "half-tight", finish: "bone-pearl", fit: "W" }, label: "Half Tight · Bone Pearl" },
+      { x: 87.08, y: 48.8, w: 10.61, h: 25.36, try: { product: "half-tight", finish: "deep-space", fit: "W" }, label: "Half Tight · Deep Space" },
+    ],
+  },
+  {
+    id: "pouch",
+    file: "motion-pouch.webp",
+    title: "Motion Pouch",
+    kind: "$50 · Waist or crossbody",
+    caption: "Full Reflect, Deep Space and Green Shift. Designed to disappear.",
+    alt: "Motion Pouch product sheet: the pouch in Full Reflect, Deep Space and Green Shift, worn at the waist and crossbody by men and women.",
+    product: "motion-pouch",
+    spots: [
+      { x: 25.36, y: 14.19, w: 51.36, h: 21.37, product: "motion-pouch", label: "Motion Pouch" },
+      { x: 3.19, y: 42.9, w: 31.26, h: 9.41, product: "motion-pouch", label: "Full Reflect" },
+      { x: 36.2, y: 42.9, w: 27.59, h: 9.41, product: "motion-pouch", label: "Deep Space" },
+      { x: 65.55, y: 42.9, w: 31.26, h: 9.41, product: "motion-pouch", label: "Green Shift" },
+      { x: 2.55, y: 58.21, w: 30.94, h: 25.04, product: "motion-pouch", label: "Men's, waist" },
+      { x: 34.61, y: 58.21, w: 29.98, h: 25.04, product: "motion-pouch", label: "Women's, waist" },
+      { x: 65.55, y: 58.21, w: 31.9, h: 25.04, product: "motion-pouch", label: "Crossbody" },
     ],
   },
 ];

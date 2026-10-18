@@ -16,6 +16,8 @@ import {
 } from "@/lib/nertia";
 import { createEffect, LinkArc, type Effect, type Emitter, type Vec } from "./effects";
 import { DemoScene } from "./runner";
+import { showroomUnit, type Fit } from "@/lib/nertia-shop";
+import type { FinishId } from "@/lib/nertia";
 import { coverFit, PoseTracker } from "./tracker";
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -126,8 +128,10 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   // The lookbook's "See it in AR" buttons land here.
   useEffect(() => {
     const onTap = (e: Event) => {
-      const id = (e as CustomEvent<string>).detail;
-      const u = units.find((x) => x.id === id);
+      // a numbered unit's id, or a product to try on from the shop
+      const d = (e as CustomEvent<string | { product: string; finish: FinishId; fit: Fit }>).detail;
+      const u =
+        typeof d === "string" ? units.find((x) => x.id === d) : showroomUnit(d.product, d.finish, d.fit);
       if (!u) return;
       setCat(categoryOf(u.region));
       tap(u);
@@ -707,7 +711,9 @@ function Certificate({
       </header>
 
       <p className="nx-cert-kicker">
-        Certificate of unit{unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}
+        {unit.showroom
+          ? "Showroom try-on · numbers are assigned at presale"
+          : `Certificate of unit${unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}`}
       </p>
       <p className="nx-cert-no">
         {no}
@@ -753,7 +759,7 @@ function Certificate({
         <div>
           <dt>Miles</dt>
           <dd>
-            {unit.miles} logged · Level {real.roman}, {real.label}
+            {unit.showroom ? `Showroom unit, shown at Level ${real.roman}` : `${unit.miles} logged · Level ${real.roman}, ${real.label}`}
             <span className="nx-meter" aria-hidden="true">
               <span style={{ width: `${toNext * 100}%` }} />
             </span>
