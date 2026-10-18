@@ -4342,7 +4342,7 @@ main { position: relative; z-index: 3; }
   align-items: start;
 }
 .nx-sheet { margin: 0; min-width: 0; }
-.nx-sheet-media { position: relative; }
+.nx-sheet-media { position: relative; overflow: hidden; }
 
 /* every figure on a sheet is a button into AR */
 .nx-spot {
