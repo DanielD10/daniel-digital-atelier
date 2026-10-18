@@ -35,6 +35,7 @@ export class DemoScene {
   private skyline: Building[] = [];
   private skylineWidth = 0;
   private sheen = 0;
+  private planted: "near" | "far" | null = null;
 
   constructor() {
     // A generic skyline with one needle-and-saucer tower — a nod to
@@ -107,23 +108,24 @@ export class DemoScene {
     const lean = r.lean;
     const glow = hexA(rim, active ? 0.6 : 0.28);
 
+    const region = unit.region;
+    const torso = torsoPath(hip, sh, lean, Hb);
+    const fill = this.garmentFill(ctx, hip, sh, Hb, finish);
+    const topFill = region === "top" ? fill : base;
+    const shortFill = region === "bottom" ? fill : base;
+    const shortLen = region === "bottom" ? 0.36 : 0.4;
+    const shoe =
+      region === "feet" ? this.shoeFill(ctx, hipX, groundY, Hb, finish) : "#2a2a32";
+
     ctx.save();
     ctx.shadowColor = glow;
     ctx.shadowBlur = Hb * 0.035;
 
     // far side first, a shade darker
     drawArm(ctx, farArm, Hb, skinFar);
-    drawLeg(ctx, far, Hb, skinFar);
-
-    const torso = torsoPath(hip, sh, lean, Hb);
-    const fill = this.garmentFill(ctx, hip, sh, Hb, finish);
-    const isTop = unit.region === "top";
-    const shortFill = isTop ? base : fill;
-    const shortLen = isTop ? 0.4 : 0.36;
-
-    // far thigh of the short
+    drawLeg(ctx, far, Hb, skinFar, shoe, region === "feet");
     ctx.shadowBlur = 0;
-    capsule(ctx, far.a, lerp(far.a, far.b, shortLen), Hb * 0.06, Hb * 0.043, shortFill);
+    shortPanel(ctx, hip, far, shortLen, Hb, lean, shortFill);
     if (unit.sleeves) drawSleeve(ctx, farArm, Hb, fill, 0.6);
 
     // torso, neck, head
@@ -138,27 +140,14 @@ export class DemoScene {
     ctx.fill();
 
     // near leg, then the short over it, then the top over the waist
-    drawLeg(ctx, near, Hb, skin);
+    drawLeg(ctx, near, Hb, skin, shoe, region === "feet");
     ctx.shadowBlur = 0;
-    // seat of the short
-    ctx.fillStyle = shortFill;
-    ctx.beginPath();
-    ctx.ellipse(hip.x - Hb * 0.006, hip.y - Hb * 0.004, Hb * 0.07, Hb * 0.05, -lean, 0, Math.PI * 2);
-    ctx.fill();
-    capsule(ctx, near.a, lerp(near.a, near.b, shortLen), Hb * 0.062, Hb * 0.044, shortFill);
+    shortPanel(ctx, hip, near, shortLen, Hb, lean, shortFill);
+    if (region === "bottom") this.garmentSheenStroke(ctx, near, Hb, finish);
 
-    let emitPath: Pt[];
-    if (isTop) {
-      ctx.fillStyle = fill;
-      ctx.fill(torso.garment);
-      this.garmentSheen(ctx, torso.garment, hip, sh, Hb, finish);
-      emitPath = torso.back;
-    } else {
-      this.garmentSheenStroke(ctx, near, Hb, finish);
-      ctx.fillStyle = base;
-      ctx.fill(torso.garment);
-      emitPath = shortsHem(hip, near, far, Hb, lean, shortLen);
-    }
+    ctx.fillStyle = topFill;
+    ctx.fill(torso.garment);
+    if (region === "top") this.garmentSheen(ctx, torso.garment, hip, sh, Hb, finish);
 
     // near arm in front of everything
     ctx.shadowBlur = Hb * 0.035;
@@ -166,6 +155,21 @@ export class DemoScene {
     ctx.shadowBlur = 0;
     if (unit.sleeves) drawSleeve(ctx, nearArm, Hb, fill, 1);
     ctx.restore();
+
+    // where each shoe sits, and whether one just touched down
+    const footAt = (l: Limb): Pt => (l.foot ? lerp(l.c, l.foot, 0.45) : l.c);
+    const planted: "near" | "far" = r.nearLeg.c.y >= r.farLeg.c.y ? "near" : "far";
+    const strikes: Pt[] = [];
+    if (this.planted && planted !== this.planted) {
+      const f = footAt(planted === "near" ? near : far);
+      strikes.push({ x: f.x, y: groundY - footPad * 0.2 });
+    }
+    this.planted = planted;
+
+    let emitPath: Pt[];
+    if (region === "top") emitPath = torso.back;
+    else if (region === "bottom") emitPath = shortsHem(hip, near, far, Hb, lean, shortLen);
+    else emitPath = [footAt(far), footAt(near)];
 
     // body moves only vertically on screen — the stride's bounce
     return {
@@ -175,8 +179,30 @@ export class DemoScene {
         scale: Hb * 0.24,
         bodyVel: { x: 0, y: 0 },
         worldVel: { x: -runSpeed, y: 0 },
+        strikes,
       },
     };
+  }
+
+  /** The shoe's iridescence, sliding along the ground line as it runs. */
+  private shoeFill(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    Hb: number,
+    finish: Finish,
+  ): CanvasGradient {
+    const g = ctx.createLinearGradient(x - Hb * 0.32, y - Hb * 0.1, x + Hb * 0.32, y);
+    const shift = frac(this.sheen * 0.35);
+    const stops: [number, string][] = [];
+    finish.ramp.forEach((c, i) => {
+      const n = finish.ramp.length;
+      stops.push([frac((i / n) * 0.5 + shift * 0.5), c]);
+      stops.push([frac((i / n) * 0.5 + 0.5 + shift * 0.5), c]);
+    });
+    stops.sort((p, q) => p[0] - q[0]);
+    for (const [o, c] of stops) g.addColorStop(o, c);
+    return g;
   }
 
   /* ─────────────────────── gait ─────────────────────── */
@@ -449,30 +475,91 @@ function capsule(
   ctx.fill();
 }
 
-function drawLeg(ctx: CanvasRenderingContext2D, l: Limb, Hb: number, color: string) {
+function drawLeg(
+  ctx: CanvasRenderingContext2D,
+  l: Limb,
+  Hb: number,
+  color: string,
+  shoe: string | CanvasGradient,
+  hero: boolean,
+) {
   // thigh, then a calf that swells before it narrows to the ankle
   capsule(ctx, l.a, l.b, Hb * 0.058, Hb * 0.036, color);
   const calf = lerp(l.b, l.c, 0.32);
   capsule(ctx, l.b, calf, Hb * 0.036, Hb * 0.039, color);
   capsule(ctx, calf, l.c, Hb * 0.039, Hb * 0.019, color);
-  if (l.foot) {
-    // the shoe, a touch lighter, with a heat-orange sole line
-    const heel = add(l.c, mul({ x: l.c.x - l.foot.x, y: l.c.y - l.foot.y }, 0.18));
-    capsule(ctx, heel, l.foot, Hb * 0.024, Hb * 0.016, "#2a2a32");
-    const shadow = ctx.shadowBlur;
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = "rgba(255,92,26,0.85)";
-    ctx.lineWidth = Math.max(1, Hb * 0.006);
-    ctx.lineCap = "round";
-    const n = { x: -(l.foot.y - heel.y), y: l.foot.x - heel.x };
-    const m = Math.hypot(n.x, n.y) || 1;
-    const o = mul({ x: n.x / m, y: n.y / m }, -Hb * 0.016);
+  if (!l.foot) return;
+
+  const heel = add(l.c, mul({ x: l.c.x - l.foot.x, y: l.c.y - l.foot.y }, 0.22));
+  const shadow = ctx.shadowBlur;
+  // the hero shoe is a size up and carries the finish
+  const k = hero ? 1.22 : 1;
+  capsule(ctx, heel, l.foot, Hb * 0.026 * k, Hb * 0.017 * k, shoe);
+  ctx.shadowBlur = 0;
+
+  // sole line: heat-orange hardware, white on the hero shoe
+  const n = { x: -(l.foot.y - heel.y), y: l.foot.x - heel.x };
+  const m = Math.hypot(n.x, n.y) || 1;
+  const o = mul({ x: n.x / m, y: n.y / m }, -Hb * 0.018 * k);
+  ctx.strokeStyle = hero ? "rgba(255,248,235,0.95)" : "rgba(255,92,26,0.85)";
+  ctx.lineWidth = Math.max(1, Hb * (hero ? 0.009 : 0.006));
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(heel.x + o.x, heel.y + o.y);
+  ctx.lineTo(l.foot.x + o.x * 0.7, l.foot.y + o.y * 0.7);
+  ctx.stroke();
+
+  if (hero) {
+    // the chip lives in the heel tab — a small lit tag says so
+    const tab = add(heel, mul({ x: n.x / m, y: n.y / m }, Hb * 0.02));
+    ctx.fillStyle = "rgba(255,248,235,0.9)";
     ctx.beginPath();
-    ctx.moveTo(heel.x + o.x, heel.y + o.y);
-    ctx.lineTo(l.foot.x + o.x * 0.7, l.foot.y + o.y * 0.7);
-    ctx.stroke();
-    ctx.shadowBlur = shadow;
+    ctx.arc(tab.x, tab.y, Math.max(1.2, Hb * 0.006), 0, Math.PI * 2);
+    ctx.fill();
   }
+  ctx.shadowBlur = shadow;
+}
+
+/**
+ * One leg of the short: a tapered panel from the waistband to the hem,
+ * following the thigh. Two of these read as shorts; the old rounded
+ * capsules read as padding.
+ */
+function shortPanel(
+  ctx: CanvasRenderingContext2D,
+  hip: Pt,
+  leg: Limb,
+  len: number,
+  Hb: number,
+  lean: number,
+  fill: string | CanvasGradient,
+) {
+  const f: Pt = { x: Math.cos(lean), y: Math.sin(lean) }; // toward the chest
+  const up: Pt = { x: Math.sin(lean), y: -Math.cos(lean) };
+  const waist = add(hip, mul(up, Hb * 0.03));
+  const wBack = add(waist, mul(f, -Hb * 0.074));
+  const wFront = add(waist, mul(f, Hb * 0.062));
+  const hem = lerp(leg.a, leg.b, len);
+  const dx = leg.b.x - leg.a.x;
+  const dy = leg.b.y - leg.a.y;
+  const m = Math.hypot(dx, dy) || 1;
+  let n: Pt = { x: -dy / m, y: dx / m };
+  if (n.x * f.x + n.y * f.y < 0) n = mul(n, -1);
+  const hFront = add(hem, mul(n, Hb * 0.05));
+  const hBack = add(hem, mul(n, -Hb * 0.05));
+
+  ctx.fillStyle = fill;
+  ctx.beginPath();
+  ctx.moveTo(wBack.x, wBack.y);
+  ctx.lineTo(wFront.x, wFront.y);
+  // a slight bow down the front of the thigh
+  const mf = lerp(wFront, hFront, 0.5);
+  ctx.quadraticCurveTo(mf.x + n.x * Hb * 0.008, mf.y + n.y * Hb * 0.008, hFront.x, hFront.y);
+  ctx.lineTo(hBack.x, hBack.y);
+  const mb = lerp(hBack, wBack, 0.5);
+  ctx.quadraticCurveTo(mb.x - n.x * Hb * 0.012, mb.y - n.y * Hb * 0.012, wBack.x, wBack.y);
+  ctx.closePath();
+  ctx.fill();
 }
 
 function drawArm(ctx: CanvasRenderingContext2D, l: Limb, Hb: number, color: string) {

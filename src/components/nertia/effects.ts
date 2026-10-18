@@ -27,6 +27,8 @@ export type Emitter = {
   scale: number;
   bodyVel: Vec;
   worldVel: Vec;
+  /** Footwear only: where a foot touched down this frame. */
+  strikes?: Vec[];
 };
 
 export interface Effect {
@@ -731,6 +733,176 @@ class Streaks extends System {
   }
 }
 
+
+/* ═══════════════════════ FOOTWEAR — FOOTSTRIKE ═════════════════════
+   The one effect that isn't continuous. The emitter's path is the two
+   shoes; each shoe draws a light ribbon behind it, and every touchdown
+   in `strikes` lands as a ground shockwave plus a spray of sparks. */
+
+type Ripple = { x: number; y: number; s: number; age: number };
+type Trail = { x: number; y: number; age: number }[];
+
+class Strike implements Effect {
+  private t = 0;
+  private sparks: P[] = [];
+  private ripples: Ripple[] = [];
+  private trails: Trail[] = [[], []];
+  private last: Emitter | null = null;
+  private intensity = 0;
+  private spark: HTMLCanvasElement;
+  private colors = ["#fff1c9", "#ffb627", "#ff5c1a", "#e0218a"];
+
+  constructor() {
+    this.spark = softSprite("rgba(255,214,140,1)", 24, 0.2);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    this.intensity = intensity;
+    if (e) this.last = e;
+    const air = (this.last ?? e)?.worldVel ?? { x: 0, y: 0 };
+
+    // ribbons: the world carries old points away, so they stretch out
+    // behind a runner and pile up under someone standing still
+    for (let i = 0; i < 2; i++) {
+      const tr = this.trails[i];
+      for (const q of tr) {
+        q.age += dt;
+        q.x += air.x * dt;
+        q.y += air.y * dt;
+      }
+      while (tr.length && tr[0].age > 0.42) tr.shift();
+      const foot = e?.path[i];
+      if (foot && intensity > 0.05) tr.push({ x: foot.x, y: foot.y, age: 0 });
+      else if (!e) tr.length = 0;
+    }
+
+    if (e?.strikes && intensity > 0.3) {
+      for (const at of e.strikes) this.land(at, e);
+    }
+
+    for (let i = this.ripples.length - 1; i >= 0; i--) {
+      const r = this.ripples[i];
+      r.age += dt;
+      r.x += air.x * dt;
+      r.y += air.y * dt;
+      if (r.age > 0.7) this.ripples.splice(i, 1);
+    }
+
+    const s = this.last?.scale ?? 100;
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const p = this.sparks[i];
+      p.age += dt;
+      if (p.age >= p.life) {
+        this.sparks[i] = this.sparks[this.sparks.length - 1];
+        this.sparks.pop();
+        continue;
+      }
+      const f = 1 - Math.exp(-2.2 * dt);
+      p.vx += (air.x - p.vx) * f;
+      p.vy += s * 7 * dt; // gravity
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+  }
+
+  private land(at: Vec, e: Emitter) {
+    const s = e.scale;
+    this.ripples.push({ x: at.x, y: at.y, s, age: 0 });
+    const n = Math.round(14 + s * 0.12);
+    for (let i = 0; i < n && this.sparks.length < 400; i++) {
+      const a = -Math.PI / 2 + rand(-1.25, 1.25);
+      const sp = rand(1.2, 3.2) * s;
+      this.sparks.push({
+        x: at.x + rand(-0.06, 0.06) * s,
+        y: at.y,
+        vx: Math.cos(a) * sp + e.worldVel.x * 0.4,
+        vy: Math.sin(a) * sp,
+        age: 0,
+        life: rand(0.35, 0.75),
+        size: rand(0.8, 1.8),
+        seed: Math.random() * 100,
+        k: Math.floor(Math.random() * this.colors.length),
+      });
+    }
+  }
+
+  ignite(e: Emitter) {
+    for (const f of e.path) this.land(f, e);
+  }
+
+  clear() {
+    this.sparks.length = 0;
+    this.ripples.length = 0;
+    this.trails = [[], []];
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const s = this.last?.scale ?? 100;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // shockwaves: flat ellipses on the ground plane
+    for (const r of this.ripples) {
+      const f = r.age / 0.7;
+      const ease = 1 - Math.pow(1 - f, 3);
+      for (let k = 0; k < 2; k++) {
+        const g = Math.max(0, ease - k * 0.18);
+        if (g <= 0) continue;
+        const rx = r.s * (0.15 + g * 1.5);
+        ctx.globalAlpha = (1 - f) * (k ? 0.45 : 0.9);
+        ctx.strokeStyle = k ? "#e0218a" : "#ffb627";
+        ctx.lineWidth = Math.max(1, r.s * 0.022 * (1 - f * 0.6));
+        ctx.beginPath();
+        ctx.ellipse(r.x, r.y, rx, rx * 0.16, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // the flash at contact
+      if (f < 0.25) {
+        ctx.globalAlpha = (1 - f / 0.25) * 0.8;
+        const d = r.s * 0.9;
+        ctx.drawImage(this.spark, r.x - d / 2, r.y - d / 4, d, d / 2);
+      }
+    }
+
+    // light ribbons off each shoe
+    for (const tr of this.trails) {
+      if (tr.length < 2) continue;
+      for (let i = 1; i < tr.length; i++) {
+        const a = tr[i - 1];
+        const b = tr[i];
+        const life = 1 - b.age / 0.42;
+        if (life <= 0) continue;
+        ctx.globalAlpha = life * 0.85 * this.intensity;
+        ctx.strokeStyle = i > tr.length - 4 ? "#fff1c9" : life > 0.5 ? "#ff8a3a" : "#e0218a";
+        ctx.lineWidth = Math.max(1, s * 0.03 * life);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+
+    // sparks as short motion streaks with a glowing head
+    for (const p of this.sparks) {
+      const f = p.age / p.life;
+      const a = 1 - f;
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = this.colors[p.k];
+      ctx.lineWidth = p.size * (s / 110);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * 0.028, p.y - p.vy * 0.028);
+      ctx.stroke();
+      const d = p.size * (s / 110) * 5;
+      ctx.drawImage(this.spark, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
 /* ─────────────────────────── factory ─────────────────────────── */
 
 export function createEffect(id: EffectId): Effect {
@@ -745,6 +917,8 @@ export function createEffect(id: EffectId): Effect {
       return new Bubbles();
     case "streaks":
       return new Streaks();
+    case "strike":
+      return new Strike();
   }
 }
 

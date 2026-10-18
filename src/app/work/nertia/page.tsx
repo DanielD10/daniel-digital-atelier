@@ -90,6 +90,15 @@ export default function NertiaPage() {
                 </li>
               ))}
             </ul>
+            <p style={{ marginTop: "24px" }}>
+              <b>Footwear, as a concept.</b> Shoes break the one-finish rule
+              on purpose. The chip sits in the heel tab, with a printed QR on
+              the tongue as a backup, and every pair gets the same effect:
+              each footstrike lands as a shockwave and the shoes leave light
+              on the road. Footwear is a different manufacturing problem from
+              apparel, so it&rsquo;s labelled concept and kept out of Drop
+              001.
+            </p>
           </section>
 
           <section>

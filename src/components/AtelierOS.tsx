@@ -246,7 +246,7 @@ function BootScreen({ onDone, instant }: { onDone: () => void; instant: boolean 
  */
 const HOME_LINKS = [
   { href: "/", name: "Home", note: "the atelier" },
-  { href: "/work", name: "Work", note: "five projects" },
+  { href: "/work", name: "Work", note: "four projects" },
   { href: "/about", name: "About", note: "the argument" },
   { href: "/contact", name: "Contact", note: "say something" },
 ];

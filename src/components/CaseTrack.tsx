@@ -21,7 +21,7 @@ export default function CaseTrack() {
           <div className="case-intro-inner">
             <p className="micro case-intro-label">03 — Selected work</p>
             <h2 className="case-intro-type">
-              Five
+              Four
               <br />
               projects.
             </h2>

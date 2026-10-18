@@ -33,16 +33,6 @@ export const projects: Project[] = [
       "A dashboard that reads like an instrument panel instead of a spreadsheet.",
   },
   {
-    slug: "soundthis",
-    name: "SOUND",
-    nameTail: "this",
-    kind: "Music discovery",
-    tags: ["Original project", "Reimagined 2026"],
-    artClass: "art-sound",
-    summary:
-      "Music discovery driven by how a track feels rather than how it is tagged.",
-  },
-  {
     slug: "nertia",
     name: "NERTIA",
     kind: "Running brand · AR",

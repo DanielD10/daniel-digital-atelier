@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { finishes, units, unitLabel, type Unit } from "@/lib/nertia";
+import { finishes, units, unitEffect, unitLabel, type Unit } from "@/lib/nertia";
 import { createEffect, type Effect, type Emitter, type Vec } from "./effects";
 import { DemoScene } from "./runner";
 import { coverFit, PoseTracker } from "./tracker";
@@ -16,7 +16,17 @@ type CamState =
 
 const READ_MS = 950;
 
-export default function NertiaAR() {
+type Props = {
+  /** false hides the camera source — for hosts that can't grant a camera */
+  allowCamera?: boolean;
+  /**
+   * Hand the still to the host instead of starting a browser download
+   * (sandboxed hosts block <a download>). Return false to hide the button.
+   */
+  saveStill?: ((png: Blob, filename: string) => void) | false;
+};
+
+export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -231,8 +241,9 @@ export default function NertiaAR() {
       const finish = finishes[L.unit.finish];
 
       // one effect instance per finish, swapped on tap
-      if (!effectRef.current || effectRef.current.id !== finish.effect) {
-        effectRef.current = { id: finish.effect, fx: createEffect(finish.effect) };
+      const fxId = unitEffect(L.unit).id;
+      if (!effectRef.current || effectRef.current.id !== fxId) {
+        effectRef.current = { id: fxId, fx: createEffect(fxId) };
       }
       const fx = effectRef.current.fx;
 
@@ -311,10 +322,15 @@ export default function NertiaAR() {
     if (!c) return;
     c.toBlob((blob) => {
       if (!blob) return;
+      const filename = `NERTIA-${unit.product.replace(/\W+/g, "")}-${unit.unit}.png`;
+      if (saveStill) {
+        saveStill(blob, filename);
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `NERTIA-${finishes[unit.finish].name.replace(/\s+/g, "")}-${unit.unit}.png`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -333,21 +349,25 @@ export default function NertiaAR() {
           role="img"
           aria-label={
             mode === "demo"
-              ? `A runner in the ${unit.product}, ${finish.name}, ${chip === "live" ? `with the ${finish.effectName.toLowerCase()} effect active` : "effect inactive"}`
+              ? `A runner in the ${unit.product}, ${finish.name}, ${chip === "live" ? `with the ${unitEffect(unit).name.toLowerCase()} effect active` : "effect inactive"}`
               : "Your camera feed with the AR effect applied"
           }
         />
         <video ref={videoRef} className="nx-video" playsInline muted aria-hidden="true" />
 
         <div className="nx-bar">
-          <div className="nx-seg" role="group" aria-label="Source">
-            <button type="button" aria-pressed={mode === "demo"} onClick={() => chooseMode("demo")}>
-              Demo runner
-            </button>
-            <button type="button" aria-pressed={mode === "camera"} onClick={() => chooseMode("camera")}>
-              Your camera
-            </button>
-          </div>
+          {allowCamera ? (
+            <div className="nx-seg" role="group" aria-label="Source">
+              <button type="button" aria-pressed={mode === "demo"} onClick={() => chooseMode("demo")}>
+                Demo runner
+              </button>
+              <button type="button" aria-pressed={mode === "camera"} onClick={() => chooseMode("camera")}>
+                Your camera
+              </button>
+            </div>
+          ) : (
+            <span />
+          )}
           <div className="nx-tools">
             {mode === "camera" && cam.kind === "on" ? (
               <button type="button" className="nx-icon" onClick={flip} aria-label="Switch camera">
@@ -373,12 +393,14 @@ export default function NertiaAR() {
                 </svg>
               )}
             </button>
-            <button type="button" className="nx-icon" onClick={capture} aria-label="Save a still">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="12" r="7" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </button>
+            {saveStill !== false ? (
+              <button type="button" className="nx-icon" onClick={capture} aria-label="Save a still">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="7" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -400,7 +422,9 @@ export default function NertiaAR() {
           <p className="nx-note" aria-live="polite">
             {unit.region === "top"
               ? "Step back until your shoulders and hips are in frame"
-              : "Step back until your hips and knees are in frame"}
+              : unit.region === "bottom"
+                ? "Step back until your hips and knees are in frame"
+                : "Point the camera at your feet, or step back until they're in frame"}
           </p>
         ) : null}
         {cam.kind === "error" ? (
@@ -429,10 +453,10 @@ export default function NertiaAR() {
                   <span className="nx-swatch" aria-hidden="true" />
                   <span className="nx-unit-text">
                     <span className="nx-unit-name">
-                      {u.product} <i>{u.fit}</i>
+                      {u.product} <i>{u.concept ? "Concept" : u.fit}</i>
                     </span>
                     <span className="nx-unit-meta">
-                      {f.name} · {f.effectName}
+                      {f.name} · {unitEffect(u).name}
                     </span>
                   </span>
                   <span className="nx-unit-no">{String(u.unit).padStart(String(u.of).length, "0")}</span>
@@ -452,6 +476,7 @@ export default function NertiaAR() {
 
 function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
   const f = finishes[unit.finish];
+  const fx = unitEffect(unit);
   const [no, of] = unitLabel(unit).split(" / ");
   return (
     <article className={`nx-cert is-${chip}`} aria-live="polite">
@@ -473,7 +498,9 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
         </span>
       </header>
 
-      <p className="nx-cert-kicker">Certificate of unit</p>
+      <p className="nx-cert-kicker">
+        Certificate of unit{unit.concept ? " · footwear concept" : ""}
+      </p>
       <p className="nx-cert-no">
         {no}
         <span>/ {of}</span>
@@ -493,25 +520,32 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
         <div>
           <dt>Effect license</dt>
           <dd>
-            <b>{f.effectName}</b> — bound to this unit
+            <b>{fx.name}</b> — bound to this unit
           </dd>
         </div>
-        <div>
-          <dt>Wash log</dt>
-          <dd>
-            {unit.washes} of 50 guaranteed
-            <span className="nx-meter" aria-hidden="true">
-              <span style={{ width: `${(unit.washes / 50) * 100}%` }} />
-            </span>
-          </dd>
-        </div>
+        {unit.region === "feet" ? (
+          <div>
+            <dt>Chip</dt>
+            <dd>NFC in the heel tab, printed QR on the tongue as backup</dd>
+          </div>
+        ) : (
+          <div>
+            <dt>Wash log</dt>
+            <dd>
+              {unit.washes} of 50 guaranteed
+              <span className="nx-meter" aria-hidden="true">
+                <span style={{ width: `${(unit.washes / 50) * 100}%` }} />
+              </span>
+            </dd>
+          </div>
+        )}
         <div>
           <dt>Owner</dt>
-          <dd>You — the effect transfers with the garment at resale</dd>
+          <dd>You — the effect transfers with the {unit.region === "feet" ? "pair" : "garment"} at resale</dd>
         </div>
       </dl>
 
-      <p className="nx-cert-line">{f.effectLine}</p>
+      <p className="nx-cert-line">{fx.line}</p>
     </article>
   );
 }
@@ -584,7 +618,7 @@ function drawHud(
   );
 
   if (isLive) {
-    const label = `${f.effectName.toUpperCase()} · LIVE`;
+    const label = `${unitEffect(unit).name.toUpperCase()} · LIVE`;
     const w = ctx.measureText(label).width;
     const x = W - pad - w;
     // on a phone the unit line runs full width, so the live tag moves

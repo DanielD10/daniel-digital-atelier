@@ -14,7 +14,7 @@ export type FinishId =
   | "liquid-chrome"
   | "full-reflect";
 
-export type EffectId = "flames" | "stars" | "mist" | "bubbles" | "streaks";
+export type EffectId = "flames" | "stars" | "mist" | "bubbles" | "streaks" | "strike";
 
 export type Finish = {
   id: FinishId;
@@ -77,7 +77,7 @@ export const finishes: Record<FinishId, Finish> = {
   },
 };
 
-export type Region = "top" | "bottom";
+export type Region = "top" | "bottom" | "feet";
 
 export type Unit = {
   id: string;
@@ -90,7 +90,22 @@ export type Unit = {
   unit: number;
   of: number;
   washes: number;
+  /** Footwear is outside Drop 001 — labelled as a concept everywhere. */
+  concept?: boolean;
+  /**
+   * Footwear breaks the one-finish-one-effect rule on purpose: every
+   * shoe gets the footstrike effect, colored by its finish.
+   */
+  effect?: { id: EffectId; name: string; line: string };
 };
+
+export type UnitEffect = { id: EffectId; name: string; line: string };
+
+export function unitEffect(u: Unit): UnitEffect {
+  if (u.effect) return u.effect;
+  const f = finishes[u.finish];
+  return { id: f.effect, name: f.effectName, line: f.effectLine };
+}
 
 export const units: Unit[] = [
   {
@@ -143,6 +158,22 @@ export const units: Unit[] = [
     unit: 7,
     of: 40,
     washes: 3,
+  },
+  {
+    id: "runner-heat-001",
+    product: "Motion Runner",
+    fit: "M",
+    finish: "heat-shift",
+    region: "feet",
+    unit: 1,
+    of: 100,
+    washes: 0,
+    concept: true,
+    effect: {
+      id: "strike",
+      name: "Footstrike",
+      line: "Every footstrike lands as a shockwave, and the shoes leave light on the road.",
+    },
   },
 ];
 

@@ -19,7 +19,13 @@ const L_HIP = 23;
 const R_HIP = 24;
 const L_KNEE = 25;
 const R_KNEE = 26;
-const USED = [L_SH, R_SH, L_HIP, R_HIP, L_KNEE, R_KNEE];
+const L_ANK = 27;
+const R_ANK = 28;
+const L_HEEL = 29;
+const R_HEEL = 30;
+const L_TOE = 31;
+const R_TOE = 32;
+const USED = [L_SH, R_SH, L_HIP, R_HIP, L_KNEE, R_KNEE, L_ANK, R_ANK, L_HEEL, R_HEEL, L_TOE, R_TOE];
 
 export type Fit = { s: number; ox: number; oy: number; vw: number; vh: number; mirror: boolean };
 
@@ -41,6 +47,11 @@ export class PoseTracker {
   private lastCenter: Vec | null = null;
   private vel: Vec = { x: 0, y: 0 };
   private lastTs = 0;
+  /** per foot: last y, smoothed vertical speed, time since last strike */
+  private feet = [
+    { y: 0, vy: 0, cool: 0, seen: false },
+    { y: 0, vy: 0, cool: 0, seen: false },
+  ];
 
   private constructor(lm: PoseLandmarkerT) {
     this.lm = lm;
@@ -80,10 +91,16 @@ export class PoseTracker {
     if (!pose) {
       this.smooth.clear();
       this.lastCenter = null;
+      this.feet.forEach((f) => (f.seen = false));
       return null;
     }
 
-    const need = region === "top" ? [L_SH, R_SH, L_HIP, R_HIP] : [L_HIP, R_HIP, L_KNEE, R_KNEE];
+    const need =
+      region === "top"
+        ? [L_SH, R_SH, L_HIP, R_HIP]
+        : region === "bottom"
+          ? [L_HIP, R_HIP, L_KNEE, R_KNEE]
+          : [L_ANK, R_ANK, L_TOE, R_TOE];
     for (const i of need) {
       if ((pose[i].visibility ?? 1) < 0.45) return null;
     }
@@ -110,8 +127,37 @@ export class PoseTracker {
     let fabric: Vec[];
     let scale: number;
     let center: Vec;
+    let strikes: Vec[] | undefined;
 
-    if (region === "top") {
+    if (region === "feet") {
+      // shoe size sets the scale; fall back to ankle spacing when the
+      // feet are side-on and the heel-to-toe line is foreshortened
+      const shoeL = Math.max(dist(P[L_HEEL], P[L_TOE]), dist(P[R_HEEL], P[R_TOE]));
+      scale = Math.max(shoeL * 2.2, dist(P[L_ANK], P[R_ANK]) * 0.8, 30);
+      const lf = lerp(P[L_HEEL], P[L_TOE], 0.5);
+      const rf = lerp(P[R_HEEL], P[R_TOE], 0.5);
+      path = [lf, rf];
+      fabric = [];
+      center = mid(lf, rf);
+
+      // touchdown: a foot that was dropping fast and has just stopped
+      strikes = [];
+      [lf, rf].forEach((f, i) => {
+        const st = this.feet[i];
+        if (st.seen) {
+          const v = (f.y - st.y) / dt;
+          const wasFalling = st.vy > scale * 1.4;
+          st.vy += (v - st.vy) * (1 - Math.exp(-14 * dt));
+          st.cool -= dt;
+          if (wasFalling && st.vy < scale * 0.35 && st.cool <= 0) {
+            strikes!.push({ ...f });
+            st.cool = 0.22;
+          }
+        }
+        st.y = f.y;
+        st.seen = true;
+      });
+    } else if (region === "top") {
       scale = Math.max(shoulderW, hipW * 1.2, 30);
       const neck = mid(P[L_SH], P[R_SH]);
       // flame line: down each side and across the shoulders
@@ -160,6 +206,7 @@ export class PoseTracker {
         bodyVel: { ...this.vel },
         // the phone is still, so the air is still
         worldVel: { x: 0, y: 0 },
+        strikes,
       },
       fabric,
     };
