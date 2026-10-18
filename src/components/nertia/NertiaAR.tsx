@@ -2,23 +2,29 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  LEVELS,
   categoryOf,
   finishes,
+  levelFor,
+  partnerFor,
   units,
   unitEffect,
   unitLabel,
   type Category,
+  type Level,
   type Unit,
 } from "@/lib/nertia";
+import { createEffect, LinkArc, type Effect, type Emitter, type Vec } from "./effects";
+import { DemoScene } from "./runner";
+import { coverFit, PoseTracker } from "./tracker";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "apparel", label: "Apparel" },
   { id: "footwear", label: "Footwear" },
   { id: "headwear", label: "Headwear" },
 ];
-import { createEffect, type Effect, type Emitter, type Vec } from "./effects";
-import { DemoScene } from "./runner";
-import { coverFit, PoseTracker } from "./tracker";
+
+const unitNo = (u: Unit) => String(u.unit).padStart(String(u.of).length, "0");
 
 type Mode = "demo" | "camera";
 type Chip = "idle" | "reading" | "live";
@@ -54,6 +60,11 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const [paused, setPaused] = useState(false);
   const [touched, setTouched] = useState(false);
   const [cat, setCat] = useState<Category>("apparel");
+  const [pair, setPair] = useState(false);
+  const [people, setPeople] = useState(0);
+  /** a level the visitor is previewing; null = the unit's real miles */
+  const [preview, setPreview] = useState<Level | null>(null);
+  const level = preview ?? levelFor(unit.miles);
 
   // The render loop reads these through refs so React re-renders never
   // restart it.
@@ -65,16 +76,24 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     intensity: 0,
     paused: false,
     visible: true,
+    pair: false,
+    power: 1,
   });
   useEffect(() => {
-    Object.assign(live.current, { mode, unit, chip, facing, paused });
-  }, [mode, unit, chip, facing, paused]);
+    Object.assign(live.current, { mode, unit, chip, facing, paused, pair, power: level.power });
+  }, [mode, unit, chip, facing, paused, pair, level]);
 
-  const effectRef = useRef<{ id: string; fx: Effect } | null>(null);
+  /** one effect per runner slot: 0 is you, 1 is whoever runs with you */
+  const effectsRef = useRef<({ id: string; fx: Effect } | null)[]>([null, null]);
+  const linkRef = useRef(new LinkArc());
+  const peopleRef = useRef(0);
+  const clearAll = () => {
+    effectsRef.current.forEach((e) => e?.fx.clear());
+    linkRef.current.clear();
+  };
   const sceneRef = useRef<DemoScene | null>(null);
   const trackerRef = useRef<PoseTracker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const lastEmitter = useRef<Emitter | null>(null);
   const igniteNext = useRef(false);
   const readTimer = useRef<number | null>(null);
   const inFrameRef = useRef(true);
@@ -84,6 +103,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const tap = useCallback((u: Unit) => {
     setTouched(true);
     setUnit(u);
+    setPreview(null);
     setChip("reading");
     live.current.intensity = 0;
     if (readTimer.current) window.clearTimeout(readTimer.current);
@@ -171,7 +191,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     setTouched(true);
     if (m === mode) return;
     setMode(m);
-    effectRef.current?.fx.clear();
+    clearAll();
     if (m === "camera") {
       void startCamera(facing);
     } else {
@@ -183,7 +203,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const flip = () => {
     const next = facing === "user" ? "environment" : "user";
     setFacing(next);
-    effectRef.current?.fx.clear();
+    clearAll();
     void startCamera(next);
   };
 
@@ -254,26 +274,59 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
       }
 
       const finish = finishes[L.unit.finish];
+      const isLive = L.chip === "live";
+      const fxFor = (slot: number, u: Unit): Effect => {
+        const id = unitEffect(u).id;
+        const cur = effectsRef.current[slot];
+        if (cur && cur.id === id) return cur.fx;
+        const next = { id, fx: createEffect(id) };
+        effectsRef.current[slot] = next;
+        return next.fx;
+      };
+      const run = (fx: Effect, em: Emitter | null) => {
+        if (em && igniteNext.current) fx.ignite(em);
+        fx.update(dt, em, L.intensity);
+        fx.draw(ctx);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      };
 
-      // one effect instance per finish, swapped on tap
-      const fxId = unitEffect(L.unit).id;
-      if (!effectRef.current || effectRef.current.id !== fxId) {
-        effectRef.current = { id: fxId, fx: createEffect(fxId) };
-      }
-      const fx = effectRef.current.fx;
-
-      const target = L.chip === "live" ? 1 : 0;
+      const target = isLive ? 1 : 0;
       L.intensity += (target - L.intensity) * (1 - Math.exp(-(target ? 2.4 : 6) * dt));
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
 
-      let emitter: Emitter | null = null;
+      let a: Emitter | null = null; // slot 0
+      let b: Emitter | null = null; // slot 1
+      let partner: Unit | null = null;
 
       if (L.mode === "demo") {
-        const f = sceneRef.current!.frame(ctx, W, H, dt, L.unit, finish, L.chip === "live");
-        emitter = f.emitter;
+        const scene = sceneRef.current!;
+        const f = scene.beginFrame(ctx, W, H, dt, finish, isLive);
+        // whoever runs with you is drawn first, further back
+        if (L.pair) {
+          partner = partnerFor(L.unit);
+          const pf = finishes[partner.finish];
+          b = scene.runner(ctx, f, partner, pf, isLive, {
+            slot: 1,
+            x: W * (W / dpr < 560 ? 0.3 : 0.32),
+            depth: 0.8,
+            phase: 1.9,
+          });
+          b.power = levelFor(partner.miles).power;
+          run(fxFor(1, partner), b);
+        }
+        a = scene.runner(ctx, f, L.unit, finish, isLive, {
+          slot: 0,
+          x: W * (L.pair ? 0.6 : 0.52),
+          depth: 1,
+          phase: 0,
+        });
+        a.power = L.power;
+        run(fxFor(0, L.unit), a);
       } else {
         const v = videoRef.current;
         ctx.fillStyle = "#070708";
@@ -294,28 +347,43 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
 
           const tr = trackerRef.current;
           if (tr) {
-            const body = tr.detect(v, now, fit, L.unit.region);
-            const ok = !!body;
+            const frames = tr.detect(v, now, fit, L.unit.region);
+            const ok = !!frames[0];
             if (ok !== inFrameRef.current) {
               inFrameRef.current = ok;
               setInFrame(ok);
             }
-            if (body) {
-              emitter = body.emitter;
-              if (L.intensity > 0.02) drawFabric(ctx, body.fabric, finish.ramp, now, L.intensity);
+            if (frames.length !== peopleRef.current) {
+              peopleRef.current = frames.length;
+              setPeople(frames.length);
+            }
+            // a second person only wears the effect when running together
+            const slots = L.pair ? 2 : 1;
+            for (let i = 0; i < slots; i++) {
+              const fr = frames[i] ?? null;
+              const em = fr ? { ...fr.emitter, power: L.power } : null;
+              if (fr && L.intensity > 0.02) drawFabric(ctx, fr.fabric, finish.ramp, now, L.intensity);
+              if (i === 0) a = em;
+              else b = em;
             }
           }
         }
+        run(fxFor(0, L.unit), a);
+        if (L.pair) run(fxFor(1, L.unit), b);
       }
+      igniteNext.current = false;
 
-      if (emitter) lastEmitter.current = emitter;
-      if (igniteNext.current && emitter) {
-        igniteNext.current = false;
-        fx.ignite(emitter);
-      }
-
-      fx.update(dt, emitter, L.intensity);
-      fx.draw(ctx);
+      // linked runners
+      const link = linkRef.current;
+      const linked = L.pair && !!a?.core && !!b?.core;
+      link.update(dt, a?.core ?? null, b?.core ?? null, a?.scale ?? 100, isLive && linked);
+      const other = partner ?? L.unit;
+      link.draw(
+        ctx,
+        [finishes[other.finish].accent, finish.accent],
+        `LINKED · ${unitNo(other)} ⇄ ${unitNo(L.unit)}`,
+        dpr,
+      );
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
@@ -394,6 +462,24 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
             ) : null}
             <button
               type="button"
+              className="nx-icon nx-pair"
+              aria-pressed={pair}
+              onClick={() => {
+                setTouched(true);
+                setPair((p) => !p);
+                linkRef.current.clear();
+              }}
+              title="Run together: two NERTIA units close together link up"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="6" cy="12" r="2.6" />
+                <circle cx="18" cy="12" r="2.6" />
+                <path d="M8.6 12l2.2-2.4 1.6 4.8 2.2-2.4" />
+              </svg>
+              <span>Run together</span>
+            </button>
+            <button
+              type="button"
               className="nx-icon"
               onClick={() => setPaused((p) => !p)}
               aria-label={paused ? "Play" : "Pause"}
@@ -442,6 +528,11 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
                 : unit.region === "feet"
                   ? "Point the camera at your feet, or step back until they're in frame"
                   : "Face the camera so your head and ears are in frame"}
+          </p>
+        ) : null}
+        {mode === "camera" && cam.kind === "on" && inFrame && pair && people < 2 ? (
+          <p className="nx-note" aria-live="polite">
+            Bring a second person into frame to link
           </p>
         ) : null}
         {cam.kind === "error" ? (
@@ -499,7 +590,15 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
           })}
         </ul>
 
-        <Certificate unit={unit} chip={chip} />
+        <Certificate
+          unit={unit}
+          chip={chip}
+          level={level}
+          onPreview={(l) => {
+            setTouched(true);
+            setPreview(l.n === levelFor(unit.miles).n ? null : l);
+          }}
+        />
       </div>
     </section>
   );
@@ -507,8 +606,21 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
 
 /* ───────────────────── certificate ───────────────────── */
 
-function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
+function Certificate({
+  unit,
+  chip,
+  level,
+  onPreview,
+}: {
+  unit: Unit;
+  chip: Chip;
+  level: Level;
+  onPreview: (l: Level) => void;
+}) {
   const f = finishes[unit.finish];
+  const real = levelFor(unit.miles);
+  const next = LEVELS.find((l) => l.min > unit.miles);
+  const toNext = next ? (unit.miles - real.min) / (next.min - real.min) : 1;
   const fx = unitEffect(unit);
   const [no, of] = unitLabel(unit).split(" / ");
   return (
@@ -572,6 +684,39 @@ function Certificate({ unit, chip }: { unit: Unit; chip: Chip }) {
             </dd>
           </div>
         )}
+        <div>
+          <dt>Miles</dt>
+          <dd>
+            {unit.miles} logged · Level {real.roman}, {real.label}
+            <span className="nx-meter" aria-hidden="true">
+              <span style={{ width: `${toNext * 100}%` }} />
+            </span>
+            <span className="nx-next">
+              {next ? `${next.min - unit.miles} mi to Level ${next.roman}` : "Top level"}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt>Effect level</dt>
+          <dd>
+            <span className="nx-levels" role="group" aria-label="Preview effect level">
+              {LEVELS.map((l) => (
+                <button
+                  key={l.n}
+                  type="button"
+                  aria-pressed={level.n === l.n}
+                  title={`${l.label} · ${l.min}+ mi`}
+                  onClick={() => onPreview(l)}
+                >
+                  {l.roman}
+                </button>
+              ))}
+            </span>
+            <span className="nx-next">
+              {level.n === real.n ? "Tap a level to preview it" : `Previewing ${level.label}`}
+            </span>
+          </dd>
+        </div>
         <div>
           <dt>Owner</dt>
           <dd>You — the effect transfers with the {unit.region === "feet" ? "pair" : unit.region === "head" ? "piece" : "garment"} at resale</dd>

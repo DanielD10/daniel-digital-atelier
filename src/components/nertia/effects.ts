@@ -33,7 +33,21 @@ export type Emitter = {
    * Headwear only: the head as a circle. `up` points out of the crown,
    * `fwd` out of the face; both are unit vectors in screen space.
    */
-  head?: { c: Vec; r: number; up: Vec; fwd: Vec };
+  head?: { c: Vec; r: number; up: Vec; fwd: Vec; front?: boolean };
+  /**
+   * Mileage level, 0.45 (first miles) to 1.4 (legend). Scales how much
+   * an effect emits and how big it reads. Defaults to 1.
+   */
+  power?: number;
+  /** Chest point — where linked runners connect. */
+  core?: Vec;
+  /** The whole body as capsules [a, b, radius], for full-body effects. */
+  body?: [Vec, Vec, number][];
+  /**
+   * Torso frame for effects anchored to the back. `side` is true when
+   * the body is side-on to the camera (both shoulders overlap).
+   */
+  torso?: { neck: Vec; pelvis: Vec; lSh: Vec; rSh: Vec; up: Vec; fwd: Vec; side: boolean };
 };
 
 export interface Effect {
@@ -148,13 +162,19 @@ abstract class System implements Effect {
     if (e) this.last = e;
 
     if (e && intensity > 0 && e.path.length) {
-      this.carry += this.rate(e) * intensity * dt;
+      const power = e.power ?? 1;
+      this.carry += this.rate(e) * intensity * power * dt;
       const total = pathLength(e.path);
+      const cap = this.max * Math.max(1, power);
+      const grow = 0.7 + 0.3 * power;
       while (this.carry >= 1) {
         this.carry -= 1;
-        if (this.ps.length >= this.max) break;
+        if (this.ps.length >= cap) break;
         const p = this.spawn(e, samplePath(e.path, total));
-        if (p) this.ps.push(p);
+        if (p) {
+          p.size *= grow;
+          this.ps.push(p);
+        }
       }
     } else {
       this.carry = 0;
@@ -813,8 +833,9 @@ class Strike implements Effect {
 
   private land(at: Vec, e: Emitter) {
     const s = e.scale;
-    this.ripples.push({ x: at.x, y: at.y, s, age: 0 });
-    const n = Math.round(14 + s * 0.12);
+    const power = e.power ?? 1;
+    this.ripples.push({ x: at.x, y: at.y, s: s * (0.7 + 0.3 * power), age: 0 });
+    const n = Math.round((14 + s * 0.12) * power);
     for (let i = 0; i < n && this.sparks.length < 400; i++) {
       const a = -Math.PI / 2 + rand(-1.25, 1.25);
       const sp = rand(1.2, 3.2) * s;
@@ -1004,7 +1025,9 @@ class Frost implements Effect {
     this.prints.push({ x: at.x, y: at.y, s, age: 0, arms });
     if (this.prints.length > 14) this.prints.shift();
 
-    for (let i = 0; i < 10 && this.shards.length < 200; i++) {
+    const power = e.power ?? 1;
+    if (power < 1) for (const arm of arms) arm[1] *= 0.6 + 0.4 * power;
+    for (let i = 0; i < Math.round(10 * power) && this.shards.length < 200; i++) {
       const a = -Math.PI / 2 + rand(-1.3, 1.3);
       const sp = rand(0.8, 2.2) * s;
       this.shards.push({
@@ -1161,7 +1184,7 @@ class Laurel implements Effect {
     const air = this.last?.worldVel ?? { x: 0, y: 0 };
     const h = e?.head;
     if (h && this.grow > 0.6 && this.dust.length < 160) {
-      const n = Math.random() < dt * 70 ? 1 : 0;
+      const n = Math.random() < dt * 70 * (e?.power ?? 1) ? 1 : 0;
       for (let i = 0; i < n; i++) {
         const t = Math.random() * Math.PI * 2;
         const p = this.ring(h, t);
@@ -1226,7 +1249,9 @@ class Laurel implements Effect {
 
     // two branches start at the back of the head and meet at the brow
     const N = Laurel.LEAVES;
-    const shown = this.grow * N;
+    // early miles grow a sparse sprig; a legend wears the full wreath
+    const power = this.last?.power ?? 1;
+    const shown = this.grow * N * Math.min(1, 0.35 + 0.65 * power);
     for (const pass of [0, 1]) {
       for (const side of [1, -1]) {
         for (let i = 0; i < N; i++) {
@@ -1387,6 +1412,998 @@ class Steam extends System {
   }
 }
 
+
+/* ─────────────────────────── shared helpers ─────────────────────── */
+
+function lerpV(a: Vec, b: Vec, t: number): Vec {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function normV(a: Vec): Vec {
+  const m = Math.hypot(a.x, a.y) || 1;
+  return { x: a.x / m, y: a.y / m };
+}
+function levelOf(power: number): 1 | 2 | 3 | 4 {
+  return power >= 1.3 ? 4 : power >= 0.95 ? 3 : power >= 0.65 ? 2 : 1;
+}
+function hexRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+/** sample a color ramp at t in [0, 1] */
+function rampAt(stops: string[], t: number, a = 1): string {
+  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  const f = x - i;
+  const p = hexRgb(stops[i]);
+  const q = hexRgb(stops[i + 1]);
+  const c = p.map((v, k) => Math.round(v + (q[k] - v) * f));
+  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+function cubic(p0: Vec, p1: Vec, p2: Vec, p3: Vec, t: number): Vec {
+  const u = 1 - t;
+  const a = u * u * u;
+  const b = 3 * u * u * t;
+  const c = 3 * u * t * t;
+  const d = t * t * t;
+  return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y };
+}
+function quad(p0: Vec, p1: Vec, p2: Vec, t: number): Vec {
+  const u = 1 - t;
+  return {
+    x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+    y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
+  };
+}
+/** capsule outline as a path (caller fills) */
+function capsulePath(ctx: CanvasRenderingContext2D, a: Vec, b: Vec, r: number) {
+  const ang = Math.atan2(b.y - a.y, b.x - a.x);
+  ctx.moveTo(a.x + Math.cos(ang + Math.PI / 2) * r, a.y + Math.sin(ang + Math.PI / 2) * r);
+  ctx.arc(a.x, a.y, r, ang + Math.PI / 2, ang + (3 * Math.PI) / 2);
+  ctx.arc(b.x, b.y, r, ang - Math.PI / 2, ang + Math.PI / 2);
+  ctx.closePath();
+}
+
+/* ═══════════════════════ FOOTWEAR — EMBER PRINTS ═══════════════════
+   Every footstrike burns a print into the road. It starts white-hot
+   and cools through gold, orange and red to char, smoking as it goes.
+   Embers drip off the shoes in between. */
+
+type Burn = { x: number; y: number; s: number; age: number; life: number };
+
+class Embers implements Effect {
+  private t = 0;
+  private prints: Burn[] = [];
+  private sparks: P[] = [];
+  private smoke: P[] = [];
+  private drips: P[] = [];
+  private last: Emitter | null = null;
+  private intensity = 0;
+  private glow: HTMLCanvasElement;
+  private dot: HTMLCanvasElement;
+  private puff: HTMLCanvasElement;
+  private heat = ["#2a1210", "#8f1d16", "#ff5c1a", "#ffb627", "#fff4d6"];
+
+  constructor() {
+    this.glow = softSprite("rgba(255,140,50,0.8)", 64);
+    this.dot = softSprite("rgba(255,200,120,1)", 16, 0.25);
+    this.puff = softSprite("rgba(90,84,80,0.5)", 64);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    this.intensity = intensity;
+    if (e) this.last = e;
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+    const s = this.last?.scale ?? 100;
+    const power = this.last?.power ?? 1;
+
+    if (e?.strikes && intensity > 0.3) {
+      for (const at of e.strikes) {
+        this.prints.push({ x: at.x, y: at.y, s, age: 0, life: 1.0 + 1.2 * power });
+        for (let i = 0; i < Math.round(8 * power); i++) {
+          const a = -Math.PI / 2 + rand(-1.1, 1.1);
+          const sp = rand(0.8, 2.2) * s;
+          this.sparks.push({
+            x: at.x, y: at.y, vx: Math.cos(a) * sp + air.x * 0.3, vy: Math.sin(a) * sp,
+            age: 0, life: rand(0.3, 0.6), size: rand(0.8, 1.6), seed: 0, k: 0,
+          });
+        }
+      }
+      if (this.prints.length > 16) this.prints.shift();
+    }
+
+    // drips off the shoes
+    if (e && intensity > 0.2) {
+      for (const f of e.path) {
+        if (Math.random() < dt * 14 * power) {
+          this.drips.push({
+            x: f.x + rand(-0.05, 0.05) * s, y: f.y,
+            vx: (e.bodyVel.x ?? 0) * 0.5 + rand(-0.2, 0.2) * s, vy: -rand(0, 0.4) * s,
+            age: 0, life: rand(0.4, 0.8), size: rand(0.8, 1.4), seed: Math.random() * 10, k: 0,
+          });
+        }
+      }
+    }
+
+    for (let i = this.prints.length - 1; i >= 0; i--) {
+      const p = this.prints[i];
+      p.age += dt;
+      p.x += air.x * dt;
+      p.y += air.y * dt;
+      if (p.age > p.life) {
+        this.prints.splice(i, 1);
+        continue;
+      }
+      // hot prints smoke
+      const heat = 1 - p.age / p.life;
+      if (heat > 0.2 && Math.random() < dt * 10 && this.smoke.length < 90) {
+        this.smoke.push({
+          x: p.x + rand(-0.15, 0.15) * p.s, y: p.y,
+          vx: air.x * 0.2, vy: -rand(0.2, 0.5) * p.s,
+          age: 0, life: rand(0.9, 1.6), size: rand(0.12, 0.22) * p.s, seed: Math.random() * 10, k: 0,
+        });
+      }
+    }
+
+    const move = (list: P[], grav: number, k: number, wobble = 0) => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const p = list[i];
+        p.age += dt;
+        if (p.age >= p.life) {
+          list[i] = list[list.length - 1];
+          list.pop();
+          continue;
+        }
+        const f = 1 - Math.exp(-k * dt);
+        p.vx += (air.x - p.vx) * f;
+        p.vy += grav * s * dt;
+        if (wobble) p.vx += Math.sin(this.t * 2 + p.seed) * wobble * s * dt;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+      }
+    };
+    move(this.sparks, 6, 2);
+    move(this.drips, 3, 2.5);
+    move(this.smoke, -0.3, 1.2, 0.6);
+  }
+
+  ignite(e: Emitter) {
+    for (const f of e.path) {
+      this.prints.push({ x: f.x, y: f.y, s: e.scale, age: 0, life: 1.4 + 1.6 * (e.power ?? 1) });
+    }
+  }
+
+  clear() {
+    this.prints.length = 0;
+    this.sparks.length = 0;
+    this.smoke.length = 0;
+    this.drips.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    ctx.save();
+    // prints: forefoot + heel, flat on the road
+    for (const p of this.prints) {
+      // cools fast from white, then lingers as red and char
+      const heat = Math.pow(1 - p.age / p.life, 1.7);
+      const fade = heat < 0.06 ? heat / 0.06 : 1;
+      const col = rampAt(this.heat, heat, 0.95 * fade);
+      ctx.globalCompositeOperation = heat > 0.3 ? "lighter" : "source-over";
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.ellipse(p.x + p.s * 0.14, p.y, p.s * 0.26, p.s * 0.055, 0, 0, Math.PI * 2);
+      ctx.ellipse(p.x - p.s * 0.26, p.y, p.s * 0.15, p.s * 0.045, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if (heat > 0.3) {
+        ctx.globalAlpha = (heat - 0.3) * 1.1;
+        const d = p.s * 1.5;
+        ctx.drawImage(this.glow, p.x - d / 2, p.y - d * 0.2, d, d * 0.4);
+        ctx.globalAlpha = 1;
+      }
+    }
+    ctx.globalCompositeOperation = "source-over";
+    for (const q of this.smoke) {
+      const f = q.age / q.life;
+      ctx.globalAlpha = Math.sin(Math.PI * f) * 0.35;
+      const d = q.size * (1 + f * 2) * 2;
+      ctx.drawImage(this.puff, q.x - d / 2, q.y - d / 2, d, d);
+    }
+    ctx.globalCompositeOperation = "lighter";
+    const s0 = this.last?.scale ?? 100;
+    for (const p of [...this.sparks, ...this.drips]) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = (1 - f) * this.intensity;
+      const d = p.size * (s0 / 110) * 4;
+      ctx.drawImage(this.dot, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ HEADWEAR — VISOR HUD ══════════════════════
+   A holographic readout beside the runner's head. The numbers are
+   simulated (and say so); in production a watch feeds them. Higher
+   levels unlock more readouts. */
+
+class Hud implements Effect {
+  private t = 0;
+  private boot = 0;
+  private head: Emitter["head"] | null = null;
+  private last: Emitter | null = null;
+  private dist = 2.84; // a few miles in, so the readout looks like a real run
+  private splits: number[] = [];
+  private splitAt = 0;
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    if (e) this.last = e;
+    if (e?.head) this.head = e.head;
+    const target = intensity > 0.3 ? 1 : 0;
+    this.boot += (target - this.boot) * (1 - Math.exp(-(target ? 2.2 : 8) * dt));
+    const pace = this.pace();
+    this.dist += dt / pace; // miles, at seconds-per-mile pace
+    this.splitAt -= dt;
+    if (this.splitAt <= 0) {
+      this.splitAt = 0.35;
+      this.splits.push(pace);
+      if (this.splits.length > 24) this.splits.shift();
+    }
+  }
+
+  /** seconds per mile: 7:12 give or take, drifting like a real run */
+  private pace() {
+    return 432 + Math.sin(this.t * 0.6) * 9 + Math.sin(this.t * 1.7 + 1) * 4;
+  }
+  private hr() {
+    return Math.round(154 + Math.sin(this.t * 0.4) * 5 + Math.sin(this.t * 1.3) * 2);
+  }
+
+  ignite() {
+    this.boot = Math.max(this.boot, 0.02);
+  }
+
+  clear() {
+    this.boot = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const h = this.head;
+    if (!h || this.boot < 0.01) return;
+    const level = levelOf(this.last?.power ?? 1);
+    const r = h.r;
+    const W = ctx.canvas.width;
+    const cyan = "#7ff0ff";
+
+    const rows = level === 1 ? 1 : level === 2 ? 2 : level === 3 ? 3 : 4;
+    const pw = r * 4.2;
+    const ph = r * (0.9 + rows * 0.95);
+    // ahead of the face; flip to the other side if it would leave the frame
+    let side = 1;
+    let ax = h.c.x + h.fwd.x * r * 2.1;
+    if (ax + pw > W - r * 0.6 || ax < r * 0.6) {
+      side = -1;
+      ax = h.c.x - h.fwd.x * r * 2.1 - pw;
+    }
+    const ay = h.c.y - h.up.y * r * 1.1 - ph * 0.5 - r * 0.2;
+
+    ctx.save();
+    const flicker = this.boot < 0.98 ? 0.6 + 0.4 * Math.sin(this.t * 60) : 1;
+    ctx.globalAlpha = this.boot * flicker;
+
+    // tether from the visor brim to the panel
+    const brim = {
+      x: h.c.x + h.fwd.x * r * 1.1 * side - h.up.x * r * 0.1,
+      y: h.c.y + h.fwd.y * r * 1.1 * side - h.up.y * r * 0.1,
+    };
+    ctx.strokeStyle = "rgba(127,240,255,0.55)";
+    ctx.lineWidth = Math.max(1, r * 0.03);
+    ctx.setLineDash([r * 0.12, r * 0.1]);
+    ctx.beginPath();
+    ctx.moveTo(brim.x, brim.y);
+    ctx.lineTo(side > 0 ? ax : ax + pw, ay + ph * 0.55);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.translate(ax, ay);
+    ctx.transform(1, side * -0.05, 0, 1, 0, 0); // a little perspective
+    // boot wipe: the panel draws in top to bottom
+    ctx.beginPath();
+    ctx.rect(-4, -4, pw + 8, (ph + 8) * this.boot);
+    ctx.clip();
+
+    ctx.fillStyle = "rgba(8,28,36,0.42)";
+    ctx.fillRect(0, 0, pw, ph);
+    ctx.fillStyle = "rgba(127,240,255,0.05)";
+    for (let y = 0; y < ph; y += Math.max(3, r * 0.08)) ctx.fillRect(0, y, pw, 1);
+
+    // corner brackets
+    const c = r * 0.35;
+    ctx.strokeStyle = cyan;
+    ctx.lineWidth = Math.max(1, r * 0.04);
+    ctx.beginPath();
+    for (const [x, y, dx, dy] of [
+      [0, 0, 1, 1],
+      [pw, 0, -1, 1],
+      [0, ph, 1, -1],
+      [pw, ph, -1, -1],
+    ] as const) {
+      ctx.moveTo(x + dx * c, y);
+      ctx.lineTo(x, y);
+      ctx.lineTo(x, y + dy * c);
+    }
+    ctx.stroke();
+
+    const pad = r * 0.35;
+    const lab = `${Math.round(r * 0.26)}px ui-monospace, "SF Mono", Menlo, monospace`;
+    const big = `600 ${Math.round(r * 0.62)}px ui-monospace, "SF Mono", Menlo, monospace`;
+    const mid = `500 ${Math.round(r * 0.42)}px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.shadowColor = "rgba(127,240,255,0.8)";
+    ctx.shadowBlur = r * 0.25;
+    ctx.textBaseline = "alphabetic";
+
+    ctx.font = lab;
+    ctx.fillStyle = "rgba(127,240,255,0.6)";
+    ctx.fillText("SIM", pw - pad - ctx.measureText("SIM").width, pad + r * 0.2);
+
+    const p = this.pace();
+    const pace = `${Math.floor(p / 60)}:${String(Math.round(p % 60)).padStart(2, "0")}`;
+    let y = pad + r * 0.25;
+    ctx.fillStyle = "rgba(127,240,255,0.7)";
+    ctx.fillText("PACE", pad, y);
+    y += r * 0.68;
+    ctx.font = big;
+    ctx.fillStyle = cyan;
+    ctx.fillText(pace, pad, y);
+    ctx.font = lab;
+    ctx.fillText("/MI", pad + r * 2.0, y);
+
+    if (rows >= 2) {
+      y += r * 0.72;
+      const hr = this.hr();
+      const beat = Math.pow(Math.max(0, Math.sin(this.t * Math.PI * (hr / 60))), 8);
+      ctx.fillStyle = `rgba(255,110,140,${0.5 + 0.5 * beat})`;
+      ctx.beginPath();
+      ctx.arc(pad + r * 0.14, y - r * 0.14, r * (0.1 + 0.04 * beat), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = mid;
+      ctx.fillStyle = cyan;
+      ctx.fillText(String(hr), pad + r * 0.4, y);
+      ctx.font = lab;
+      ctx.fillText("BPM", pad + r * 1.35, y);
+    }
+    if (rows >= 3) {
+      y += r * 0.7;
+      ctx.font = mid;
+      ctx.fillStyle = cyan;
+      ctx.fillText(this.dist.toFixed(2), pad, y);
+      ctx.font = lab;
+      ctx.fillText("MI", pad + r * 1.25, y);
+      ctx.font = mid;
+      ctx.fillText(String(174 + Math.round(Math.sin(this.t * 0.9) * 3)), pad + r * 2.0, y);
+      ctx.font = lab;
+      ctx.fillText("SPM", pad + r * 2.85, y);
+    }
+    if (rows >= 4 && this.splits.length > 2) {
+      y += r * 0.3;
+      const gw = pw - pad * 2;
+      const gh = r * 0.5;
+      const lo = Math.min(...this.splits) - 2;
+      const hi = Math.max(...this.splits) + 2;
+      ctx.strokeStyle = cyan;
+      ctx.lineWidth = Math.max(1, r * 0.035);
+      ctx.beginPath();
+      this.splits.forEach((v, i) => {
+        const x = pad + (i / (this.splits.length - 1)) * gw;
+        const yy = y + ((v - lo) / (hi - lo)) * gh; // faster = higher
+        if (i) ctx.lineTo(x, yy);
+        else ctx.moveTo(x, yy);
+      });
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ APPAREL — GHOST RUNNER ════════════════════
+   Afterimages of the whole body, snapped every tenth of a second and
+   left where they were. Each echo is drawn solid on a scratch canvas
+   first, so overlapping limbs don't double up, then laid down as one
+   translucent chrome silhouette. */
+
+type Echo = { segs: [Vec, Vec, number][]; age: number; n: number };
+
+class Ghost implements Effect {
+  private echoes: Echo[] = [];
+  private snapAt = 0;
+  private serial = 0;
+  private last: Emitter | null = null;
+  private intensity = 0;
+  private scratch: HTMLCanvasElement | null = null;
+  private colors = ["#c9ccd6", "#8a7cff", "#3fd1c6", "#ff7ad9", "#d9dde3"];
+  private static EVERY = 0.1;
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.intensity = intensity;
+    if (e) this.last = e;
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+    const count = [3, 5, 7, 9][levelOf(this.last?.power ?? 1) - 1];
+    const life = count * Ghost.EVERY + 0.05;
+
+    for (const q of this.echoes) {
+      q.age += dt;
+      const ox = air.x * dt;
+      const oy = air.y * dt;
+      for (const sgm of q.segs) {
+        sgm[0] = { x: sgm[0].x + ox, y: sgm[0].y + oy };
+        sgm[1] = { x: sgm[1].x + ox, y: sgm[1].y + oy };
+      }
+    }
+    this.echoes = this.echoes.filter((q) => q.age < life);
+
+    this.snapAt -= dt;
+    if (this.snapAt <= 0 && e?.body && intensity > 0.3) {
+      this.snapAt = Ghost.EVERY;
+      this.echoes.push({
+        segs: e.body.map(([a, b, r]) => [{ ...a }, { ...b }, r] as [Vec, Vec, number]),
+        age: 0,
+        n: this.serial++,
+      });
+    }
+  }
+
+  ignite() {
+    this.snapAt = 0;
+  }
+
+  clear() {
+    this.echoes.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (!this.echoes.length) return;
+    const W = ctx.canvas.width;
+    const H = ctx.canvas.height;
+    if (!this.scratch) this.scratch = document.createElement("canvas");
+    const sc = this.scratch;
+    if (sc.width !== W || sc.height !== H) {
+      sc.width = W;
+      sc.height = H;
+    }
+    const g = sc.getContext("2d")!;
+    const count = [3, 5, 7, 9][levelOf(this.last?.power ?? 1) - 1];
+    const life = count * Ghost.EVERY + 0.05;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const q of this.echoes) {
+      // the newest echo sits on the body itself; skip it
+      if (q.age < 0.12) continue;
+      let x0 = Infinity;
+      let y0 = Infinity;
+      let x1 = -Infinity;
+      let y1 = -Infinity;
+      for (const [a, b, r] of q.segs) {
+        x0 = Math.min(x0, a.x - r, b.x - r);
+        y0 = Math.min(y0, a.y - r, b.y - r);
+        x1 = Math.max(x1, a.x + r, b.x + r);
+        y1 = Math.max(y1, a.y + r, b.y + r);
+      }
+      x0 = Math.max(0, Math.floor(x0 - 2));
+      y0 = Math.max(0, Math.floor(y0 - 2));
+      x1 = Math.min(W, Math.ceil(x1 + 2));
+      y1 = Math.min(H, Math.ceil(y1 + 2));
+      if (x1 <= x0 || y1 <= y0) continue;
+
+      g.clearRect(x0, y0, x1 - x0, y1 - y0);
+      g.fillStyle = this.colors[q.n % this.colors.length];
+      g.beginPath();
+      for (const [a, b, r] of q.segs) capsulePath(g, a, b, r);
+      g.fill();
+
+      const f = q.age / life;
+      ctx.globalAlpha = (1 - f) * 0.24 * this.intensity;
+      ctx.drawImage(sc, x0, y0, x1 - x0, y1 - y0, x0, y0, x1 - x0, y1 - y0);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ APPAREL — WINGS ═══════════════════════════
+   Wings of light off the shoulder blades. Side-on, two wings sweep
+   back; facing the camera, they spread left and right. They beat with
+   a slow stroke, and higher levels grow the span and the feathers. */
+
+type Feather = { base: Vec; tip: Vec; w: number; row: 0 | 1 };
+type Wing = { root: Vec; tip: Vec; ctrl: Vec; feathers: Feather[]; alpha: number };
+
+class Wings implements Effect {
+  private t = 0;
+  private grow = 0;
+  private wings: Wing[] = [];
+  private motes: P[] = [];
+  private last: Emitter | null = null;
+  private mote: HTMLCanvasElement;
+  private glow: HTMLCanvasElement;
+
+  constructor() {
+    this.mote = softSprite("rgba(255,248,240,1)", 16, 0.25);
+    this.glow = softSprite("rgba(255,236,246,0.5)", 96);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    if (e) this.last = e;
+    const target = intensity > 0.3 ? 1 : 0;
+    this.grow += (target - this.grow) * (1 - Math.exp(-(target ? 1.8 : 6) * dt));
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+
+    const T = e?.torso;
+    if (T && this.grow > 0.01) {
+      this.wings = this.build(T, e!.scale, e!.power ?? 1);
+      // light sheds off the feather tips
+      const rate = 40 * (e!.power ?? 1) * this.grow;
+      for (const w of this.wings) {
+        if (Math.random() < dt * rate * w.alpha) {
+          const f = w.feathers[Math.floor(Math.random() * w.feathers.length)];
+          this.motes.push({
+            x: f.tip.x, y: f.tip.y,
+            vx: (e!.bodyVel.x ?? 0) * 0.5 + rand(-0.2, 0.2) * e!.scale,
+            vy: rand(-0.1, 0.25) * e!.scale,
+            age: 0, life: rand(0.7, 1.4), size: rand(0.8, 1.8), seed: Math.random() * 10, k: 0,
+          });
+        }
+      }
+    } else if (!T) {
+      this.wings = [];
+    }
+
+    for (let i = this.motes.length - 1; i >= 0; i--) {
+      const p = this.motes[i];
+      p.age += dt;
+      if (p.age >= p.life) {
+        this.motes.splice(i, 1);
+        continue;
+      }
+      const f = 1 - Math.exp(-1.6 * dt);
+      p.vx += (air.x - p.vx) * f;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+  }
+
+  private build(T: NonNullable<Emitter["torso"]>, S: number, power: number): Wing[] {
+    const span = S * (1.2 + 0.5 * power) * (0.25 + 0.75 * this.grow);
+    const N = Math.min(16, Math.round(8 + 6 * power));
+    const up = T.up;
+    const out: Wing[] = [];
+
+    const make = (root: Vec, dir: Vec, lag: number, alpha: number) => {
+      // the stroke swings the wing tip along the up axis
+      const a = 0.05 + 0.26 * Math.sin(this.t * Math.PI * 2 * 0.9 - lag);
+      const d = normV({ x: dir.x * Math.cos(a) + up.x * Math.sin(a), y: dir.y * Math.cos(a) + up.y * Math.sin(a) });
+      // feathers hang along "down", taken square to the wing
+      const dn0 = { x: -up.x, y: -up.y };
+      const k = dn0.x * d.x + dn0.y * d.y;
+      const down = normV({ x: dn0.x - d.x * k, y: dn0.y - d.y * k });
+      const tip = { x: root.x + d.x * span, y: root.y + d.y * span };
+      const ctrl = {
+        x: root.x + d.x * span * 0.3 + up.x * span * 0.22,
+        y: root.y + d.y * span * 0.3 + up.y * span * 0.22,
+      };
+      const feathers: Feather[] = [];
+      for (let row = 1; row >= 0; row--) {
+        for (let i = 0; i < N; i++) {
+          const t = 0.1 + 0.9 * (i / (N - 1));
+          const base = quad(root, ctrl, tip, t);
+          const lean = 0.1 + 0.75 * t; // outer feathers rake toward the tip
+          const fd = normV({ x: down.x + d.x * lean, y: down.y + d.y * lean });
+          const len = span * (0.34 + 0.46 * t) * (row ? 0.45 : 1);
+          feathers.push({
+            base,
+            tip: { x: base.x + fd.x * len, y: base.y + fd.y * len },
+            w: len * (row ? 0.2 : 0.15),
+            row: row as 0 | 1,
+          });
+        }
+      }
+      out.push({ root, tip, ctrl, feathers, alpha });
+    };
+
+    if (T.side) {
+      // shoulder blade sits just behind and below the neck
+      const root = {
+        x: lerpV(T.neck, T.pelvis, 0.16).x - T.fwd.x * S * 0.22,
+        y: lerpV(T.neck, T.pelvis, 0.16).y - T.fwd.y * S * 0.22,
+      };
+      const back = normV({ x: -T.fwd.x + up.x * 0.55, y: -T.fwd.y + up.y * 0.55 });
+      make({ x: root.x + T.fwd.x * S * 0.08, y: root.y + T.fwd.y * S * 0.08 - S * 0.03 }, back, 0.25, 0.55);
+      make(root, back, 0, 1);
+    } else {
+      const across = normV({ x: T.rSh.x - T.lSh.x, y: T.rSh.y - T.lSh.y });
+      const lRoot = lerpV(T.lSh, T.neck, 0.35);
+      const rRoot = lerpV(T.rSh, T.neck, 0.35);
+      make(lRoot, normV({ x: -across.x + up.x * 0.2, y: -across.y + up.y * 0.2 }), 0, 1);
+      make(rRoot, normV({ x: across.x + up.x * 0.2, y: across.y + up.y * 0.2 }), 0, 1);
+    }
+    return out;
+  }
+
+  ignite() {
+    this.grow = Math.max(this.grow, 0.02);
+  }
+
+  clear() {
+    this.grow = 0;
+    this.wings = [];
+    this.motes.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.grow < 0.01) return;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const w of this.wings) {
+      const a = this.grow * w.alpha;
+      // soft bloom under the wing
+      const mid = quad(w.root, w.ctrl, w.tip, 0.55);
+      const span = Math.hypot(w.tip.x - w.root.x, w.tip.y - w.root.y);
+      ctx.globalAlpha = 0.35 * a;
+      ctx.drawImage(this.glow, mid.x - span * 0.7, mid.y - span * 0.45, span * 1.4, span * 1.1);
+
+      for (const f of w.feathers) {
+        const dx = f.tip.x - f.base.x;
+        const dy = f.tip.y - f.base.y;
+        const L = Math.hypot(dx, dy) || 1;
+        const nx = -dy / L;
+        const ny = dx / L;
+        const m = lerpV(f.base, f.tip, 0.45);
+        const g = ctx.createLinearGradient(f.base.x, f.base.y, f.tip.x, f.tip.y);
+        g.addColorStop(0, "rgba(255,255,255,0.6)");
+        g.addColorStop(0.55, f.row ? "rgba(241,217,226,0.42)" : "rgba(216,238,232,0.36)");
+        g.addColorStop(1, "rgba(255,236,246,0.04)");
+        ctx.globalAlpha = a * (f.row ? 0.4 : 0.5);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.moveTo(f.base.x, f.base.y);
+        ctx.quadraticCurveTo(m.x + nx * f.w, m.y + ny * f.w, f.tip.x, f.tip.y);
+        ctx.quadraticCurveTo(m.x - nx * f.w, m.y - ny * f.w, f.base.x, f.base.y);
+        ctx.fill();
+        // a hairline edge keeps neighbouring feathers apart
+        ctx.globalAlpha = a * 0.35;
+        ctx.strokeStyle = "rgba(255,255,255,0.7)";
+        ctx.lineWidth = Math.max(0.6, f.w * 0.05);
+        ctx.stroke();
+        // the shaft
+        ctx.globalAlpha = a * 0.5;
+        ctx.strokeStyle = "rgba(255,255,255,0.8)";
+        ctx.lineWidth = Math.max(0.6, f.w * 0.08);
+        ctx.beginPath();
+        ctx.moveTo(f.base.x, f.base.y);
+        ctx.lineTo(lerpV(f.base, f.tip, 0.85).x, lerpV(f.base, f.tip, 0.85).y);
+        ctx.stroke();
+      }
+      // the leading edge
+      ctx.globalAlpha = a;
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      ctx.lineWidth = Math.max(1, span * 0.018);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(w.root.x, w.root.y);
+      ctx.quadraticCurveTo(w.ctrl.x, w.ctrl.y, w.tip.x, w.tip.y);
+      ctx.stroke();
+    }
+    const s0 = this.last?.scale ?? 100;
+    for (const p of this.motes) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = (1 - f) * this.grow;
+      const d = p.size * (s0 / 110) * 4;
+      ctx.drawImage(this.mote, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ HEADWEAR — HORNS ══════════════════════════
+   Obsidian horns with lava running in the cracks. Side-on they sweep
+   back like an ibex; facing the camera they curve out and up. Embers
+   lift off the tips. Higher levels grow them longer. */
+
+type Horn = { pts: Vec[]; w: number; alpha: number };
+
+class Horns implements Effect {
+  private t = 0;
+  private grow = 0;
+  private horns: Horn[] = [];
+  private embers: P[] = [];
+  private last: Emitter | null = null;
+  private dot: HTMLCanvasElement;
+  private glow: HTMLCanvasElement;
+
+  constructor() {
+    this.dot = softSprite("rgba(255,170,80,1)", 16, 0.25);
+    this.glow = softSprite("rgba(255,92,26,0.6)", 64);
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    if (e) this.last = e;
+    const target = intensity > 0.3 ? 1 : 0;
+    this.grow += (target - this.grow) * (1 - Math.exp(-(target ? 2 : 6) * dt));
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+    const h = e?.head;
+    if (h && this.grow > 0.01) {
+      this.horns = this.build(h, e!.power ?? 1);
+      for (const hn of this.horns) {
+        if (Math.random() < dt * 22 * (e!.power ?? 1) * this.grow * hn.alpha) {
+          const tip = hn.pts[hn.pts.length - 1];
+          this.embers.push({
+            x: tip.x, y: tip.y,
+            vx: (e!.bodyVel.x ?? 0) * 0.5 + rand(-0.4, 0.4) * h.r,
+            vy: -rand(0.6, 1.4) * h.r,
+            age: 0, life: rand(0.5, 1.1), size: rand(0.8, 1.5), seed: Math.random() * 10, k: 0,
+          });
+        }
+      }
+    } else if (!h) {
+      this.horns = [];
+    }
+    for (let i = this.embers.length - 1; i >= 0; i--) {
+      const p = this.embers[i];
+      p.age += dt;
+      if (p.age >= p.life) {
+        this.embers.splice(i, 1);
+        continue;
+      }
+      const f = 1 - Math.exp(-1.5 * dt);
+      p.vx += (air.x - p.vx) * f;
+      p.vx += Math.sin(this.t * 6 + p.seed) * 20 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+  }
+
+  private build(h: NonNullable<Emitter["head"]>, power: number): Horn[] {
+    const r = h.r;
+    const L = r * (1.5 + 1.0 * power) * (0.2 + 0.8 * this.grow);
+    const up = h.up;
+    const fw = h.fwd;
+    const P = (o: Vec, u: number, f: number): Vec => ({
+      x: o.x + up.x * u + fw.x * f,
+      y: o.y + up.y * u + fw.y * f,
+    });
+    const curve = (p0: Vec, p1: Vec, p2: Vec, p3: Vec) => {
+      const pts: Vec[] = [];
+      for (let i = 0; i <= 14; i++) pts.push(cubic(p0, p1, p2, p3, i / 14));
+      return pts;
+    };
+    if (!h.front) {
+      const near = P(h.c, r * 0.6, r * 0.1);
+      const far = P(h.c, r * 0.64, -r * 0.08);
+      const sweep = (o: Vec) =>
+        curve(o, P(o, L * 0.7, L * 0.05), P(o, L * 0.95, -L * 0.55), P(o, L * 0.5, -L * 1.0));
+      return [
+        { pts: sweep(far), w: r * 0.34, alpha: 0.55 },
+        { pts: sweep(near), w: r * 0.38, alpha: 1 },
+      ];
+    }
+    return [-1, 1].map((sd) => {
+      const o = P(h.c, r * 0.55, sd * r * 0.55);
+      return {
+        pts: curve(o, P(o, L * 0.45, sd * L * 0.35), P(o, L * 0.95, sd * L * 0.6), P(o, L * 1.1, sd * L * 0.15)),
+        w: r * 0.36,
+        alpha: 1,
+      };
+    });
+  }
+
+  ignite() {
+    this.grow = Math.max(this.grow, 0.02);
+  }
+
+  clear() {
+    this.grow = 0;
+    this.horns = [];
+    this.embers.length = 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.grow < 0.01) return;
+    ctx.save();
+    for (const hn of this.horns) {
+      const n = hn.pts.length;
+      const left: Vec[] = [];
+      const right: Vec[] = [];
+      for (let i = 0; i < n; i++) {
+        const a = hn.pts[Math.max(0, i - 1)];
+        const b = hn.pts[Math.min(n - 1, i + 1)];
+        const d = normV({ x: b.x - a.x, y: b.y - a.y });
+        const w = hn.w * Math.pow(1 - i / (n - 1), 0.85) * (0.4 + 0.6 * this.grow);
+        left.push({ x: hn.pts[i].x - d.y * w, y: hn.pts[i].y + d.x * w });
+        right.push({ x: hn.pts[i].x + d.y * w, y: hn.pts[i].y - d.x * w });
+      }
+      const shape = new Path2D();
+      shape.moveTo(left[0].x, left[0].y);
+      for (const p of left.slice(1)) shape.lineTo(p.x, p.y);
+      for (const p of right.reverse()) shape.lineTo(p.x, p.y);
+      shape.closePath();
+
+      ctx.globalAlpha = this.grow * hn.alpha;
+      ctx.globalCompositeOperation = "source-over";
+      const g = ctx.createLinearGradient(hn.pts[0].x, hn.pts[0].y, hn.pts[n - 1].x, hn.pts[n - 1].y);
+      g.addColorStop(0, "#241718");
+      g.addColorStop(1, "#0d0a0b");
+      ctx.fillStyle = g;
+      ctx.shadowColor = "rgba(255,92,26,0.8)";
+      ctx.shadowBlur = hn.w * 0.9;
+      ctx.fill(shape);
+      ctx.shadowBlur = 0;
+
+      // ram ridges
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = Math.max(0.8, hn.w * 0.06);
+      ctx.beginPath();
+      for (let i = 2; i < n - 2; i += 2) {
+        ctx.moveTo(left[i].x, left[i].y);
+        const rr = right[right.length - 1 - i];
+        ctx.lineTo(rr.x, rr.y);
+      }
+      ctx.stroke();
+
+      // lava in the cracks, pulsing
+      ctx.globalCompositeOperation = "lighter";
+      const pulse = 0.55 + 0.45 * Math.sin(this.t * 4);
+      ctx.strokeStyle = `rgba(255,${Math.round(110 + 60 * pulse)},40,${0.7 * pulse})`;
+      ctx.lineWidth = Math.max(1, hn.w * 0.1);
+      ctx.lineJoin = "round";
+      ctx.beginPath();
+      for (let i = 1; i < n - 2; i++) {
+        const p = hn.pts[i];
+        const j = Math.sin(i * 2.7 + 1.3) * hn.w * 0.25 * (1 - i / n);
+        const q = { x: p.x + j, y: p.y - j * 0.5 };
+        if (i === 1) ctx.moveTo(q.x, q.y);
+        else ctx.lineTo(q.x, q.y);
+      }
+      ctx.stroke();
+      // rim light
+      ctx.strokeStyle = `rgba(255,92,26,${0.35 + 0.25 * pulse})`;
+      ctx.lineWidth = Math.max(1, hn.w * 0.07);
+      ctx.stroke(shape);
+      // hot tip
+      const tip = hn.pts[n - 1];
+      const d = hn.w * 2.4;
+      ctx.globalAlpha = this.grow * hn.alpha * pulse;
+      ctx.drawImage(this.glow, tip.x - d / 2, tip.y - d / 2, d, d);
+    }
+    ctx.globalCompositeOperation = "lighter";
+    const r0 = this.last?.head?.r ?? 20;
+    for (const p of this.embers) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = (1 - f) * this.grow;
+      const d = p.size * (r0 / 28) * 4;
+      ctx.drawImage(this.dot, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ LINKED RUNNERS ════════════════════════════
+   Two NERTIA units close together connect. Not an Effect of its own
+   unit: it runs between two emitters' chest points, in both runners'
+   colors. Bolts are re-rolled every few frames so the link crackles. */
+
+export class LinkArc {
+  private on = 0;
+  private bolts: Vec[][] = [];
+  private regen = 0;
+  private a: Vec | null = null;
+  private b: Vec | null = null;
+  private scale = 100;
+  private t = 0;
+  private spark: HTMLCanvasElement | null = null;
+
+  update(dt: number, a: Vec | null, b: Vec | null, scale: number, live: boolean) {
+    this.t += dt;
+    const target = live && a && b ? 1 : 0;
+    this.on += (target - this.on) * (1 - Math.exp(-(target ? 3 : 8) * dt));
+    if (a && b) {
+      this.a = a;
+      this.b = b;
+      this.scale = scale;
+    }
+    this.regen -= dt;
+    if (this.regen <= 0 && this.a && this.b) {
+      this.regen = 0.055;
+      this.bolts = [0, 1, 2].map((i) => this.bolt(this.a!, this.b!, i));
+    }
+  }
+
+  private bolt(a: Vec, b: Vec, i: number): Vec[] {
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    // the main arc bows upward; the side arcs wander more
+    const sag = -d * (0.1 + i * 0.05) * (i % 2 ? 1 : 0.7);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 + sag };
+    let pts: Vec[] = [a, mid, b];
+    let disp = d * (0.09 + i * 0.03);
+    for (let k = 0; k < 5; k++) {
+      const next: Vec[] = [pts[0]];
+      for (let j = 1; j < pts.length; j++) {
+        const p = pts[j - 1];
+        const q = pts[j];
+        const m = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+        const nx = -(q.y - p.y);
+        const ny = q.x - p.x;
+        const nl = Math.hypot(nx, ny) || 1;
+        const off = (Math.random() - 0.5) * disp;
+        next.push({ x: m.x + (nx / nl) * off, y: m.y + (ny / nl) * off }, q);
+      }
+      pts = next;
+      disp *= 0.55;
+    }
+    return pts;
+  }
+
+  clear() {
+    this.on = 0;
+    this.bolts = [];
+  }
+
+  draw(ctx: CanvasRenderingContext2D, colors: [string, string], label: string | null, dpr: number) {
+    if (this.on < 0.01 || !this.a || !this.b) return;
+    if (!this.spark) this.spark = softSprite("rgba(255,255,255,0.9)", 64, 0.1);
+    const a = this.a;
+    const b = this.b;
+    const s = this.scale;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    const grad = ctx.createLinearGradient(a.x, a.y, b.x, b.y);
+    grad.addColorStop(0, colors[0]);
+    grad.addColorStop(1, colors[1]);
+    const flick = 0.75 + 0.25 * Math.sin(this.t * 40);
+
+    this.bolts.forEach((pts, i) => {
+      const main = i === 0;
+      for (const [w, al, st] of [
+        [s * (main ? 0.09 : 0.05), 0.18, grad],
+        [s * (main ? 0.03 : 0.018), 0.65, grad],
+        [s * (main ? 0.01 : 0.006), 0.95, "#ffffff"],
+      ] as [number, number, string | CanvasGradient][]) {
+        ctx.globalAlpha = this.on * al * flick * (main ? 1 : 0.6);
+        ctx.strokeStyle = st;
+        ctx.lineWidth = Math.max(1, w);
+        ctx.beginPath();
+        pts.forEach((p, k) => (k ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+      }
+    });
+    // contact flares at each chest
+    for (const [p, c] of [
+      [a, colors[0]],
+      [b, colors[1]],
+    ] as [Vec, string][]) {
+      ctx.globalAlpha = this.on * 0.8 * flick;
+      const d = s * 0.9;
+      ctx.drawImage(this.spark, p.x - d / 2, p.y - d / 2, d, d);
+      ctx.globalAlpha = this.on * 0.5;
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, s * 0.06, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (label) {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = this.on;
+      ctx.font = `500 ${10 * dpr}px ui-monospace, "SF Mono", Menlo, monospace`;
+      ctx.fillStyle = "rgba(239,234,225,0.85)";
+      const w = ctx.measureText(label).width;
+      const top = Math.min(a.y, b.y) - Math.hypot(b.x - a.x, b.y - a.y) * 0.22 - 14 * dpr;
+      ctx.fillText(label, (a.x + b.x) / 2 - w / 2, Math.max(16 * dpr, top));
+    }
+    ctx.restore();
+  }
+}
+
 /* ─────────────────────────── factory ─────────────────────────── */
 
 export function createEffect(id: EffectId): Effect {
@@ -1409,6 +2426,16 @@ export function createEffect(id: EffectId): Effect {
       return new Laurel();
     case "steam":
       return new Steam();
+    case "embers":
+      return new Embers();
+    case "hud":
+      return new Hud();
+    case "ghost":
+      return new Ghost();
+    case "wings":
+      return new Wings();
+    case "horns":
+      return new Horns();
   }
 }
 

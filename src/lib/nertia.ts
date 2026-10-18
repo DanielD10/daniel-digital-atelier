@@ -23,7 +23,12 @@ export type EffectId =
   | "strike"
   | "frost"
   | "laurel"
-  | "steam";
+  | "steam"
+  | "embers"
+  | "hud"
+  | "ghost"
+  | "wings"
+  | "horns";
 
 export type Finish = {
   id: FinishId;
@@ -108,7 +113,9 @@ export type Unit = {
   /** Footwear and headwear are outside Drop 001 — labelled as concepts everywhere. */
   concept?: boolean;
   /** How the demo runner draws headwear. */
-  headgear?: "cap" | "band";
+  headgear?: "cap" | "band" | "visor" | "beanie";
+  /** Miles logged against this unit — the effect levels up with them. */
+  miles: number;
   /** Where the chip lives, when it isn't the hem. */
   chip?: string;
   /**
@@ -129,6 +136,7 @@ export function unitEffect(u: Unit): UnitEffect {
 export const units: Unit[] = [
   {
     id: "tee-heat-087",
+    miles: 212,
     product: "Performance Tee",
     fit: "M",
     finish: "heat-shift",
@@ -140,6 +148,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-space-023",
+    miles: 486,
     product: "First Law Singlet",
     fit: "W",
     finish: "deep-space",
@@ -150,6 +159,7 @@ export const units: Unit[] = [
   },
   {
     id: "short-pearl-041",
+    miles: 64,
     product: '3" Lined Short',
     fit: "W",
     finish: "bone-pearl",
@@ -160,6 +170,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-chrome-112",
+    miles: 318,
     product: "First Law Singlet",
     fit: "M",
     finish: "liquid-chrome",
@@ -170,6 +181,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-reflect-007",
+    miles: 540,
     product: "Full Reflect Singlet LTD",
     fit: "M",
     finish: "full-reflect",
@@ -180,6 +192,7 @@ export const units: Unit[] = [
   },
   {
     id: "runner-heat-001",
+    miles: 120,
     product: "Motion Runner",
     fit: "M",
     finish: "heat-shift",
@@ -197,6 +210,7 @@ export const units: Unit[] = [
   },
   {
     id: "runner-chrome-014",
+    miles: 350,
     product: "Motion Runner",
     fit: "W",
     finish: "liquid-chrome",
@@ -214,6 +228,7 @@ export const units: Unit[] = [
   },
   {
     id: "cap-pearl-009",
+    miles: 610,
     product: "Race Cap",
     fit: "M",
     finish: "bone-pearl",
@@ -232,6 +247,7 @@ export const units: Unit[] = [
   },
   {
     id: "band-reflect-031",
+    miles: 90,
     product: "Race Headband",
     fit: "W",
     finish: "full-reflect",
@@ -248,9 +264,131 @@ export const units: Unit[] = [
       line: "Heat rolls off you as steam, and every breath hangs in the cold.",
     },
   },
+  {
+    id: "trail-space-022",
+    miles: 520,
+    product: "Trail Runner",
+    fit: "M",
+    finish: "deep-space",
+    region: "feet",
+    unit: 22,
+    of: 100,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the heel tab, printed QR on the tongue as backup",
+    effect: {
+      id: "embers",
+      name: "Ember Prints",
+      line: "Every step burns a print into the road that cools from white to red to black.",
+    },
+  },
+  {
+    id: "visor-chrome-044",
+    miles: 400,
+    product: "Race Visor",
+    fit: "W",
+    finish: "liquid-chrome",
+    region: "head",
+    headgear: "visor",
+    unit: 44,
+    of: 80,
+    washes: 0,
+    concept: true,
+    chip: "NFC sealed in the brim",
+    effect: {
+      id: "hud",
+      name: "Visor HUD",
+      line: "Pace, heart rate and splits float beside you. Simulated here; a watch feeds it for real.",
+    },
+  },
+  {
+    id: "beanie-heat-013",
+    miles: 260,
+    product: "Thermal Beanie",
+    fit: "M",
+    finish: "heat-shift",
+    region: "head",
+    headgear: "beanie",
+    unit: 13,
+    of: 80,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the cuff label",
+    effect: {
+      id: "horns",
+      name: "Horns",
+      line: "Obsidian horns with lava in the cracks, shedding embers off the tips.",
+    },
+  },
+  {
+    id: "shell-chrome-005",
+    miles: 505,
+    product: "Night Shell",
+    fit: "M",
+    finish: "liquid-chrome",
+    region: "top",
+    sleeves: true,
+    unit: 5,
+    of: 60,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the zip garage",
+    effect: {
+      id: "ghost",
+      name: "Ghost Runner",
+      line: "Chrome afterimages of your last strides chase you down the road.",
+    },
+  },
+  {
+    id: "aero-pearl-003",
+    miles: 700,
+    product: "Aero Singlet",
+    fit: "W",
+    finish: "bone-pearl",
+    region: "top",
+    unit: 3,
+    of: 60,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the hem",
+    effect: {
+      id: "wings",
+      name: "Wings",
+      line: "Wings of light unfold off your shoulder blades and beat with your stride.",
+    },
+  },
 ];
 
 export function unitLabel(u: Unit): string {
   const w = String(u.of).length;
   return `${String(u.unit).padStart(w, "0")} / ${u.of}`;
+}
+
+/* ─────────────────────────── levels ─────────────────────────── */
+
+/**
+ * Effects level up with the miles logged against a unit. `power`
+ * scales how much the effect emits and how big it reads; each effect
+ * also unlocks detail at higher levels (more leaves, more readouts,
+ * longer wings).
+ */
+export type Level = { n: 1 | 2 | 3 | 4; roman: string; label: string; min: number; power: number };
+
+export const LEVELS: Level[] = [
+  { n: 1, roman: "I", label: "First miles", min: 0, power: 0.45 },
+  { n: 2, roman: "II", label: "Broken in", min: 100, power: 0.7 },
+  { n: 3, roman: "III", label: "Seasoned", min: 300, power: 1 },
+  { n: 4, roman: "IV", label: "Legend", min: 500, power: 1.4 },
+];
+
+export function levelFor(miles: number): Level {
+  let l = LEVELS[0];
+  for (const x of LEVELS) if (miles >= x.min) l = x;
+  return l;
+}
+
+/** Who runs beside you when "Run together" is on in the demo. */
+export function partnerFor(u: Unit): Unit {
+  const pick = (id: string) => units.find((x) => x.id === id)!;
+  return u.id === "singlet-space-023" ? pick("tee-heat-087") : pick("singlet-space-023");
 }

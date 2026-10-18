@@ -91,19 +91,40 @@ export default function NertiaPage() {
               ))}
             </ul>
             <p style={{ marginTop: "24px" }}>
-              <b>Footwear and headwear, as concepts.</b> Accessories break
-              the one-finish rule on purpose: each one carries its own effect.
-              The Motion Runner has two, Footstrike and Frost Step, with the
-              chip in the heel tab and a printed QR on the tongue as backup.
-              The Race Cap grows a gold Victory Laurel, a nod to the Greek and
-              Roman roots the brand started from, and the Race Headband rolls
-              off Steam. All of it is labelled concept and kept out of Drop
-              001.
+              <b>Concepts beyond Drop 001.</b> Accessories and two concept
+              pieces break the one-finish rule on purpose: each carries its
+              own effect. Shoes (chip in the heel tab, QR on the tongue as
+              backup) get Footstrike, Frost Step or Ember Prints. Headwear
+              gets Victory Laurel, a nod to the Greek and Roman roots the
+              brand started from, plus Steam, a Visor HUD and Horns. The
+              Night Shell leaves a Ghost Runner behind you and the Aero
+              Singlet grows Wings. All of it is labelled concept.
             </p>
           </section>
 
           <section>
-            <p className="micro nx-h">03 — How the prototype works</p>
+            <p className="micro nx-h">03 — Run together, level up</p>
+            <h2>Effects that reward running.</h2>
+            <p>
+              <b>Linked runners.</b> When two NERTIA units run close
+              together, they connect: a live arc between the two chests, in
+              both runners&rsquo; colors. Turn on Run together to see it. On
+              camera it links any two people in frame. It gives an owner a
+              reason to bring someone along, and it&rsquo;s the moment for the
+              launch event.
+            </p>
+            <p>
+              <b>Mileage levels.</b> Every effect levels up with the miles
+              logged against the unit: Level I at first, Level IV past 500
+              miles. Flames grow from sparks to a blaze, the laurel fills in
+              leaf by leaf, the HUD unlocks more readouts, the ghost leaves
+              more echoes. A numbered unit gets more valuable the more
+              it&rsquo;s worn. Preview each level on the certificate.
+            </p>
+          </section>
+
+          <section>
+            <p className="micro nx-h">04 — How the prototype works</p>
             <h2>One engine, two cameras.</h2>
             <p>
               <b>Demo runner.</b> Drawn procedurally in canvas every frame:
@@ -133,7 +154,7 @@ export default function NertiaPage() {
           </section>
 
           <section>
-            <p className="micro nx-h">04 — What ships next</p>
+            <p className="micro nx-h">05 — What ships next</p>
             <h2>Phones first, glasses when they&rsquo;re ready.</h2>
             <p>
               Production effects move to Snap&rsquo;s Lens Studio, which runs

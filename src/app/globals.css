@@ -3909,6 +3909,24 @@ main { position: relative; z-index: 3; }
   transition: color 200ms ease, border-color 200ms ease;
 }
 .nx-icon:hover { color: var(--bone); border-color: rgba(239, 234, 225, 0.5); }
+.nx-pair {
+  width: auto;
+  display: inline-flex;
+  gap: 8px;
+  padding: 0 12px 0 10px;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.nx-pair[aria-pressed="true"] {
+  background: var(--bone);
+  color: var(--ink);
+  border-color: var(--bone);
+}
+@media (max-width: 600px) {
+  .nx-pair { width: 38px; padding: 0; justify-content: center; }
+  .nx-pair span { display: none; }
+}
 .nx-icon svg {
   width: 18px;
   height: 18px;
@@ -4167,6 +4185,29 @@ main { position: relative; z-index: 3; }
   background: var(--nx-accent);
   transition: width 600ms ease;
 }
+.nx-next {
+  display: block;
+  margin-top: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--bone-dim);
+}
+.nx-levels {
+  display: inline-grid;
+  grid-template-columns: repeat(4, 34px);
+  border: 1px solid var(--nx-line);
+}
+.nx-levels button {
+  height: 28px;
+  font-family: var(--f-display);
+  font-size: 13px;
+  color: var(--bone-dim);
+  transition: background 200ms ease, color 200ms ease;
+}
+.nx-levels button + button { border-left: 1px solid var(--nx-line); }
+.nx-levels button:hover { color: var(--bone); }
+.nx-levels button[aria-pressed="true"] { background: var(--nx-accent); color: var(--ink); }
+
 .nx-cert-line {
   margin: 16px 0 0;
   padding-top: 14px;
@@ -4243,8 +4284,9 @@ main { position: relative; z-index: 3; }
   .nx-units li { scroll-snap-align: start; }
 }
 
+.nx-seg button { white-space: nowrap; }
 @media (max-width: 480px) {
-  .nx-seg button { padding: 9px 10px; letter-spacing: 0.12em; }
+  .nx-seg button { padding: 9px 9px; font-size: 9px; letter-spacing: 0.1em; }
   .nx-bar { padding: 10px; }
   .nx-cert-rows > div { grid-template-columns: 84px minmax(0, 1fr); }
 }

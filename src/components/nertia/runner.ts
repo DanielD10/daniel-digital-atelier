@@ -20,10 +20,7 @@ const dir = (a: number): Pt => ({ x: Math.sin(a), y: Math.cos(a) });
 
 type Limb = { a: Pt; b: Pt; c: Pt; foot?: Pt };
 
-export type RunnerFrame = {
-  emitter: Emitter;
-  hip: Pt;
-};
+export type SceneFrame = { W: number; H: number; groundY: number; Hb: number; runSpeed: number };
 
 /* ─────────────────────────── the world ─────────────────────────── */
 
@@ -35,7 +32,8 @@ export class DemoScene {
   private skyline: Building[] = [];
   private skylineWidth = 0;
   private sheen = 0;
-  private planted: "near" | "far" | null = null;
+  /** which foot is down, per runner — a change is a touchdown */
+  private planted = new Map<number, "near" | "far">();
 
   constructor() {
     // A generic skyline with one needle-and-saucer tower — a nod to
@@ -52,16 +50,18 @@ export class DemoScene {
     this.skylineWidth = x;
   }
 
-  /** Draws the scene and runner; returns where the garment emits from. */
-  frame(
+  /**
+   * Advances the clock and draws the world. Call once per frame, then
+   * `runner()` once per athlete, back to front.
+   */
+  beginFrame(
     ctx: CanvasRenderingContext2D,
     W: number,
     H: number,
     dt: number,
-    unit: Unit,
     finish: Finish,
     active: boolean,
-  ): RunnerFrame {
+  ): SceneFrame {
     const groundY = H * 0.86;
     // body height: fit the frame on phones and wide desktops alike
     const Hb = Math.min(H * 0.62, W * 0.95);
@@ -73,9 +73,27 @@ export class DemoScene {
     this.sheen += dt;
 
     this.drawWorld(ctx, W, H, groundY, finish, active);
+    return { W, H, groundY, Hb, runSpeed };
+  }
 
-    const hipX = W * 0.52;
-    const r = this.pose(this.phase, Hb);
+  /**
+   * Draws one runner and returns the emitter its garment drives.
+   * `depth` < 1 puts them further back: smaller, higher on the road,
+   * and the world slides past them a touch slower (parallax).
+   */
+  runner(
+    ctx: CanvasRenderingContext2D,
+    f: SceneFrame,
+    unit: Unit,
+    finish: Finish,
+    active: boolean,
+    opts: { slot: number; x: number; depth: number; phase: number },
+  ): Emitter {
+    const Hb = f.Hb * opts.depth;
+    const groundY = f.groundY - (1 - opts.depth) * f.Hb * 0.22;
+    const runSpeed = f.runSpeed * opts.depth;
+    const hipX = opts.x;
+    const r = this.pose(this.phase + opts.phase, Hb);
 
     // pin the lower foot to the road — that is what makes the stride
     // bounce, rather than a hand-tuned sine bob
@@ -101,9 +119,10 @@ export class DemoScene {
     ctx.fillRect(hipX - Hb * 0.4, groundY / 0.12 - Hb * 0.4, Hb * 0.8, Hb * 0.8);
     ctx.restore();
 
-    const skin = "#18181e";
-    const skinFar = "#0f0f13";
-    const base = "#1f1f26"; // the neutral half of the kit
+    const back = opts.depth < 1;
+    const skin = back ? "#141419" : "#18181e";
+    const skinFar = back ? "#0d0d11" : "#0f0f13";
+    const base = back ? "#1a1a20" : "#1f1f26"; // the neutral half of the kit
     const rim = finish.accent;
     const lean = r.lean;
     const glow = hexA(rim, active ? 0.6 : 0.28);
@@ -165,11 +184,12 @@ export class DemoScene {
     const footAt = (l: Limb): Pt => (l.foot ? lerp(l.c, l.foot, 0.45) : l.c);
     const planted: "near" | "far" = r.nearLeg.c.y >= r.farLeg.c.y ? "near" : "far";
     const strikes: Pt[] = [];
-    if (this.planted && planted !== this.planted) {
-      const f = footAt(planted === "near" ? near : far);
-      strikes.push({ x: f.x, y: groundY - footPad * 0.2 });
+    const was = this.planted.get(opts.slot);
+    if (was && planted !== was) {
+      const ft = footAt(planted === "near" ? near : far);
+      strikes.push({ x: ft.x, y: groundY - footPad * 0.2 });
     }
-    this.planted = planted;
+    this.planted.set(opts.slot, planted);
 
     let emitPath: Pt[];
     if (region === "top") emitPath = torso.back;
@@ -191,28 +211,47 @@ export class DemoScene {
       }
     }
 
+    // the whole body as capsules, for full-body effects
+    const limb = (l: Limb, r0: number, r1: number, r2: number): [Pt, Pt, number][] => {
+      const out: [Pt, Pt, number][] = [
+        [l.a, l.b, Hb * r0],
+        [l.b, l.c, Hb * r1],
+      ];
+      if (l.foot) out.push([l.c, l.foot, Hb * r2]);
+      return out;
+    };
+    const body: [Pt, Pt, number][] = [
+      ...limb(far, 0.05, 0.034, 0.02),
+      ...limb(farArm, 0.026, 0.019, 0),
+      [hip, sh, Hb * 0.064],
+      [sh, neckTop, Hb * 0.024],
+      [head, head, Hb * 0.06],
+      ...limb(near, 0.05, 0.034, 0.02),
+      ...limb(nearArm, 0.026, 0.019, 0),
+    ];
+
     // body moves only vertically on screen — the stride's bounce
     return {
-      hip,
-      emitter: {
-        path: emitPath,
-        scale: Hb * 0.24,
-        bodyVel: { x: 0, y: 0 },
-        worldVel: { x: -runSpeed, y: 0 },
-        strikes,
-        head: { c: head, r: headR, up, fwd },
-      },
+      path: emitPath,
+      scale: Hb * 0.24,
+      bodyVel: { x: 0, y: 0 },
+      worldVel: { x: -runSpeed, y: 0 },
+      strikes,
+      head: { c: head, r: headR, up, fwd, front: false },
+      core: add(lerp(hip, sh, 0.62), mul(fwd, Hb * 0.02)),
+      body,
+      torso: { neck: sh, pelvis: hip, lSh: sh, rSh: sh, up, fwd, side: true },
     };
   }
 
-  /** A cap (crown and brim) or a headband, in the unit's finish. */
+  /** A cap, visor, beanie or headband, in the unit's finish. */
   private drawHeadgear(
     ctx: CanvasRenderingContext2D,
     head: Pt,
     lean: number,
     Hb: number,
     finish: Finish,
-    kind: "cap" | "band",
+    kind: "cap" | "band" | "visor" | "beanie",
   ) {
     const rx = Hb * 0.058;
     const ry = Hb * 0.066;
@@ -220,7 +259,7 @@ export class DemoScene {
     ctx.save();
     ctx.translate(head.x, head.y);
     ctx.rotate(lean);
-    if (kind === "cap") {
+    if (kind === "cap" || kind === "visor") {
       // brim first, poking out over the face
       ctx.fillStyle = fill;
       ctx.beginPath();
@@ -231,8 +270,11 @@ export class DemoScene {
     ctx.ellipse(0, 0, rx * 1.04, ry * 1.04, 0, 0, Math.PI * 2);
     ctx.clip();
     ctx.fillStyle = fill;
+    // the area each piece covers, in head-local coordinates
+    const cover: [number, number] =
+      kind === "cap" ? [-1.2, -0.15] : kind === "beanie" ? [-1.2, 0.02] : kind === "visor" ? [-0.42, -0.14] : [-0.62, -0.26];
+    ctx.fillRect(-rx * 1.2, ry * cover[0], rx * 2.4, ry * (cover[1] - cover[0]));
     if (kind === "cap") {
-      ctx.fillRect(-rx * 1.2, -ry * 1.2, rx * 2.4, ry * 1.05);
       // seam and button
       ctx.strokeStyle = "rgba(0,0,0,0.25)";
       ctx.lineWidth = Math.max(1, Hb * 0.003);
@@ -240,8 +282,18 @@ export class DemoScene {
       ctx.moveTo(0, -ry * 1.05);
       ctx.quadraticCurveTo(rx * 0.25, -ry * 0.6, rx * 0.2, -ry * 0.16);
       ctx.stroke();
-    } else {
-      ctx.fillRect(-rx * 1.2, -ry * 0.62, rx * 2.4, ry * 0.36);
+    } else if (kind === "beanie") {
+      // the folded cuff, with knit ribs
+      ctx.fillStyle = "rgba(0,0,0,0.22)";
+      ctx.fillRect(-rx * 1.2, -ry * 0.3, rx * 2.4, ry * 0.32);
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = Math.max(1, Hb * 0.0025);
+      ctx.beginPath();
+      for (let x = -rx; x < rx; x += rx * 0.18) {
+        ctx.moveTo(x, -ry * 0.28);
+        ctx.lineTo(x, ry * 0.0);
+      }
+      ctx.stroke();
     }
     // sheen
     const f = (this.sheen % 2.6) / 2.6;
@@ -251,8 +303,7 @@ export class DemoScene {
     g.addColorStop(1, "rgba(255,255,255,0)");
     ctx.globalCompositeOperation = "screen";
     ctx.fillStyle = g;
-    if (kind === "cap") ctx.fillRect(-rx * 1.2, -ry * 1.2, rx * 2.4, ry * 1.05);
-    else ctx.fillRect(-rx * 1.2, -ry * 0.62, rx * 2.4, ry * 0.36);
+    ctx.fillRect(-rx * 1.2, ry * cover[0], rx * 2.4, ry * (cover[1] - cover[0]));
     ctx.restore();
   }
 
