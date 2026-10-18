@@ -4,7 +4,7 @@
    component also runs in the standalone page bundle, outside Next. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { lookbook, type Sheet } from "@/lib/nertia";
+import { lookbook, type Sheet, type Spot } from "@/lib/nertia";
 
 type Props = {
   /** where the sheet images are served from */
@@ -48,11 +48,29 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
     };
   }, [step]);
 
-  const tryOn = (s: Sheet) => {
-    if (!s.unit) return;
+  const tryUnit = (id: string) => {
     close();
-    window.dispatchEvent(new CustomEvent("nertia:tap", { detail: s.unit }));
+    window.dispatchEvent(new CustomEvent("nertia:tap", { detail: id }));
   };
+  const tryOn = (s: Sheet) => {
+    if (s.unit) tryUnit(s.unit);
+  };
+
+  /** every figure on a sheet is a button straight into AR */
+  const spots = (list: Spot[] | undefined) =>
+    list?.map((sp, i) => (
+      <button
+        key={i}
+        type="button"
+        className="nx-spot"
+        style={{ left: `${sp.x}%`, top: `${sp.y}%`, width: `${sp.w}%`, height: `${sp.h}%` }}
+        onClick={() => tryUnit(sp.unit)}
+        aria-label={`${sp.label}: see it in AR`}
+      >
+        <span className="nx-spot-mark" aria-hidden="true" />
+        <span className="nx-spot-label">{sp.label}</span>
+      </button>
+    ));
 
   const cur = open === null ? null : lookbook[open];
 
@@ -62,23 +80,26 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
         <p className="micro">The line</p>
         <h2 id="nx-look-title">What the chips are sewn into.</h2>
         <p className="nx-look-lede">
-          Drop 001 product sheets. Open any sheet to read it full size; the
-          singlets jump straight to their unit in the prototype above.
+          Drop 001 product sheets. Tap any garment to see it in AR, or open a
+          sheet to read it full size.
         </p>
       </header>
 
       <div className="nx-look-grid">
         {lookbook.map((s, i) => (
           <figure key={s.id} className={`nx-sheet is-${s.id}`}>
-            <button type="button" className="nx-sheet-img" onClick={() => show(i)} aria-label={`Open ${s.title} full size`}>
-              <img src={base + s.file} alt={s.alt} width={1254} height={1254} loading="lazy" decoding="async" />
-              <span className="nx-sheet-zoom" aria-hidden="true">
-                <svg viewBox="0 0 24 24">
+            <div className="nx-sheet-media">
+              <button type="button" className="nx-sheet-img" onClick={() => show(i)} aria-label={`Open ${s.title} full size`}>
+                <img src={base + s.file} alt={s.alt} width={1254} height={1254} loading="lazy" decoding="async" />
+              </button>
+              {spots(s.spots)}
+              <button type="button" className="nx-sheet-zoom" onClick={() => show(i)} aria-label={`Open ${s.title} full size`}>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="10.5" cy="10.5" r="6" />
                   <path d="M15 15l5 5M10.5 8v5M8 10.5h5" />
                 </svg>
-              </span>
-            </button>
+              </button>
+            </div>
             <figcaption>
               <span className="nx-sheet-title">{s.title}</span>
               <span className="nx-sheet-kind">{s.kind}</span>
@@ -104,7 +125,10 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
       >
         {cur ? (
           <div className="nx-lightbox-inner">
-            <img src={base + cur.file} alt={cur.alt} width={1254} height={1254} />
+            <div className="nx-lightbox-media">
+              <img src={base + cur.file} alt={cur.alt} width={1254} height={1254} />
+              {spots(cur.spots)}
+            </div>
             <div className="nx-lightbox-bar">
               <span>
                 <b>{cur.title}</b> · {cur.kind}

@@ -451,7 +451,11 @@ export type Sheet = {
   caption: string;
   alt: string;
   unit?: string;
+  /** clickable figures on the sheet, in % of the image */
+  spots?: Spot[];
 };
+
+export type Spot = { x: number; y: number; w: number; h: number; unit: string; label: string };
 
 export const lookbook: Sheet[] = [
   {
@@ -462,6 +466,21 @@ export const lookbook: Sheet[] = [
     caption:
       "630 numbered units across seven finishes, every one in a men's and a women's fit. Peach Shift is the women's exclusive.",
     alt: "Drop 001 lineup sheet: men's and women's singlets and shorts in seven finishes, Liquid Chrome through Peach Shift, with the build standard along the bottom.",
+    spots: [
+      { x: 8.13, y: 22.97, w: 11.16, h: 27.11, unit: "singlet-chrome-112", label: "Liquid Chrome · men's" },
+      { x: 8.13, y: 50.88, w: 11.16, h: 24.72, unit: "singlet-chrome-112", label: "Liquid Chrome · women's" },
+      { x: 20.41, y: 22.97, w: 11.64, h: 27.11, unit: "singlet-space-023", label: "Deep Space · men's" },
+      { x: 20.41, y: 50.88, w: 11.64, h: 24.72, unit: "singlet-space-023", label: "Deep Space · women's" },
+      { x: 33.17, y: 22.97, w: 11.8, h: 27.11, unit: "tee-heat-087", label: "Heat Shift · men's" },
+      { x: 33.17, y: 50.88, w: 11.8, h: 24.72, unit: "tee-heat-087", label: "Heat Shift · women's" },
+      { x: 46.09, y: 22.97, w: 11.8, h: 27.11, unit: "short-pearl-041", label: "Bone Pearl · men's" },
+      { x: 46.09, y: 50.88, w: 11.8, h: 24.72, unit: "short-pearl-041", label: "Bone Pearl · women's" },
+      { x: 59.01, y: 22.97, w: 12.84, h: 27.11, unit: "singlet-reflect-007", label: "Full Reflect · men's" },
+      { x: 59.01, y: 50.88, w: 12.84, h: 24.72, unit: "singlet-reflect-007", label: "Full Reflect · women's" },
+      { x: 72.97, y: 22.97, w: 12.04, h: 27.11, unit: "singlet-green-058", label: "Green Shift · men's" },
+      { x: 72.97, y: 50.88, w: 12.04, h: 24.72, unit: "singlet-green-058", label: "Green Shift · women's" },
+      { x: 86.12, y: 50.88, w: 11.64, h: 24.72, unit: "singlet-peach-019", label: "Peach Shift · women's" },
+    ],
   },
   {
     id: "first-law",
@@ -471,6 +490,15 @@ export const lookbook: Sheet[] = [
     caption: "The everyday singlet. Solution-dyed yarn, so the color lives in the fiber.",
     alt: "First Law Singlet product sheet: men's and women's singlets in Liquid Chrome, Deep Space, Green Shift and Peach Shift, with finish swatches and detail crops.",
     unit: "singlet-chrome-112",
+    spots: [
+      { x: 10.37, y: 25.36, w: 19.94, h: 30.14, unit: "singlet-chrome-112", label: "Liquid Chrome · men's" },
+      { x: 30.94, y: 25.36, w: 22.01, h: 30.14, unit: "singlet-space-023", label: "Deep Space · men's" },
+      { x: 53.59, y: 25.36, w: 22.17, h: 30.14, unit: "singlet-green-058", label: "Green Shift · men's" },
+      { x: 10.37, y: 56.3, w: 16.19, h: 26.63, unit: "singlet-chrome-112", label: "Liquid Chrome · women's" },
+      { x: 27.19, y: 56.3, w: 15.95, h: 26.63, unit: "singlet-space-023", label: "Deep Space · women's" },
+      { x: 43.78, y: 56.3, w: 15.87, h: 26.63, unit: "singlet-green-058", label: "Green Shift · women's" },
+      { x: 60.29, y: 56.3, w: 15.47, h: 26.63, unit: "singlet-peach-019", label: "Peach Shift · women's" },
+    ],
   },
   {
     id: "full-reflect",
@@ -480,5 +508,9 @@ export const lookbook: Sheet[] = [
     caption: "Grey by day, white fire in headlights. Reflective taping and a reflective drawcord.",
     alt: "Full Reflect Singlet LTD product sheet: a man and a woman in white retroreflective singlets and shorts, with fabric, taping and drawcord detail crops.",
     unit: "singlet-reflect-007",
+    spots: [
+      { x: 36.84, y: 15.31, w: 20.26, h: 58.69, unit: "singlet-reflect-007", label: "Full Reflect · men's" },
+      { x: 57.42, y: 18.82, w: 15.95, h: 55.18, unit: "singlet-reflect-007", label: "Full Reflect · women's" },
+    ],
   },
 ];

@@ -239,6 +239,14 @@ export class DemoScene {
       strikes,
       head: { c: head, r: headR, up, fwd, front: false },
       core: add(lerp(hip, sh, 0.62), mul(fwd, Hb * 0.02)),
+      chip:
+        region === "top"
+          ? add(lerp(hip, sh, 0.66), mul(fwd, Hb * 0.045))
+          : region === "bottom"
+            ? add(lerp(near.a, near.b, shortLen * 0.6), mul(fwd, Hb * 0.03))
+            : region === "feet"
+              ? footAt(near)
+              : add(head, add(mul(fwd, headR * 0.7), mul(up, headR * 0.45))),
       body,
       torso: { neck: sh, pelvis: hip, lSh: sh, rSh: sh, up, fwd, side: true },
     };

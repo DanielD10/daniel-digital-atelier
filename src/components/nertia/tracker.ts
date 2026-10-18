@@ -314,6 +314,16 @@ export class PoseTracker {
         strikes,
         head,
         core: lerp(neck, pelvis, 0.32),
+        chip:
+          region === "top"
+            ? lerp(neck, pelvis, 0.3)
+            : region === "bottom"
+              ? lerp(P[L_HIP], P[L_KNEE], 0.3)
+              : region === "feet"
+                ? path[0]
+                : head
+                  ? add(head.c, mul(head.up, head.r * 0.6))
+                  : neck,
         body,
         torso: { neck, pelvis, lSh: P[L_SH], rSh: P[R_SH], up, fwd, side: sideOn },
       },

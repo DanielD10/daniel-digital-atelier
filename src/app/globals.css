@@ -3940,15 +3940,18 @@ main { position: relative; z-index: 3; }
 /* the chip being read: three rings off the hem */
 .nx-read {
   position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
   z-index: 3;
   pointer-events: none;
-  background: radial-gradient(40% 40% at 50% 50%, rgba(7, 6, 5, 0.55), transparent 80%);
+  will-change: transform;
 }
 .nx-ring {
-  grid-area: 1 / 1;
+  position: absolute;
+  left: -32px;
+  top: -32px;
   width: 64px;
   height: 64px;
   border: 1px solid var(--nx-accent);
@@ -3959,8 +3962,14 @@ main { position: relative; z-index: 3; }
 .nx-ring:nth-child(2) { animation-delay: 160ms; }
 .nx-ring:nth-child(3) { animation-delay: 320ms; }
 .nx-read p {
-  grid-area: 1 / 1;
-  margin: 120px 0 0;
+  position: absolute;
+  left: 0;
+  top: 54px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  margin: 0;
+  padding: 4px 8px;
+  background: rgba(7, 6, 5, 0.6);
   font-size: 10px;
   letter-spacing: 0.24em;
   text-transform: uppercase;
@@ -4333,6 +4342,70 @@ main { position: relative; z-index: 3; }
   align-items: start;
 }
 .nx-sheet { margin: 0; min-width: 0; }
+.nx-sheet-media { position: relative; }
+
+/* every figure on a sheet is a button into AR */
+.nx-spot {
+  position: absolute;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 200ms ease, background 200ms ease;
+}
+.nx-spot:hover,
+.nx-spot:focus-visible {
+  border-color: rgba(255, 92, 26, 0.85);
+  background: rgba(255, 92, 26, 0.08);
+}
+.nx-spot-mark {
+  position: absolute;
+  left: 50%;
+  top: 32%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+.nx-spot-mark::before,
+.nx-spot-mark::after {
+  content: "";
+  position: absolute;
+  background: #ff5c1a;
+  box-shadow: 0 0 6px rgba(255, 92, 26, 0.9);
+}
+.nx-spot-mark::before { left: 6px; top: 0; width: 2px; height: 14px; }
+.nx-spot-mark::after { left: 0; top: 6px; width: 14px; height: 2px; }
+.nx-spot:hover .nx-spot-mark,
+.nx-spot:focus-visible .nx-spot-mark { opacity: 1; }
+/* touch screens can't hover: show the marks, pulsing gently */
+@media (hover: none) {
+  .nx-spot-mark { opacity: 0.85; animation: nxSpot 2.4s ease-in-out infinite; }
+}
+@keyframes nxSpot {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+.nx-spot-label {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 4px 7px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone);
+  background: rgba(7, 6, 5, 0.85);
+  border: 1px solid rgba(255, 92, 26, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+.nx-spot:hover .nx-spot-label,
+.nx-spot:focus-visible .nx-spot-label { opacity: 1; }
 .nx-sheet.is-lineup { grid-row: span 2; }
 .nx-sheet-img {
   position: relative;
@@ -4355,6 +4428,8 @@ main { position: relative; z-index: 3; }
 .nx-sheet-img:hover img { transform: scale(1.025); }
 .nx-sheet-zoom {
   position: absolute;
+  z-index: 2;
+  cursor: zoom-in;
   right: 10px;
   bottom: 10px;
   width: 36px;
@@ -4367,8 +4442,9 @@ main { position: relative; z-index: 3; }
   opacity: 0;
   transition: opacity 200ms ease;
 }
-.nx-sheet-img:hover .nx-sheet-zoom,
-.nx-sheet-img:focus-visible .nx-sheet-zoom { opacity: 1; }
+.nx-sheet-media:hover .nx-sheet-zoom,
+.nx-sheet-zoom:focus-visible { opacity: 1; }
+@media (hover: none) { .nx-sheet-zoom { opacity: 1; } }
 .nx-sheet-zoom svg {
   width: 18px;
   height: 18px;
@@ -4415,7 +4491,7 @@ main { position: relative; z-index: 3; }
   color: var(--bone);
 }
 .nx-lightbox::backdrop {
-  background: rgba(4, 4, 4, 0.88);
+  background: rgba(4, 4, 4, 0.95);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -4426,13 +4502,21 @@ main { position: relative; z-index: 3; }
   justify-items: center;
   gap: 10px;
 }
-.nx-lightbox-inner img {
-  width: auto;
+.nx-lightbox-media {
+  position: relative;
+  /* square, as large as fits: the hotspots are placed in % of it */
+  width: min(100%, calc(100dvh - 120px));
+  aspect-ratio: 1;
+  align-self: center;
+}
+.nx-lightbox-media img {
+  display: block;
+  width: 100%;
   height: 100%;
-  max-width: 100%;
   object-fit: contain;
   border: 1px solid rgba(74, 69, 62, 0.5);
 }
+.nx-lightbox-media .nx-spot-label { font-size: 11px; }
 .nx-lightbox-bar {
   width: min(100%, 1100px);
   display: flex;

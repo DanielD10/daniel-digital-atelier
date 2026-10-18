@@ -87,6 +87,16 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const effectsRef = useRef<({ id: string; fx: Effect } | null)[]>([null, null]);
   const linkRef = useRef(new LinkArc());
   const peopleRef = useRef(0);
+  /** last frame's runners, for tapping the clothing itself */
+  const hitRef = useRef<{ a: Emitter | null; b: Emitter | null; ua: Unit; ub: Unit | null; dpr: number }>({
+    a: null,
+    b: null,
+    ua: units[0],
+    ub: null,
+    dpr: 1,
+  });
+  const hoverRef = useRef(-1);
+  const readRef = useRef<HTMLDivElement>(null);
   const clearAll = () => {
     effectsRef.current.forEach((e) => e?.fx.clear());
     linkRef.current.clear();
@@ -402,6 +412,15 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
 
+      // the chip on each garment: the + mark, and a pulse until it's read
+      hitRef.current = { a, b, ua: L.unit, ub: L.mode === "demo" ? partner : L.unit, dpr };
+      const t = now / 1000;
+      if (a?.chip) drawChip(ctx, a.chip, a.scale, t, L.chip !== "live", hoverRef.current === 0, dpr);
+      if (L.pair && b?.chip) drawChip(ctx, b.chip, b.scale, t, false, hoverRef.current === 1, dpr);
+      // the "reading chip" rings follow the chip
+      const rd = readRef.current;
+      if (rd && a?.chip) rd.style.transform = `translate(${a.chip.x / dpr}px, ${a.chip.y / dpr}px)`;
+
       drawHud(ctx, W, H, dpr, L.unit, L.chip === "live");
     };
     raf = requestAnimationFrame(frame);
@@ -411,6 +430,35 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
       ro.disconnect();
     };
   }, []);
+
+  /* ───────────────────── tap the clothing ───────────────────── */
+
+  const hitAt = (e: React.PointerEvent<HTMLCanvasElement>): number => {
+    const h = hitRef.current;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = (e.clientX - r.left) * h.dpr;
+    const y = (e.clientY - r.top) * h.dpr;
+    if (h.a && hitsGarment(h.a, h.ua, x, y)) return 0;
+    if (live.current.pair && h.b && h.ub && hitsGarment(h.b, h.ub, x, y)) return 1;
+    return -1;
+  };
+
+  const onStagePointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const slot = hitAt(e);
+    if (slot < 0) return;
+    const h = hitRef.current;
+    const u = slot === 0 ? h.ua : h.ub;
+    if (!u) return;
+    setCat(categoryOf(u.region));
+    tap(u);
+  };
+
+  const onStageMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType !== "mouse") return;
+    const slot = hitAt(e);
+    hoverRef.current = slot;
+    e.currentTarget.style.cursor = slot >= 0 ? "pointer" : "";
+  };
 
   /* ───────────────────── capture ───────────────────── */
 
@@ -443,6 +491,9 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
         <canvas
           ref={canvasRef}
           className="nx-canvas"
+          onPointerDown={onStagePointer}
+          onPointerMove={onStageMove}
+          onPointerLeave={() => (hoverRef.current = -1)}
           role="img"
           aria-label={
             mode === "demo"
@@ -519,14 +570,12 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
           </div>
         </div>
 
-        {chip === "reading" ? (
-          <div className="nx-read" aria-live="polite">
-            <span className="nx-ring" />
-            <span className="nx-ring" />
-            <span className="nx-ring" />
-            <p>Reading chip</p>
-          </div>
-        ) : null}
+        <div className="nx-read" ref={readRef} aria-live="polite" hidden={chip !== "reading"}>
+          <span className="nx-ring" />
+          <span className="nx-ring" />
+          <span className="nx-ring" />
+          <p>Reading chip</p>
+        </div>
 
         {mode === "camera" && cam.kind === "loading" ? (
           <p className="nx-note" aria-live="polite">
@@ -554,7 +603,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
             {cam.note}
           </p>
         ) : null}
-        {chip === "idle" && !touched ? <p className="nx-cue">Tap a unit to read its chip</p> : null}
+        {chip === "idle" && !touched ? <p className="nx-cue">Tap the chip on the garment, or pick a unit</p> : null}
       </div>
 
       <div className="nx-side">
@@ -826,6 +875,72 @@ function drawHud(
     ctx.beginPath();
     ctx.arc(x - 10 * dpr, y - 3.2 * dpr, 3 * dpr, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ───────────────────── tapping the garment ───────────────────── */
+
+function distSeg(x: number, y: number, a: Vec, b: Vec): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(x - (a.x + dx * t), y - (a.y + dy * t));
+}
+
+/** Is (x, y) on the part of the body this unit is worn on? */
+function hitsGarment(em: Emitter, u: Unit, x: number, y: number): boolean {
+  const s = em.scale;
+  if (em.chip && Math.hypot(x - em.chip.x, y - em.chip.y) < s * 0.45) return true;
+  if (u.region === "top" && em.torso) return distSeg(x, y, em.torso.pelvis, em.torso.neck) < s * 0.42;
+  if (u.region === "head" && em.head) return Math.hypot(x - em.head.c.x, y - em.head.c.y) < em.head.r * 1.8;
+  return em.path.some((p) => Math.hypot(x - p.x, y - p.y) < s * 0.4);
+}
+
+/**
+ * The NERTIA + mark where the chip lives. Before the chip is read it
+ * pulses, so it reads as something to tap; on hover it says so.
+ */
+function drawChip(
+  ctx: CanvasRenderingContext2D,
+  at: Vec,
+  scale: number,
+  t: number,
+  pulse: boolean,
+  hover: boolean,
+  dpr: number,
+) {
+  const k = Math.max(6 * dpr, scale * 0.06);
+  ctx.save();
+  if (pulse || hover) {
+    for (let i = 0; i < 2; i++) {
+      const f = ((t * 0.9 + i * 0.5) % 1 + 1) % 1;
+      ctx.globalAlpha = (1 - f) * (hover ? 0.9 : 0.7);
+      ctx.strokeStyle = "#ff5c1a";
+      ctx.lineWidth = Math.max(1, dpr);
+      ctx.beginPath();
+      ctx.arc(at.x, at.y, k * (1.2 + f * 2.4), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = "rgba(255,92,26,0.9)";
+  ctx.shadowBlur = k * 1.2;
+  ctx.strokeStyle = "#ff5c1a";
+  ctx.lineWidth = Math.max(1.5 * dpr, k * 0.22);
+  ctx.lineCap = "butt";
+  ctx.beginPath();
+  ctx.moveTo(at.x - k * 0.7, at.y);
+  ctx.lineTo(at.x + k * 0.7, at.y);
+  ctx.moveTo(at.x, at.y - k * 0.7);
+  ctx.lineTo(at.x, at.y + k * 0.7);
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  if (hover) {
+    ctx.font = `500 ${10 * dpr}px ui-monospace, "SF Mono", Menlo, monospace`;
+    ctx.fillStyle = "rgba(239,234,225,0.95)";
+    const label = "TAP TO READ CHIP";
+    ctx.fillText(label, at.x + k * 2.2, at.y - k * 1.6);
   }
   ctx.restore();
 }
