@@ -39,7 +39,7 @@ export const projects: Project[] = [
     tags: ["Own venture", "In development", "AR prototype"],
     artClass: "art-nertia",
     summary:
-      "Numbered running wear where every chip holds a sealed AR effect, opened like a pack of cards. 57 effects, six rarities.",
+      "Numbered running wear. A chip in every hem holds a sealed AR effect, and every run can be a race.",
   },
   {
     slug: "altura",
