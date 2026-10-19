@@ -3,11 +3,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
 import { getProject } from "@/lib/projects";
+import { LUXE_URL } from "@/lib/links";
 
 /**
- * LUXE's case page. The app itself is a single static page at
- * public/luxe/index.html (served at /luxe), embedded below so the
- * case and the demo sit together. Its AI goes through /api/luxe/ai.
+ * LUXE's case page. The site itself is its own Next.js app in the
+ * DanielD10/luxe repo; this page links out to it.
  */
 
 const project = getProject("luxe")!;
@@ -66,11 +66,11 @@ type Stage = "Done" | "Working" | "Next" | "Planned";
 
 const ROADMAP: { stage: Stage; title: string; line: string }[] = [
   { stage: "Done", title: "Research", line: "Lawsuits, regulator reports, reviews and surveys on what travel and advisor sites get wrong." },
-  { stage: "Done", title: "The app", line: "Discover, Saved, Plan and Live trip, with all-in pricing, room-level booking and an itinerary that checks itself." },
-  { stage: "Working", title: "AI", line: "Ask LUXE, tailored trip matching, photo match, AI-built days, packing lists and a concierge desk." },
-  { stage: "Next", title: "Real photography", line: "Replace the generated landscapes with dated, unretouched photos, as the app promises." },
-  { stage: "Next", title: "Shared boards", line: "Move saves and votes from the browser to a database so a group really plans together." },
-  { stage: "Planned", title: "Live inventory", line: "Real rates and availability through a hotel and flight API, held in the traveler’s name." },
+  { stage: "Done", title: "The site", line: "54 destinations with real photos, real hotels, best months, door-to-door time and entry rules for a US passport." },
+  { stage: "Done", title: "AI", line: "Ask LUXE, trip matching from a sentence or a photo, questions about any place, and itinerary drafts." },
+  { stage: "Done", title: "Price check", line: "The live public rate for a named hotel and dates, next to what the advisor perks are worth." },
+  { stage: "Next", title: "Launch", line: "Domain, host-agency partnership and trip-request email." },
+  { stage: "Planned", title: "Shared boards", line: "Move saved places from the browser to accounts so a group can plan together." },
 ];
 
 export default function LuxeCase() {
@@ -87,75 +87,54 @@ export default function LuxeCase() {
             <p className="micro">{project.tags.join(" · ")}</p>
             <h1>LUXE</h1>
             <p className="nxo-lede">
-              Places worth the flight. A luxury travel app built from the best of thirty travel apps, plus what
+              Places worth the flight. A luxury travel site built from the best of thirty travel apps, plus what
               they all miss. Imagery first, search second.
             </p>
             <div className="nxo-ctas">
-              <a href="/luxe" className="nx-btn is-primary">
-                Open the app <span aria-hidden="true">&#8594;</span>
+              <a href={LUXE_URL} className="nx-btn is-primary" target="_blank" rel="noopener">
+                Visit the site <span aria-hidden="true">&#8594;</span>
               </a>
-              <a href="#demo" className="nx-btn">
-                Try it here
+              <a href="#research" className="nx-btn">
+                The research
               </a>
             </div>
           </header>
           <figure className="nxo-hero">
             <img
               src="/images/projects/luxe.webp"
-              alt="LUXE's opening screen: a volcano over a salt lake at dusk in the Atacama Desert."
+              alt="LUXE's home page: an aerial photo of overwater villas in the Maldives under the headline Places worth the flight."
               width={1600}
               height={740}
             />
-            <figcaption className="micro">Discover · Atacama, Chile</figcaption>
+            <figcaption className="micro">Home · the live site</figcaption>
           </figure>
         </div>
 
         <dl className="nxo-stats">
           <div>
-            <dt>Places</dt>
-            <dd>6</dd>
+            <dt>Destinations</dt>
+            <dd>54</dd>
           </div>
           <div>
-            <dt>Kept from other apps</dt>
-            <dd>10</dd>
+            <dt>Real photos</dt>
+            <dd>113</dd>
           </div>
           <div>
-            <dt>Gaps filled</dt>
-            <dd>13</dd>
+            <dt>Home airports</dt>
+            <dd>12</dd>
           </div>
           <div>
             <dt>AI features</dt>
-            <dd>5</dd>
+            <dd>4</dd>
           </div>
           <div>
-            <dt>LUXE fee</dt>
+            <dt>Booking fee</dt>
             <dd>$0</dd>
           </div>
         </dl>
 
-        <section className="lx-demo" id="demo" aria-labelledby="lx-demo-title">
-          <header className="rca-head">
-            <div>
-              <p className="micro">The prototype</p>
-              <h2 id="lx-demo-title">Try it.</h2>
-            </div>
-            <p className="rca-lede">
-              Pick a month, save a place, open Plan and swap a day to watch the itinerary check itself. Live trip
-              shows what happens when a flight slips. Everything you do stays in your browser.
-            </p>
-          </header>
-          <div className="lx-frame">
-            <iframe src="/luxe" title="LUXE, the working prototype" loading="lazy" />
-          </div>
-          <p className="micro lx-frame-note">
-            Better on a big screen ·{" "}
-            <a href="/luxe" className="lx-link">
-              Open it full screen
-            </a>
-          </p>
-        </section>
 
-        <section className="lx-findings" aria-labelledby="lx-findings-title">
+        <section className="lx-findings" id="research" aria-labelledby="lx-findings-title">
           <header className="rca-head">
             <div>
               <p className="micro">The research</p>
@@ -186,7 +165,8 @@ export default function LuxeCase() {
               <h2 id="lx-road-title">Status.</h2>
             </div>
             <p className="rca-lede">
-              A concept with a working prototype. Places, prices, fares, reviews and people are sample content.
+              Live. Real places, real hotels and real photos, each credited to its photographer. Prices are typical
+              ranges until a live rate is checked.
             </p>
           </header>
           <ol className="nxo-steps">
@@ -207,32 +187,32 @@ export default function LuxeCase() {
             <p>
               Luxury travelers jump between booking sites, advisor networks and a dozen utility apps. The booking
               sites push fake scarcity and hide fees. The advisor networks hide prices behind a person. LUXE is the
-              place you finish: you find a place by looking at it, see one honest all-in price, and have a named
-              person once you&rsquo;re there.
+              place you finish: you find a place by looking at it, see when to go and what it really costs, and hand
+              the booking to a person.
             </p>
           </section>
           <section>
             <p className="micro nx-h">What I built</p>
             <h2>Kept the best, filled the gaps.</h2>
             <p>
-              It keeps what already works: flexible months from Airbnb, price-by-month from Google Flights, holds
-              from Hopper, advisor perks from Virtuoso and Amex FHR. Then it adds what none of them do:
-              door-to-door time on every photo, one bill for the whole trip, booking the exact room, and an
-              itinerary that flags altitude and back-to-back dawn starts.
+              It keeps what already works: flexible months from Airbnb and advisor perks from Virtuoso and Amex
+              FHR. Then it adds what none of them do: door-to-door time from your own airport on every place, the
+              best months at a glance, entry rules for a US passport, and a live check of the public rate for a
+              named hotel next to what the perks are worth.
             </p>
           </section>
           <section>
             <p className="micro nx-h">The AI</p>
             <h2>It asks better questions.</h2>
             <p>
-              Describe a trip in a sentence and LUXE asks the three questions that matter, then ranks every place.
-              Ask LUXE can filter, open and save while it talks. AI-built days are checked by the same rules as
-              yours. Inside the Claude app it runs on the visitor&rsquo;s own Claude; here it goes through a small
-              server route.
+              Describe a trip in a sentence, or drop in a photo of the kind of place you want, and LUXE asks up to
+              three questions, then ranks every destination. Ask LUXE answers with places you can open, and the
+              plan form drafts an itinerary. Every task runs on the server with fixed instructions and a rate limit;
+              the browser never sends a prompt.
             </p>
           </section>
           <p className="micro nx-stack">
-            HTML · CSS · JavaScript · Canvas 2D · Claude · Next.js route handler · Vercel
+            Next.js 16 · React 19 · TypeScript · Gemini or Claude · SerpApi · Resend · Unsplash · Vercel
           </p>
         </div>
 

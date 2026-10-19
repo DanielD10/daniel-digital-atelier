@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { LUXE_URL } from "./src/lib/links";
 
 /**
  * Security headers are set here rather than in proxy.ts because
@@ -32,9 +33,12 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
   },
 
-  /** LUXE's prototype is one static page; give it a clean URL. */
-  async rewrites() {
-    return [{ source: "/luxe", destination: "/luxe/index.html" }];
+  /** LUXE is its own site now; old /luxe links go there. */
+  async redirects() {
+    return [
+      { source: "/luxe", destination: LUXE_URL, permanent: false },
+      { source: "/luxe/:path*", destination: LUXE_URL, permanent: false },
+    ];
   },
 
   async headers() {

@@ -31,8 +31,7 @@ export type RateLimitResult = {
 };
 
 /**
- * `max` defaults to the contact form's limit. Other routes pass their
- * own (the LUXE AI route allows more, since a chat is several calls).
+ * `max` defaults to the contact form's limit. Other routes can pass their own.
  */
 export function rateLimit(key: string, max: number = MAX_REQUESTS): RateLimitResult {
   const now = Date.now();

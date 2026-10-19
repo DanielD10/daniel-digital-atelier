@@ -5597,26 +5597,14 @@ main { position: relative; z-index: 3; }
 
 /* ═══════════════ LUXE ═══════════════
    The case page reuses NERTIA's overview layout; LUXE's accent is the
-   app's own sand. The prototype is a static page embedded below. */
+   site's own sand. The site itself lives in its own repo. */
 .lx-page {
   --nx-accent: #d4b98c;
   --nx-heat: #d4b98c;
 }
 .lx-page .nx-btn.is-primary:hover { background: #e3cba3; }
 .lx-page .nxo-hero img { width: 100%; height: auto; display: block; border: 1px solid var(--nx-line); }
-.lx-demo,
 .lx-findings { margin-top: clamp(64px, 9vw, 110px); }
-.lx-frame {
-  position: relative;
-  height: min(86svh, 900px);
-  min-height: 560px;
-  border: 1px solid var(--nx-line);
-  background: #0d1113;
-  overflow: hidden;
-}
-.lx-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-.lx-frame-note { margin-top: 12px; color: var(--bone-dim); }
-.lx-link { color: var(--bone); border-bottom: 1px solid var(--nx-accent); }
 .lx-findings ul {
   list-style: none;
   margin: 0;
@@ -5639,5 +5627,4 @@ main { position: relative; z-index: 3; }
 .lx-src:hover { color: var(--bone); }
 @media (max-width: 900px) {
   .lx-findings ul { grid-template-columns: minmax(0, 1fr); }
-  .lx-frame { height: 80svh; min-height: 520px; }
 }
