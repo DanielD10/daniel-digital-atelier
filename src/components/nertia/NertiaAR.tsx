@@ -643,7 +643,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
           </div>
         </div>
 
-        <div className="nx-read" ref={readRef} aria-live="polite" hidden={chip !== "reading"}>
+        <div className="nx-read" ref={readRef} aria-live="polite" hidden={chip !== "reading" || !!reveal}>
           <span className="nx-ring" />
           <span className="nx-ring" />
           <span className="nx-ring" />
