@@ -196,7 +196,9 @@ export default function NertiaRace() {
                     {ability(hud.item).name}
                     {hud.item === "gel-pack" ? ` ×${hud.charges}` : ""}
                   </span>
-                  <span className="rc-slot-key">Space</span>
+                  <span className="rc-slot-key">
+                    {hud.item === "kick" && hud.x < RACE_M - 400 ? `Ready at ${RACE_M - 400} m` : "Space"}
+                  </span>
                 </>
               ) : (
                 <>
@@ -368,7 +370,13 @@ function row(r: Runner, race: Race) {
   if (race.has(r, "kick")) tags.push("kick");
   if (r.fx.some((f) => f.k === "speed" && f.mul > 1)) tags.push("boost");
   const gap =
-    r.finish !== null ? clock(r.finish, true) : r === lead ? "Lead" : `−${Math.max(0, lead.x - r.x).toFixed(0)} m`;
+    race.t === 0
+      ? "—"
+      : r.finish !== null
+        ? clock(r.finish, true)
+        : r === lead
+          ? "Lead"
+          : `−${Math.max(0, lead.x - r.x).toFixed(0)} m`;
   return { name: r.name, team: r.team, you: r.you, gap: race.has(r, "fog") && !r.you ? "—" : gap, armed: !!r.item && !r.you, tags };
 }
 
@@ -606,7 +614,7 @@ class View {
         this.edge(ctx, W, laneY(r.lane), r, you, dpr, 1);
         continue;
       }
-      this.runner(ctx, x, y, Lh * 0.92, r, race, now, dpr);
+      this.runner(ctx, x, y, Lh * 1.4, r, race, now, dpr);
     }
 
     // a ring at each moment that just happened

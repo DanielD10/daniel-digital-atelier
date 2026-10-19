@@ -21,7 +21,7 @@ const FILTERS: (Home | "all")[] = ["all", "top", "bottom", "feet", "head", "body
  * with pull odds. Cards this visitor has pulled light up; any card can
  * be tried on the stage.
  */
-export default function NertiaSet({ arHref }: { arHref?: string } = {}) {
+export default function NertiaSet({ arHref, head = true }: { arHref?: string; head?: boolean } = {}) {
   const [filter, setFilter] = useState<Home | "all">("all");
   const [pulled, setPulled] = useState<Set<string>>(new Set());
 
@@ -43,19 +43,28 @@ export default function NertiaSet({ arHref }: { arHref?: string } = {}) {
 
   return (
     <section className="nx-set" aria-labelledby="nx-set-title">
-      <header className="nx-set-head">
-        <div>
-          <p className="micro">The set · Drop 001</p>
-          <h2 id="nx-set-title">{cards.length} effects. One per unit.</h2>
-        </div>
+      <header className={`nx-set-head${head ? "" : " is-bare"}`}>
+        {head ? (
+          <div>
+            <p className="micro">The set · Drop 001</p>
+            <h2 id="nx-set-title">{cards.length} effects. One per unit.</h2>
+          </div>
+        ) : (
+          <h2 id="nx-set-title" className="nx-vh">
+            The Drop 001 set
+          </h2>
+        )}
         <div className="nx-set-side">
+          {head ? (
           <p className="nx-set-lede">
             Every unit is sealed with one effect from this set, rolled from its serial when it&rsquo;s made. Ultra
             and Secret pulls come with a body glow on top. The finish sets the type: a garment pulls its own
             type three times as often.
           </p>
+          ) : null}
           <p className="nx-set-count">
-            <b>{got}</b> of {cards.length} pulled
+            <b>{got}</b>
+            <span>of {cards.length} pulled</span>
             <span className="nx-meter" aria-hidden="true">
               <span style={{ width: `${(got / cards.length) * 100}%` }} />
             </span>

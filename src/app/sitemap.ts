@@ -21,5 +21,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...pages, ...projectPages];
+  // NERTIA is a small site of its own
+  const nertia: MetadataRoute.Sitemap = ["ar", "effects", "race", "shop"].map((sub) => ({
+    url: `${base}/work/nertia/${sub}`,
+    lastModified: now,
+    changeFrequency: "monthly",
+    priority: 0.5,
+  }));
+
+  return [...pages, ...projectPages, ...nertia];
 }

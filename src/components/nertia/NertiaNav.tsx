@@ -2,13 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
-export const NERTIA_TABS = [
-  { href: "/work/nertia", label: "Overview", line: "The brand, where it stands, and the notes." },
-  { href: "/work/nertia/ar", label: "AR", line: "Open a sealed unit and wear its effect." },
-  { href: "/work/nertia/race", label: "Race", line: "Play a club race with 17 abilities." },
-  { href: "/work/nertia/shop", label: "Shop", line: "Drop 001, every piece and product sheet." },
-] as const;
+import { NERTIA_TABS } from "./tabs";
 
 /** The NERTIA section bar: one place to move between its pages. */
 export default function NertiaNav() {

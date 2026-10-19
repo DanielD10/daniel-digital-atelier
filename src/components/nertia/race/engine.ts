@@ -146,6 +146,9 @@ export class Race {
 
   private say(text: string, who: Runner | null) {
     const tone: Tone = !who ? "info" : who.you ? "you" : who.team === this.you.team ? "team" : "rival";
+    // the same call twice in a row is noise
+    const top = this.feed[0];
+    if (top && top.text === text && this.t - top.t < 4) return;
     this.feed.unshift({ t: this.t, text, tone });
     if (this.feed.length > 7) this.feed.pop();
   }

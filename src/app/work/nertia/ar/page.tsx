@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import NertiaAR from "@/components/nertia/NertiaAR";
+import Link from "next/link";
 import NertiaNext from "@/components/nertia/NertiaNext";
-import NertiaSet from "@/components/nertia/NertiaSet";
 import { LEVELS } from "@/lib/nertia";
 import { cards } from "@/lib/nertia-cards";
 
@@ -19,13 +19,12 @@ export default function NertiaArPage() {
         <h1>Every unit holds an effect.</h1>
         <p className="nxp-lede">
           Open a sealed unit and see what it holds, read one that&rsquo;s already open, or switch to your camera
-          and wear it. Everything here runs live in the browser.
+          and wear it. Everything here runs live in the browser. All {cards.length} effects are on the{" "}
+          <Link href="/work/nertia/effects">Effects</Link> page.
         </p>
       </header>
 
       <NertiaAR />
-
-      <NertiaSet />
 
       <div className="nxp-notes">
         <section>

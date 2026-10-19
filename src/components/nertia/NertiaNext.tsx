@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { NERTIA_TABS } from "./NertiaNav";
+import { NERTIA_TABS } from "./tabs";
 
 /** The card at the foot of each NERTIA page that leads to the next one. */
 export default function NertiaNext({ from }: { from: (typeof NERTIA_TABS)[number]["href"] }) {
