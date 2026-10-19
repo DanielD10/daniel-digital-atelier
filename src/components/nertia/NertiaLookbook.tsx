@@ -9,6 +9,8 @@ import { lookbook, type Sheet, type Spot } from "@/lib/nertia";
 type Props = {
   /** where the sheet images are served from */
   base?: string;
+  /** the AR page, when it isn't on this page: figures open there */
+  arHref?: string;
 };
 
 /**
@@ -16,7 +18,7 @@ type Props = {
  * (they're dense with detail), and every figure on a sheet is a button:
  * into the AR prototype, or into the shop for pieces without AR.
  */
-export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
+export default function NertiaLookbook({ base = "/images/nertia/", arHref }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const railRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<number | null>(null);
@@ -62,7 +64,12 @@ export default function NertiaLookbook({ base = "/images/nertia/" }: Props) {
   const go = (sp: Spot) => {
     close();
     if (sp.product) window.dispatchEvent(new CustomEvent("nertia:product", { detail: sp.product }));
-    else window.dispatchEvent(new CustomEvent("nertia:tap", { detail: sp.unit ?? sp.try }));
+    else if (arHref) {
+      const q = sp.unit ? `unit=${sp.unit}` : sp.try ? `try=${sp.try.product}.${sp.try.finish}.${sp.try.fit}` : "";
+      // plain navigation: this component also runs outside Next, in the standalone bundle
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.assign(`${arHref}?${q}`);
+    } else window.dispatchEvent(new CustomEvent("nertia:tap", { detail: sp.unit ?? sp.try }));
   };
   const shopIt = (s: Sheet) => {
     if (!s.product) return;

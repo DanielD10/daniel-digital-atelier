@@ -21,7 +21,7 @@ const FILTERS: (Home | "all")[] = ["all", "top", "bottom", "feet", "head", "body
  * with pull odds. Cards this visitor has pulled light up; any card can
  * be tried on the stage.
  */
-export default function NertiaSet() {
+export default function NertiaSet({ arHref }: { arHref?: string } = {}) {
   const [filter, setFilter] = useState<Home | "all">("all");
   const [pulled, setPulled] = useState<Set<string>>(new Set());
 
@@ -33,7 +33,13 @@ export default function NertiaSet() {
   const list = useMemo(() => cards.filter((c) => filter === "all" || c.home === filter), [filter]);
   const got = cards.filter((c) => pulled.has(c.id)).length;
 
-  const preview = (id: string) => window.dispatchEvent(new CustomEvent("nertia:preview", { detail: id }));
+  const preview = (id: string) => {
+    // on a page without the stage, open the card on the AR page instead
+    // (plain navigation: this component also runs outside Next)
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    if (arHref) window.location.assign(`${arHref}?card=${id}`);
+    else window.dispatchEvent(new CustomEvent("nertia:preview", { detail: id }));
+  };
 
   return (
     <section className="nx-set" aria-labelledby="nx-set-title">

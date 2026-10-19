@@ -18,7 +18,13 @@ import {
   type ShopCategory,
 } from "@/lib/nertia-shop";
 
-type Props = { base?: string };
+type Props = {
+  base?: string;
+  /** false when the page already has its own heading */
+  head?: boolean;
+  /** the AR page, when it isn't on this page: try-ons go there */
+  arHref?: string;
+};
 type FitFilter = "all" | Fit;
 
 const swatch = (id: FinishId) => `linear-gradient(135deg, ${finishes[id].ramp.join(", ")})`;
@@ -34,7 +40,7 @@ const fitFor = (p: Product, fit: FitFilter, finish: FinishId): Fit => {
   return pf && finishMadeIn(pf, "M") ? "M" : "W";
 };
 
-export default function NertiaShop({ base = "/images/nertia/shop/" }: Props) {
+export default function NertiaShop({ base = "/images/nertia/shop/", head = true, arHref }: Props) {
   const [cat, setCat] = useState<ShopCategory | "all">("all");
   const [fit, setFit] = useState<FitFilter>("all");
   const [open, setOpen] = useState<Product | null>(null);
@@ -74,14 +80,20 @@ export default function NertiaShop({ base = "/images/nertia/shop/" }: Props) {
 
   return (
     <section className="nx-shop" aria-labelledby="nx-shop-title">
-      <header className="nx-shop-head">
-        <p className="micro">Shop · Drop 001</p>
-        <h2 id="nx-shop-title">The Liquid Series.</h2>
-        <p className="nx-shop-lede">
-          Six styles and the women&rsquo;s line, every piece numbered and chipped. Open anything to see
-          it in every finish, or open a sealed one in AR and see what it holds.
-        </p>
-      </header>
+      {head ? (
+        <header className="nx-shop-head">
+          <p className="micro">Shop · Drop 001</p>
+          <h2 id="nx-shop-title">The Liquid Series.</h2>
+          <p className="nx-shop-lede">
+            Six styles and the women&rsquo;s line, every piece numbered and chipped. Open anything to see
+            it in every finish, or open a sealed one in AR and see what it holds.
+          </p>
+        </header>
+      ) : (
+        <h2 id="nx-shop-title" className="nx-vh">
+          Drop 001 pieces
+        </h2>
+      )}
 
       <div className="nx-shop-bar">
         <div className="nx-chips" role="group" aria-label="Category">
@@ -117,7 +129,7 @@ export default function NertiaShop({ base = "/images/nertia/shop/" }: Props) {
         }}
       >
         {open ? (
-          <Detail key={open.id} p={open} startFit={fit} base={base} onClose={() => dialogRef.current?.close()} />
+          <Detail key={open.id} p={open} startFit={fit} base={base} arHref={arHref} onClose={() => dialogRef.current?.close()} />
         ) : null}
       </dialog>
     </section>
@@ -183,7 +195,19 @@ function Card({ p, fit, base, onOpen }: { p: Product; fit: FitFilter; base: stri
 
 /* ───────────────────── product detail ───────────────────── */
 
-function Detail({ p, startFit, base, onClose }: { p: Product; startFit: FitFilter; base: string; onClose: () => void }) {
+function Detail({
+  p,
+  startFit,
+  base,
+  arHref,
+  onClose,
+}: {
+  p: Product;
+  startFit: FitFilter;
+  base: string;
+  arHref?: string;
+  onClose: () => void;
+}) {
   const fits = fitsOf(p);
   const [fit, setFit] = useState<Fit>(startFit !== "all" && fits.includes(startFit) ? startFit : fits[0]);
   const fins = p.finishes.filter((f) => finishMadeIn(f, fit));
@@ -198,7 +222,10 @@ function Detail({ p, startFit, base, onClose }: { p: Product; startFit: FitFilte
 
   const tryOn = () => {
     onClose();
-    window.dispatchEvent(new CustomEvent("nertia:tap", { detail: { product: p.id, finish: cur, fit } }));
+    // plain navigation: this component also runs outside Next, in the standalone bundle
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+    if (arHref) window.location.assign(`${arHref}?try=${p.id}.${cur}.${fit}`);
+    else window.dispatchEvent(new CustomEvent("nertia:tap", { detail: { product: p.id, finish: cur, fit } }));
   };
   const openSheet = () => {
     onClose();

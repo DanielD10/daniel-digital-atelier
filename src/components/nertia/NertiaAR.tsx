@@ -199,6 +199,19 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     };
     window.addEventListener("nertia:tap", onTap);
     window.addEventListener("nertia:preview", onPreview);
+    // links from the shop and the product sheets arrive as ?unit=, ?try= or ?card=
+    const q = new URLSearchParams(window.location.search);
+    const unitQ = q.get("unit");
+    const tryQ = q.get("try")?.split(".");
+    const cardQ = q.get("card");
+    if (unitQ || tryQ || cardQ) {
+      window.setTimeout(() => {
+        if (unitQ) window.dispatchEvent(new CustomEvent("nertia:tap", { detail: unitQ }));
+        else if (tryQ && tryQ.length === 3)
+          window.dispatchEvent(new CustomEvent("nertia:tap", { detail: { product: tryQ[0], finish: tryQ[1], fit: tryQ[2] } }));
+        else if (cardQ) window.dispatchEvent(new CustomEvent("nertia:preview", { detail: cardQ }));
+      }, 250);
+    }
     return () => {
       window.removeEventListener("nertia:tap", onTap);
       window.removeEventListener("nertia:preview", onPreview);
