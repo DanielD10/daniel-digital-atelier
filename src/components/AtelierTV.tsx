@@ -141,7 +141,7 @@ type Stored = {
  * URL, or a bare id — because people paste all of those and being
  * fussy about it is just a worse television.
  */
-export function parseYouTube(raw: string): Tuned {
+function parseYouTube(raw: string): Tuned {
   const s = raw.trim();
   if (!s) return null;
 
@@ -396,8 +396,12 @@ export default function AtelierTV({
   /* Ask the player to report. It says nothing until told to,
      and it may not be ready the instant the iframe mounts, so
      this keeps asking for a few seconds and then stops. */
+  // Keyed on the channel itself, not the object holding it, so a
+  // re-render with the same channel doesn't restart the handshake.
+  const tunedKind = tuned?.kind;
+  const tunedId = tuned?.id;
   useEffect(() => {
-    if (!tuned) return;
+    if (!tunedKind) return;
     setCanSeek(false);
     atRef.current = 0;
     let n = 0;
@@ -418,7 +422,7 @@ export default function AtelierTV({
       if (++n > 12) window.clearInterval(id);
     }, 700);
     return () => window.clearInterval(id);
-  }, [tuned?.kind, tuned?.id]);
+  }, [tunedKind, tunedId]);
 
   // A fresh channel deserves a fresh verdict.
   useEffect(() => setSignal(null), [tuned?.id]);

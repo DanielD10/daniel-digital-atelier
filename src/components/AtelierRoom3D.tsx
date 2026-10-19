@@ -580,7 +580,8 @@ export default function AtelierRoom3D() {
     let dprNow = DPR_IDLE;
     renderer.setSize(w, h);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // PCFSoftShadowMap was removed from three; PCF is what it fell back to anyway.
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -897,7 +898,8 @@ export default function AtelierRoom3D() {
     const wantAim = new THREE.Vector3();
 
     /* ── Loop ──────────────────────────────────────────── */
-    const clockT = new THREE.Clock();
+    // Timer replaces the deprecated Clock: update() once per frame, then read.
+    const clockT = new THREE.Timer();
     let t = 0;
     let frame = 0;
     let disposed = false;
@@ -946,6 +948,7 @@ export default function AtelierRoom3D() {
       if (disposed) return;
       frame = requestAnimationFrame(render);
 
+      clockT.update();
       const dt = Math.min(clockT.getDelta(), 0.05);
       t += dt;
       const s = stateRef.current;
@@ -1313,16 +1316,7 @@ export default function AtelierRoom3D() {
         spot.el.classList.toggle("is-near", hoverName === spot.name);
       }
 
-      // Ships cross the window and wrap round.
       if (!reduced) {
-        for (const ship of p.ships.children) {
-          const d = ship.userData as { speed: number; t: number };
-          d.t += dt * d.speed * 0.012;
-          if (d.t > 1.2) d.t = -0.2;
-          if (d.t < -0.2) d.t = 1.2;
-          ship.position.x = -46 + d.t * 92;
-          ship.position.y += Math.sin(t * 0.4 + d.t * 6) * 0.004;
-        }
         p.riftMat.uniforms.uTime.value = t;
         p.rift.lookAt(camera.position);
       }
@@ -1479,7 +1473,7 @@ export default function AtelierRoom3D() {
     const onVisibility = () => {
       if (document.hidden) cancelAnimationFrame(frame);
       else {
-        clockT.getDelta();
+        clockT.update();
         frame = requestAnimationFrame(render);
       }
     };

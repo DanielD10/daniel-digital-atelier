@@ -20,7 +20,7 @@ export type Mood = {
   label: string;
 };
 
-export function phaseFor(hour: number): Phase {
+function phaseFor(hour: number): Phase {
   if (hour >= 5 && hour < 8) return "dawn";
   if (hour >= 8 && hour < 17) return "day";
   if (hour >= 17 && hour < 20) return "dusk";
@@ -32,7 +32,7 @@ export function phaseFor(hour: number): Phase {
  * Texas, so it stays on Texas's calendar regardless of where the
  * visitor is — it is Daniel's room, not theirs.
  */
-export function seasonFor(month: number): Season {
+function seasonFor(month: number): Season {
   if (month >= 2 && month <= 4) return "spring";
   if (month >= 5 && month <= 7) return "summer";
   if (month >= 8 && month <= 10) return "autumn";

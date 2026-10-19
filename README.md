@@ -19,6 +19,8 @@ Before pushing anything significant:
 
 ```bash
 npm run build        # must pass — the dev server hides prod-only failures
+npm run lint         # ESLint (Next 16 flat config)
+npm run typecheck    # tsc, no emit
 ```
 
 ## Deploying
@@ -48,15 +50,30 @@ src/
 │   ├── sitemap.ts            Generated from lib/projects.ts
 │   ├── opengraph-image.tsx   Social share card, generated at build
 │   ├── icon.tsx              Favicon, generated at build
+│   ├── work/nertia/page.tsx  NERTIA case study: the AR prototype, shop and sheets
+│   ├── work/[slug]/page.tsx  The other case studies
+│   ├── lab/page.tsx          The studio in 3D
 │   ├── api/contact/route.ts  Enquiry endpoint
+│   ├── api/library/route.ts  Book search for the Lab's shelf (Gutenberg + Open Library)
 │   └── api/health/route.ts   Uptime + which commit is live
 ├── components/
 │   ├── SiteMotion.tsx        All scroll and entrance animation
 │   ├── CaseTrack.tsx         The pinned horizontal case run
-│   ├── HeroVeil.tsx          SVG smoke field (stand-in for the hero art)
+│   ├── EarthGlobe.tsx        The WebGL globe behind the hero
+│   ├── AtelierRoom3D.tsx     The Lab: three.js room, CSS3D screens
+│   ├── nertia/               NERTIA prototype
+│   │   ├── NertiaAR.tsx      Stage, units, certificate, camera mode
+│   │   ├── effects.ts        Every AR effect (particles + shader passes)
+│   │   ├── glfield.ts        WebGL fire and fog shaders
+│   │   ├── runner.ts         The procedural demo runner
+│   │   ├── tracker.ts        MediaPipe pose → effect emitters
+│   │   ├── NertiaShop.tsx    Storefront and product panel
+│   │   └── NertiaLookbook.tsx Product sheets with hotspots
 │   └── ...
 ├── lib/
 │   ├── projects.ts           Single source of truth for the work
+│   ├── nertia.ts             NERTIA finishes, units, levels, sheets
+│   ├── nertia-shop.ts        NERTIA catalog (from the product sheets)
 │   ├── contact-schema.ts     Validation shared by client and server
 │   ├── rate-limit.ts         Fixed-window limiter
 │   └── site.ts               Name, description, canonical URL resolution
@@ -110,7 +127,5 @@ Vercel → Settings → Environment Variables for production.
 
 ## Still to add
 
-- `public/images/hero/hero-sculpture.webp` — then set `--hero-image` in `globals.css`
-- `public/images/projects/*.webp` — replace the `.art-*` gradient stand-ins
-- `public/audio/ambient.mp3` — the sound toggle disables itself until this exists
-- Real copy on `/about` and real case studies on `/work/[slug]`
+- `public/images/projects/*.webp` — replace the `.art-*` gradient stand-ins for LUXE, NEXUS and ALTURA
+- Real case studies for LUXE, NEXUS and ALTURA on `/work/[slug]` (NERTIA's is done)

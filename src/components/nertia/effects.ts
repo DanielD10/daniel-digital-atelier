@@ -150,10 +150,6 @@ function blurSprite(src: HTMLCanvasElement, r = 3): HTMLCanvasElement {
   return c;
 }
 
-function rgba(hex: string, a: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-}
 
 /* ─────────────────────────── base system ─────────────────────── */
 
@@ -2339,14 +2335,6 @@ function rampAt(stops: string[], t: number, a = 1): string {
   const c = p.map((v, k) => Math.round(v + (q[k] - v) * f));
   return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 }
-function cubic(p0: Vec, p1: Vec, p2: Vec, p3: Vec, t: number): Vec {
-  const u = 1 - t;
-  const a = u * u * u;
-  const b = 3 * u * u * t;
-  const c = 3 * u * t * t;
-  const d = t * t * t;
-  return { x: a * p0.x + b * p1.x + c * p2.x + d * p3.x, y: a * p0.y + b * p1.y + c * p2.y + d * p3.y };
-}
 function quad(p0: Vec, p1: Vec, p2: Vec, t: number): Vec {
   const u = 1 - t;
   return {
@@ -3564,4 +3552,3 @@ export function createEffect(id: EffectId): Effect {
   }
 }
 
-export { rgba };

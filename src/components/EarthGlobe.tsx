@@ -514,15 +514,16 @@ export default function EarthGlobe() {
       starMat.uniforms.uAspect.value = w / Math.max(h, 1);
     }
 
-    const clock = new THREE.Clock();
+    const clock = new THREE.Timer();
     let elapsed = 0;
 
     function animate() {
       if (disposed) return;
       frame = requestAnimationFrame(animate);
 
-      // getElapsedTime() consumes the delta, so taking both in one
-      // frame leaves you with zero. Take the delta and accumulate.
+      // Take the delta and accumulate, so a long pause (a hidden tab)
+      // can't jump the animation forward.
+      clock.update();
       const dt = Math.min(clock.getDelta(), 0.05);
       elapsed += dt;
       const t = elapsed;

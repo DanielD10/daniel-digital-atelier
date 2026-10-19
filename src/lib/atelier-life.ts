@@ -85,23 +85,6 @@ function drift(t: number, speed = 1): number {
   );
 }
 
-/**
- * A thing that fires at uneven intervals.
- *
- * Twitches on a timer are the other tell. This holds a countdown
- * and rolls a fresh, randomly-sized gap each time it fires, so
- * ears flick and eyes blink on no schedule at all.
- */
-function ticker(next: () => number, lo: number, hi: number) {
-  let left = lo + next() * (hi - lo);
-  return (dt: number): boolean => {
-    left -= dt;
-    if (left > 0) return false;
-    left = lo + next() * (hi - lo);
-    return true;
-  };
-}
-
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
 function hitBox(

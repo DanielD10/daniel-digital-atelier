@@ -409,7 +409,6 @@ export type Built = {
   };
   props: {
     skyMat: THREE.ShaderMaterial;
-    ships: THREE.Group;
     riftMat: THREE.ShaderMaterial;
     rift: THREE.Mesh;
     chair: THREE.Group;
@@ -2980,80 +2979,6 @@ export function buildRoom(): Built {
     }
   }
 
-  /* ── Ships ─────────────────────────────────────────────── */
-  const ships = new THREE.Group();
-  const hullMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3358, roughness: 0.45, metalness: 0.5 }));
-  const thrustMat = keep(new THREE.MeshBasicMaterial({ color: 0x8feaff }));
-  const thrustWarm = keep(new THREE.MeshBasicMaterial({ color: 0xffb060 }));
-  const winMat = keep(new THREE.MeshBasicMaterial({ color: 0xbfe8ff }));
-
-  const makeShip = (kind: 0 | 1 | 2) => {
-    const g = new THREE.Group();
-    if (kind === 0) {
-      g.add(new THREE.Mesh(box(5.4, 0.5, 0.8), hullMat));
-      const fin = new THREE.Mesh(box(1.2, 0.55, 0.1), hullMat);
-      fin.position.set(-0.6, 0.5, 0);
-      g.add(fin);
-      const wGeo = box(0.12, 0.07, 0.02);
-      for (let i = 0; i < 16; i++) {
-        const win = new THREE.Mesh(wGeo, winMat);
-        win.position.set(-2.2 + i * 0.3, 0.06, 0.41);
-        g.add(win);
-      }
-      for (const tz of [-0.22, 0.22]) {
-        const t = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.17, 0.2, 0.3, 14)), thrustMat);
-        t.rotation.z = Math.PI / 2;
-        t.position.set(-2.8, 0, tz);
-        g.add(t);
-      }
-    } else if (kind === 1) {
-      const hull = new THREE.Mesh(keep(new THREE.ConeGeometry(0.22, 1.5, 10)), hullMat);
-      hull.rotation.z = -Math.PI / 2;
-      g.add(hull);
-      const wing = new THREE.Mesh(box(0.5, 0.05, 1.3), hullMat);
-      wing.position.set(-0.3, 0, 0);
-      g.add(wing);
-      const t = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.14, 0.1, 0.26, 12)), thrustMat);
-      t.rotation.z = Math.PI / 2;
-      t.position.set(-0.82, 0, 0);
-      g.add(t);
-    } else {
-      g.add(new THREE.Mesh(box(3, 0.7, 1), hullMat));
-      const cGeo = box(0.8, 0.5, 0.8);
-      const cMat = keep(new THREE.MeshStandardMaterial({ color: 0x4a3f6a, roughness: 0.9 }));
-      for (let i = 0; i < 3; i++) {
-        const c = new THREE.Mesh(cGeo, cMat);
-        c.position.set(-0.9 + i * 0.9, -0.6, 0);
-        g.add(c);
-      }
-      const bridge = new THREE.Mesh(box(0.6, 0.35, 0.7), hullMat);
-      bridge.position.set(1.0, 0.5, 0);
-      g.add(bridge);
-      const t = new THREE.Mesh(keep(new THREE.CylinderGeometry(0.22, 0.26, 0.3, 14)), thrustWarm);
-      t.rotation.z = Math.PI / 2;
-      t.position.set(-1.6, 0, 0);
-      g.add(t);
-    }
-    return g;
-  };
-
-  const SHIP_PLAN = [
-    { kind: 0 as const, y: 17, z: -40, speed: 1.5, t: 0.1, s: 1.6 },
-    { kind: 1 as const, y: 11, z: -22, speed: -7.5, t: 0.4, s: 1 },
-    { kind: 1 as const, y: 22, z: -34, speed: 5.2, t: 0.75, s: 0.8 },
-    { kind: 2 as const, y: 7.5, z: -17, speed: -2.6, t: 0.6, s: 1 },
-    { kind: 1 as const, y: 5, z: -13, speed: 9, t: 0.2, s: 0.7 },
-  ];
-
-  for (const plan of [] as typeof SHIP_PLAN) {
-    const s = makeShip(plan.kind);
-    s.position.set(0, plan.y, plan.z);
-    s.scale.setScalar(plan.s);
-    if (plan.speed < 0) s.rotation.y = Math.PI;
-    s.userData = { ...plan };
-    ships.add(s);
-  }
-  outside.add(ships);
 
   /* ── The fold ──────────────────────────────────────────── */
   const riftMat = new THREE.ShaderMaterial({
@@ -3375,7 +3300,6 @@ export function buildRoom(): Built {
     },
     props: {
       skyMat,
-      ships,
       riftMat,
       rift,
       chair,
@@ -3418,4 +3342,3 @@ export function buildRoom(): Built {
   };
 }
 
-export { ROOM, WIN, DESK_Y, DESK_Z };

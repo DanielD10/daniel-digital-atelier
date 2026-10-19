@@ -28,7 +28,7 @@ export type Game = {
   kind: "local" | "embed";
 };
 
-export const GAMES: Game[] = [
+const GAMES: Game[] = [
   {
     id: "racer",
     name: "Coastal Run",

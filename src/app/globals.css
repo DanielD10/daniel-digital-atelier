@@ -23,7 +23,6 @@
   --strip: 232px;
   --rail: 76px;
 
-  --hero-image: none;
 
   color-scheme: dark;
 }
@@ -398,34 +397,6 @@ main { position: relative; z-index: 3; }
 .veil:has(.globe-gl.is-ready) .earth-canvas { display: none; }
 
 /*
-  Where your render goes. Set --hero-image on :root and this layer
-  paints over the procedural marble.
-
-    --hero-image: image-set(
-      url('/images/hero/hero-sculpture.avif') type('image/avif'),
-      url('/images/hero/hero-sculpture.webp') type('image/webp')
-    );
-
-  image-set lets the browser pick AVIF where supported and fall back
-  to WebP, and serves the 2x file on retina without a media query.
-  Export at 2400px wide minimum — the layer is up to 1180 CSS px, so
-  that is the 2x asset.
-*/
-.hero-art {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  width: min(72%, 1180px);
-  background-image: var(--hero-image);
-  background-size: cover;
-  background-position: 52% 42%;
-  /* Stops the browser softening the image when it scales it down,
-     which is what makes a high-res export look low-res. */
-  image-rendering: auto;
-}
-
-/*
   Keeps the left third clean for the wordmark while letting the globe
   stay legible on the right. Lighter than the marble version was —
   city lights are small and the old falloff buried them. The corner
@@ -772,11 +743,6 @@ main { position: relative; z-index: 3; }
   background:
     radial-gradient(55% 55% at 72% 45%, rgba(120, 165, 190, 0.34), transparent 66%),
     linear-gradient(150deg, #0d1418 0%, #0a0d10 60%, #060708 100%);
-}
-.art-sound {
-  background:
-    radial-gradient(70% 60% at 38% 52%, rgba(150, 150, 158, 0.3), transparent 64%),
-    linear-gradient(200deg, #14151a 0%, #0a0a0d 62%, #050506 100%);
 }
 .art-altura {
   background:
@@ -1320,9 +1286,6 @@ main { position: relative; z-index: 3; }
    component. Sixteen states (four times of day x four seasons)
    out of one stylesheet, because none of the colours are written
    down twice. */
-/* Breaks out of the page's 1400px column. The room is the content
-   here, not an illustration beside it, and the camera push-in only
-   has somewhere to go if the frame is wide to begin with. */
 /* Breaks out of the page's 1400px column — the room is the content
    here, not an illustration beside it, and the camera push-in only
    has somewhere to go if the frame is wide to begin with.
@@ -1337,33 +1300,6 @@ main { position: relative; z-index: 3; }
   width: min(100vw - 20px, 1760px);
   margin-left: 50%;
   transform: translateX(-50%);
-}
-
-.atelier-stage {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid rgba(74, 69, 62, 0.5);
-  background: #05040d;
-  aspect-ratio: 1200 / 760;
-  isolation: isolate;
-}
-
-/* The push-in. Everything in the stage scales about the middle of
-   the monitor, so waking the machine reads as stepping up to the
-   desk rather than a panel appearing over the room. */
-.room-layer {
-  position: absolute;
-  inset: 0;
-  transform-origin: 49.5833% 46.4474%;
-  transition: transform 900ms cubic-bezier(0.2, 0.9, 0.2, 1);
-  will-change: transform;
-}
-/* Far enough in to read the machine, not so far that the room
-   disappears — the lamp, the plants, the window and whatever is
-   flying past it all stay in frame around the screen. That
-   surround is the point of sitting down at the desk. */
-.atelier-stage.is-awake .room-layer {
-  transform: scale(2.2);
 }
 
 .room {
@@ -1387,34 +1323,18 @@ main { position: relative; z-index: 3; }
 }
 /* Anything animated has to opt out, or the transition fights the
    keyframes and both lose. */
-.room .ship,
 .room .flake,
-.room .bulb,
 .room .beacon,
-.room .motes circle,
-.room .rift-rim {
+.room .motes circle {
   transition: none;
 }
 
-.room-dim { opacity: var(--room-dim); }
-
-.orb { transition: cy 1.4s ease, r 1.1s ease, fill 1.1s ease, opacity 1.1s ease; }
-
 /* ── Sky and city ───────────────────────────────────────────── */
-.win-stars { transition: opacity 1.4s ease; }
-.win-stars circle { animation: winTwinkle 4s ease-in-out infinite alternate; }
-.win-stars circle:nth-child(3n) { animation-delay: 1.3s; }
-.win-stars circle:nth-child(3n + 1) { animation-delay: 2.6s; }
 
 @keyframes winTwinkle {
   from { opacity: 0.25; }
   to { opacity: 1; }
 }
-
-.city-lights { transition: opacity 1.4s ease; }
-.city-lights rect { animation: cityFlicker 9s steps(1) infinite; }
-.city-lights rect:nth-child(5n) { animation-delay: 2.4s; }
-.city-lights rect:nth-child(7n) { animation-delay: 5.1s; }
 
 @keyframes cityFlicker {
   0%, 92% { opacity: inherit; }
@@ -1441,18 +1361,10 @@ main { position: relative; z-index: 3; }
 }
 
 /* ── Traffic ────────────────────────────────────────────────── */
-.ship {
-  animation-name: shipPass;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-}
 @keyframes shipPass {
   from { transform: translateX(-620px); }
   to { transform: translateX(1080px); }
 }
-
-.nav-r { animation: navBlink 1.9s steps(1) infinite; }
-.nav-g { animation: navBlink 1.9s steps(1) infinite 0.95s; }
 @keyframes navBlink {
   0%, 46% { opacity: 1; }
   47%, 100% { opacity: 0.1; }
@@ -1463,9 +1375,6 @@ main { position: relative; z-index: 3; }
    recomputed on every frame that changes underneath it, and a
    rotating one would cost more than the whole rest of the room.
    The motion lives in the rim, which is two cheap strokes. */
-.rift-rim {
-  animation: rimRun 7s linear infinite;
-}
 @keyframes rimRun {
   to { stroke-dashoffset: -260; }
 }
@@ -1478,13 +1387,7 @@ main { position: relative; z-index: 3; }
 
 /* ── Room light ─────────────────────────────────────────────── */
 .lamp { opacity: var(--lamp); transition: opacity 1.2s ease; }
-.lamp-pool {
-  filter: blur(22px);
-  opacity: 0.4;
-  animation: lampBreathe 7s ease-in-out infinite;
-}
 /* A hard-edged triangle reads as a paper cone, not as light. */
-.lamp-cone { opacity: 0.3; filter: blur(9px); }
 @keyframes lampBreathe {
   0%, 100% { opacity: 0.34; }
   50% { opacity: 0.48; }
@@ -1492,14 +1395,10 @@ main { position: relative; z-index: 3; }
 
 .neon { transition: opacity 1.2s ease; }
 .bias { transition: opacity 0.9s ease; }
-
-.bulb { animation: bulbGlow 4.2s ease-in-out infinite; }
 @keyframes bulbGlow {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
 }
-
-.shafts { mix-blend-mode: screen; }
 
 .steam path {
   animation: steam 4.4s ease-in-out infinite;
@@ -1536,26 +1435,6 @@ main { position: relative; z-index: 3; }
 }
 
 /* ── The monitor ────────────────────────────────────────────── */
-.imac { cursor: pointer; }
-.imac:focus { outline: none; }
-.imac:focus-visible .imac-screen {
-  stroke: var(--bronze);
-  stroke-width: 3;
-}
-.imac-screen { transition: fill 0.7s ease, opacity 0.7s ease; }
-
-@media (hover: hover) and (pointer: fine) {
-  .imac:hover .imac-screen { opacity: 0.78; }
-}
-
-.imac-hint {
-  fill: #0b0f16;
-  font-family: var(--f-micro);
-  font-size: 15px;
-  letter-spacing: 0.3em;
-  animation: hintPulse 3.4s ease-in-out infinite;
-  pointer-events: none;
-}
 @keyframes hintPulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.95; }
@@ -1567,26 +1446,6 @@ main { position: relative; z-index: 3; }
    that have to be real DOM — the desktop and the television —
    because there is no way to put a working text field inside a
    texture without reimplementing a browser. */
-.atelier-stage.room3d {
-  background: #06050e;
-  aspect-ratio: 16 / 10;
-}
-
-.room3d-mount {
-  position: absolute;
-  inset: 0;
-}
-
-.room3d-canvas {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100% !important;
-  height: 100% !important;
-  opacity: 0;
-  transition: opacity 900ms ease;
-}
-.room3d.is-ready .room3d-canvas { opacity: 1; }
 
 /* The CSS layer is transparent to the pointer everywhere except
    the screens themselves. That is what lets a click land on the
@@ -1605,58 +1464,7 @@ main { position: relative; z-index: 3; }
   pointer-events: none;
 }
 
-/**
- * The !important is load-bearing, not laziness.
- *
- * CSS3DRenderer writes `pointer-events: auto` as an inline style
- * onto every element it manages, on every frame. A class rule
- * cannot outrank an inline style, so without this the sleeping
- * monitor sat on top of the canvas and ate every click aimed at
- * the room behind it — including the one that wakes it up. Only
- * the parts that genuinely need the pointer take it back.
- */
-.os3d {
-  position: relative;
-  overflow: hidden;
-  background: #07060f;
-  pointer-events: none !important;
-}
-.os3d .os-host { pointer-events: auto; }
-/* In 3D the monitor sets the scale, so the desktop renders at its
-   own size and the CSS3D matrix does the rest. */
-.os3d .os { transform: none !important; }
-.os3d-off { width: 100%; height: 100%; background: #080a10; }
-
-.tv3d {
-  position: relative;
-  overflow: hidden;
-  background: #05070a;
-  pointer-events: none !important;
-  font-family: var(--f-micro);
-  color: #e8e4f2;
-}
-.tv-off { width: 100%; height: 100%; }
-.tv-live,
 .tv-tune { pointer-events: auto; width: 100%; height: 100%; position: relative; }
-.tv-live iframe { display: block; width: 100%; height: 100%; border: 0; }
-.tv-change {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  padding: 5px 10px;
-  font-size: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-  color: #fff;
-  font-family: inherit;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-}
-.tv-live:hover .tv-change { opacity: 1; }
 
 .tv-tune {
   display: grid;
@@ -1701,7 +1509,6 @@ main { position: relative; z-index: 3; }
 }
 .tv-tune button:hover { background: rgba(255, 255, 255, 0.12); }
 .tv-bad { margin: 0; font-size: 14px; color: #ff9f8a; }
-.tv-presets { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; }
 
 .room3d-boot,
 .room3d-tip {
@@ -1736,17 +1543,6 @@ main { position: relative; z-index: 3; }
    inside is laid out against a fixed 1000x595 desktop and scaled
    once by --os-fit, so every rule below can be plain pixels and
    every drag delta is one division away from being correct. */
-.screen-ui {
-  position: absolute;
-  left: 36.8333%;
-  top: 34.4737%;
-  width: 25.5%;
-  height: 23.9474%;
-  overflow: hidden;
-  background: #07060f;
-  z-index: 2;
-  animation: screenOn 520ms ease both;
-}
 @keyframes screenOn {
   from { opacity: 0; filter: brightness(2.4) contrast(0.4); }
   to { opacity: 1; filter: none; }
@@ -1755,19 +1551,6 @@ main { position: relative; z-index: 3; }
 /* Scanlines over the glass. Fine enough to read as a CRT and not
    as stripes, and sized in absolute pixels so they do not scale
    up into venetian blinds when the camera pushes in. */
-.screen-scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 3;
-  background: repeating-linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.16) 0 1px,
-    transparent 1px 3px
-  );
-  mix-blend-mode: multiply;
-  opacity: 0.45;
-}
 
 .os-host {
   position: absolute;
@@ -2453,12 +2236,6 @@ main { position: relative; z-index: 3; }
   cursor: default;
 }
 
-@media (max-width: 1100px) {
-  /* The push-in has to go further as the frame narrows, or the
-     machine ends up smaller than the text on it. */
-  .atelier-stage.is-awake .room-layer { transform: scale(2.8); }
-}
-
 /* ── Phones ─────────────────────────────────────────────────
    A drag-and-stack desktop does not survive a 360px screen: 780
    logical pixels of it would render at a third size whatever the
@@ -2467,17 +2244,6 @@ main { position: relative; z-index: 3; }
    which is how a phone works anyway. */
 @media (max-width: 760px) {
   .atelier-bar { flex-direction: column; align-items: flex-start; }
-
-  .atelier-stage.is-awake .room-layer { transform: none; }
-  .atelier-stage.is-awake { aspect-ratio: 3 / 4; }
-
-  .atelier-stage.is-awake .screen-ui {
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-  }
-  .atelier-stage.is-awake .room { opacity: 0.12; }
 
   .os { width: 100%; height: 100%; transform: none; }
 
@@ -2512,18 +2278,8 @@ main { position: relative; z-index: 3; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .room-layer { transition: none; }
-  .imac-hint,
-  .win-stars circle,
-  .city-lights rect,
   .beacon,
-  .bulb,
-  .nav-r,
-  .nav-g,
-  .ship,
   .rift,
-  .rift-rim,
-  .lamp-pool,
   .steam path,
   .cat .tail,
   .motes circle,
@@ -2535,7 +2291,6 @@ main { position: relative; z-index: 3; }
   }
   .flake { opacity: 0.7; }
   .steam path { opacity: 0.6; }
-  .screen-ui,
   .os-win { animation: none; }
 }
 
@@ -2676,7 +2431,6 @@ main { position: relative; z-index: 3; }
   .rail { gap: 14px; }
   .rail-track, .rail-say { display: none; }
   .cta { padding: 13px 20px; margin-left: auto; }
-  .hero-art { width: 100%; opacity: 0.8; }
   .page { padding: 120px var(--gut) 80px; }
   .closer { min-height: auto; }
 }
@@ -2885,31 +2639,6 @@ main { position: relative; z-index: 3; }
   font-size: 11px;
   background: rgba(8, 8, 14, 0.76);
 }
-.tv-transport {
-  position: absolute;
-  right: 8px;
-  bottom: 8px;
-  display: flex;
-  gap: 6px;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-.tv-transport button {
-  padding: 6px 12px;
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  background: rgba(6, 8, 14, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
-  color: #e8f2ff;
-  font-family: inherit;
-  cursor: pointer;
-}
-.tv-transport button:hover { background: rgba(255, 47, 134, 0.3); border-color: #ff2f86; }
-.tv-set:hover .tv-transport,
-.tv-transport:focus-within { opacity: 1; }
 
 .tv-tune {
   display: grid;
@@ -3127,9 +2856,9 @@ main { position: relative; z-index: 3; }
 
 @media (prefers-reduced-motion: reduce) {
   .room3d-spot i::after { animation: none; opacity: 0.5; }
-  /* No hover on a touch screen, so the labels just stay up. */
 }
 
+/* No hover on a touch screen, so the labels just stay up. */
 @media (hover: none) {
   .room3d-spot span { opacity: 1; transform: none; }
 }

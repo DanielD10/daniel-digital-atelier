@@ -18,8 +18,7 @@ import * as THREE from "three";
  * One photograph already works. More layers make it better.
  */
 
-/** The window aperture and the wall it is cut into. */
-const WIN = { x0: -1.7, x1: 1.9, y0: 1.05, y1: 2.45 };
+/** The wall the window is cut into. */
 const BACK_Z = -2.6;
 
 /**

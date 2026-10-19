@@ -31,8 +31,8 @@ import AtelierDocs from "./AtelierDocs";
  * delta and font size downstream can be plain pixels.
  */
 
-export const OS_W = 780;
-export const OS_H = 464;
+const OS_W = 780;
+const OS_H = 464;
 
 const MENU_H = 30;
 const DOCK_H = 44;
