@@ -30,7 +30,11 @@ export type RateLimitResult = {
   retryAfter: number;
 };
 
-export function rateLimit(key: string): RateLimitResult {
+/**
+ * `max` defaults to the contact form's limit. Other routes pass their
+ * own (the LUXE AI route allows more, since a chat is several calls).
+ */
+export function rateLimit(key: string, max: number = MAX_REQUESTS): RateLimitResult {
   const now = Date.now();
 
   // Cheap guard against unbounded memory growth.
@@ -42,7 +46,7 @@ export function rateLimit(key: string): RateLimitResult {
     hits.set(key, { count: 1, resetAt: now + WINDOW_MS });
     return {
       allowed: true,
-      remaining: MAX_REQUESTS - 1,
+      remaining: max - 1,
       retryAfter: Math.ceil(WINDOW_MS / 1000),
     };
   }
@@ -50,13 +54,13 @@ export function rateLimit(key: string): RateLimitResult {
   existing.count += 1;
   const retryAfter = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
 
-  if (existing.count > MAX_REQUESTS) {
+  if (existing.count > max) {
     return { allowed: false, remaining: 0, retryAfter };
   }
 
   return {
     allowed: true,
-    remaining: MAX_REQUESTS - existing.count,
+    remaining: max - existing.count,
     retryAfter,
   };
 }
