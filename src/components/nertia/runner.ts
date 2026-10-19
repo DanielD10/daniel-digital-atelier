@@ -248,6 +248,8 @@ export class DemoScene {
               ? footAt(near)
               : add(head, add(mul(fwd, headR * 0.7), mul(up, headR * 0.45))),
       body,
+      knees: [far.b, near.b],
+      region,
       torso: { neck: sh, pelvis: hip, lSh: sh, rSh: sh, up, fwd, side: true },
     };
   }

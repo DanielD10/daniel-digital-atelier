@@ -62,8 +62,14 @@ src/
 │   ├── EarthGlobe.tsx        The WebGL globe behind the hero
 │   ├── AtelierRoom3D.tsx     The Lab: three.js room, CSS3D screens
 │   ├── nertia/               NERTIA prototype
-│   │   ├── NertiaAR.tsx      Stage, units, certificate, camera mode
-│   │   ├── effects.ts        Every AR effect (particles + shader passes)
+│   │   ├── NertiaAR.tsx      Stage, packs, units, certificate, camera mode
+│   │   ├── NertiaCard.tsx    Effect cards, icons and the pack reveal
+│   │   ├── NertiaSet.tsx     The Drop 001 set with odds and collected state
+│   │   ├── fxkit.ts          Emitter, Effect, particle base, shared helpers
+│   │   ├── effects.ts        The original effects + the factory
+│   │   ├── fx-body.ts        Glows, auras, ribbons, comets, aurora, etc.
+│   │   ├── fx-ground.ts      Lightning Steps, Ripple, Bloom, Neon Grid
+│   │   ├── fx-head.ts        Halo, Crown, Orbit, Storm Cloud
 │   │   ├── glfield.ts        WebGL fire and fog shaders
 │   │   ├── runner.ts         The procedural demo runner
 │   │   ├── tracker.ts        MediaPipe pose → effect emitters
@@ -73,7 +79,9 @@ src/
 ├── lib/
 │   ├── projects.ts           Single source of truth for the work
 │   ├── nertia.ts             NERTIA finishes, units, levels, sheets
-│   ├── nertia-shop.ts        NERTIA catalog (from the product sheets)
+│   ├── nertia-cards.ts       The effect set: rarities, types, seeded pulls
+│   ├── nertia-collection.ts  Which cards this browser has pulled
+│   ├── nertia-shop.ts        NERTIA catalog, pack pieces, previews
 │   ├── contact-schema.ts     Validation shared by client and server
 │   ├── rate-limit.ts         Fixed-window limiter
 │   └── site.ts               Name, description, canonical URL resolution

@@ -7,7 +7,8 @@
  * shop says so, rather than inventing it.
  */
 
-import { finishes, units, type FinishId, type Region, type Unit, type UnitEffect } from "./nertia";
+import { finishes, type FinishId, type Region, type Unit } from "./nertia";
+import { FINISH_TYPE, type Card } from "./nertia-cards";
 
 export type ShopCategory = "singlets" | "tees" | "shorts" | "womens" | "accessories";
 export type Fit = "M" | "W";
@@ -48,16 +49,13 @@ export type Product = {
     sleeves?: boolean;
     inseam?: number;
     headgear?: Unit["headgear"];
-    /** headwear carries its own effect, whatever the finish */
-    effect?: UnitEffect;
+    /** an effect the piece always carries instead of a pull */
+    fixed?: string;
   };
   fitNote?: Partial<Record<Fit, string>>;
   /** one design for everyone: no fit choice */
   unisex?: boolean;
 };
-
-/** headwear effects are defined once, on their numbered units */
-const effectOf = (unitId: string) => units.find((u) => u.id === unitId)?.effect;
 
 const shot = (src: string, w: number, h: number, contain = false): Shot => ({ src, w, h, contain });
 const RUN = ["XS", "S", "M", "L", "XL", "2XL"];
@@ -323,7 +321,7 @@ export const catalog: Product[] = [
     ],
     sheet: "run-cap",
     unisex: true,
-    ar: { region: "head", headgear: "cap", effect: effectOf("cap-pearl-009") },
+    ar: { region: "head", headgear: "cap" },
   },
   {
     id: "cooling-headband",
@@ -361,7 +359,7 @@ export const catalog: Product[] = [
       { shot: shot("band-d-women-side", 300, 239), label: "Women's, side" },
     ],
     sheet: "cooling-headband",
-    ar: { region: "head", headgear: "band", effect: effectOf("band-peach-031") },
+    ar: { region: "head", headgear: "band", fixed: "runner-hud" },
   },
   {
     id: "motion-pouch",
@@ -423,18 +421,55 @@ export function shotFor(p: Product, finish: FinishId, fit: Fit): { shot: Shot; s
 
 export const priceLabel = (p: Product) => (p.price === null ? "Presale pricing" : `$${p.price}`);
 
+/* ─────────────────────────── packs ─────────────────────────── */
+
+/** Anything that can be opened in AR: the shop's pieces plus the concepts. */
+export type PackItem = {
+  id: string;
+  name: string;
+  run: number | null;
+  ar: NonNullable<Product["ar"]>;
+  /** every finish and fit it's made in */
+  options: { finish: FinishId; fit: Fit }[];
+  concept?: boolean;
+};
+
+const both = (fs: FinishId[]) => fs.flatMap((finish) => (["M", "W"] as Fit[]).map((fit) => ({ finish, fit })));
+
+/** Pieces outside Drop 001, labelled as concepts wherever they show up. */
+const CONCEPTS: PackItem[] = [
+  { id: "motion-runner", name: "Motion Runner", run: 100, ar: { region: "feet" }, concept: true, options: both(["heat-shift", "liquid-chrome", "deep-space", "full-reflect", "green-shift"]) },
+  { id: "trail-runner", name: "Trail Runner", run: 100, ar: { region: "feet" }, concept: true, options: both(["deep-space", "green-shift", "heat-shift"]) },
+  { id: "race-visor", name: "Race Visor", run: 80, ar: { region: "head", headgear: "visor", fixed: "runner-hud" }, concept: true, options: both(["liquid-chrome", "full-reflect", "deep-space"]) },
+  { id: "thermal-beanie", name: "Thermal Beanie", run: 80, ar: { region: "head", headgear: "beanie" }, concept: true, options: both(["heat-shift", "deep-space", "bone-pearl"]) },
+];
+
+export const packItems: PackItem[] = [
+  ...catalog
+    .filter((p) => p.ar)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      run: p.run,
+      ar: p.ar!,
+      options: p.finishes.flatMap((pf) => (["M", "W"] as Fit[]).filter((f) => finishMadeIn(pf, f)).map((fit) => ({ finish: pf.id, fit }))),
+    })),
+  ...CONCEPTS,
+];
+
 /**
- * A showroom unit for trying any product and finish on in the AR demo.
- * It isn't one of the numbered units; the certificate says so.
+ * A sealed unit of any piece and finish, pulled from the run like a
+ * pack off the shelf. Its effect is rolled from its serial and revealed
+ * when the chip is first read. Pieces without a set run yet get a demo
+ * serial; the certificate says so.
  */
-export function showroomUnit(productId: string, finish: FinishId, fit: Fit): Unit | null {
-  const p = catalog.find((x) => x.id === productId);
-  if (!p?.ar || !finishes[finish]) return null;
+export function showroomUnit(productId: string, finish: FinishId, fit: Fit, serial?: number): Unit | null {
+  const p = packItems.find((x) => x.id === productId);
+  if (!p || !finishes[finish]) return null;
   const run = p.run ?? 100;
-  let h = 0;
-  for (const c of productId + finish + fit) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const unit = serial ?? 1 + Math.floor(Math.random() * run);
   return {
-    id: `try-${productId}-${finish}-${fit}`,
+    id: `pull-${productId}-${finish}-${fit}-${unit}`,
     product: p.name,
     fit,
     finish,
@@ -442,11 +477,48 @@ export function showroomUnit(productId: string, finish: FinishId, fit: Fit): Uni
     sleeves: p.ar.sleeves,
     inseam: p.ar.inseam,
     headgear: p.ar.headgear,
-    effect: p.ar.effect,
-    unit: (h % run) + 1,
+    unit,
     of: run,
     washes: 0,
-    miles: 320,
+    miles: 0,
     showroom: true,
+    sealed: !p.ar.fixed,
+    card: p.ar.fixed,
+    hud: p.ar.fixed ? "chrome" : undefined,
+    concept: p.concept,
+    demoSerial: p.run === null,
   };
+}
+
+/** A random sealed unit of any piece worn as `region`. */
+export function packFor(region: Region): Unit {
+  // pieces with a fixed effect have nothing to reveal
+  const items = packItems.filter((p) => p.ar.region === region && !p.ar.fixed);
+  const p = items[Math.floor(Math.random() * items.length)];
+  const o = p.options[Math.floor(Math.random() * p.options.length)];
+  return showroomUnit(p.id, o.finish, o.fit)!;
+}
+
+/** Pieces the set view dresses a card's preview in, by where it's worn. */
+const PREVIEW_PIECE: Record<Region, string> = {
+  top: "first-law",
+  bottom: "split-short",
+  feet: "motion-runner",
+  head: "run-cap",
+};
+
+/**
+ * A unit wearing any card from the set, for previewing it on the stage.
+ * The finish is one whose type matches the card where the piece comes
+ * in one; body glows keep whatever piece is on stage now.
+ */
+export function previewUnit(card: Card, current: Unit): Unit {
+  const region: Region = card.home === "body" ? current.region : card.home;
+  const item = card.home === "body" ? null : packItems.find((p) => p.id === PREVIEW_PIECE[region]);
+  if (!item) {
+    return { ...current, id: `preview-${card.id}`, card: card.id, sealed: false, preview: true, showroom: true, hud: undefined };
+  }
+  const match = item.options.find((o) => FINISH_TYPE[o.finish] === card.element) ?? item.options[0];
+  const u = showroomUnit(item.id, match.finish, match.fit, 1)!;
+  return { ...u, id: `preview-${card.id}`, card: card.id, sealed: false, preview: true };
 }

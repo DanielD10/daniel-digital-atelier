@@ -325,6 +325,8 @@ export class PoseTracker {
                   ? add(head.c, mul(head.up, head.r * 0.6))
                   : neck,
         body,
+        knees: [L_KNEE, R_KNEE].filter((i) => vis(i, 0.4)).map((i) => P[i]),
+        region,
         torso: { neck, pelvis, lSh: P[L_SH], rSh: P[R_SH], up, fwd, side: sideOn },
       },
       fabric,

@@ -1,11 +1,13 @@
 /**
  * NERTIA — Drop 001: Liquid Series.
  *
- * Single source of truth for the AR prototype on /work/nertia. Each
- * finish owns exactly one signature effect, and each numbered unit
- * carries its finish's effect as a license: own the garment, own its
- * digital layer.
+ * Single source of truth for the AR prototype on /work/nertia. Every
+ * numbered unit holds one effect from the Drop 001 set (see
+ * nertia-cards.ts), sealed until its chip is first read. The effect is
+ * a license: own the garment, own its digital layer.
  */
+
+import { cardById, rollCard, type Card } from "./nertia-cards";
 
 export type FinishId =
   | "heat-shift"
@@ -32,15 +34,29 @@ export type EffectId =
   | "wings"
   | "corona"
   | "leaves"
-  | "lightning";
+  | "lightning"
+  | "aura"
+  | "ribbons"
+  | "comet"
+  | "aurora"
+  | "sparkle"
+  | "snow"
+  | "confetti"
+  | "butterflies"
+  | "slipstream"
+  | "glitch"
+  | "ripple"
+  | "bloom"
+  | "grid"
+  | "thunder"
+  | "cloud"
+  | "orbit"
+  | "halo"
+  | "crown";
 
 export type Finish = {
   id: FinishId;
   name: string;
-  effect: EffectId;
-  effectName: string;
-  /** One line on how the effect reads, for the certificate and the write-up. */
-  effectLine: string;
   /** Iridescent ramp the garment shifts through, in order. */
   ramp: string[];
   /** The accent used for UI chrome and the silhouette's rim light. */
@@ -53,63 +69,42 @@ export const finishes: Record<FinishId, Finish> = {
   "heat-shift": {
     id: "heat-shift",
     name: "Heat Shift",
-    effect: "flames",
-    effectName: "Flames",
-    effectLine: "Fire peels off the back and trails behind you at pace.",
     ramp: ["#ff5c1a", "#e0218a", "#ffb627", "#ff7a2e"],
     accent: "#ff5c1a",
   },
   "deep-space": {
     id: "deep-space",
     name: "Deep Space",
-    effect: "stars",
-    effectName: "Star trail",
-    effectLine: "Every stride leaves a field of stars hanging where you were.",
     ramp: ["#1a1340", "#3b1f7a", "#0f5566", "#22104a"],
     accent: "#8b7bff",
   },
   "bone-pearl": {
     id: "bone-pearl",
     name: "Bone Pearl",
-    effect: "mist",
-    effectName: "Mist",
-    effectLine: "A pearl-white mist rolls off the hem and hangs in the air.",
     ramp: ["#efe8dc", "#f1d9e2", "#d8eee8", "#ece4d6"],
     accent: "#e9dfd0",
   },
   "liquid-chrome": {
     id: "liquid-chrome",
     name: "Liquid Chrome",
-    effect: "lightning",
-    effectName: "Lightning",
-    effectLine: "Electricity crawls across the chrome and cracks off you in forked bolts.",
     ramp: ["#d9dde3", "#8a7cff", "#3fd1c6", "#c9ccd6"],
     accent: "#9fe3dc",
   },
   "full-reflect": {
     id: "full-reflect",
     name: "Full Reflect",
-    effect: "streaks",
-    effectName: "Light streaks",
-    effectLine: "Long-exposure light streaks, like headlights catching the fabric.",
     ramp: ["#8d9096", "#b7bac0", "#f4f6fa", "#9a9da3"],
     accent: "#f4f6fa",
   },
   "green-shift": {
     id: "green-shift",
     name: "Green Shift",
-    effect: "leaves",
-    effectName: "Leaf Drift",
-    effectLine: "Leaves peel off the fabric and tumble behind you, turning to light as they go.",
     ramp: ["#6b7f2a", "#1f9e5a", "#7fe0b0", "#3fae6a"],
     accent: "#3fd18a",
   },
   "peach-shift": {
     id: "peach-shift",
     name: "Peach Shift",
-    effect: "bubbles",
-    effectName: "Bubbles",
-    effectLine: "Peach and coral bubbles rise off your shoulders and pop in your wake.",
     ramp: ["#ffb38a", "#ff9aa8", "#ff6f61", "#ffc9a8"],
     accent: "#ff8f7a",
     note: "Women's exclusive",
@@ -145,26 +140,29 @@ export type Unit = {
   chip?: string;
   /** Leg length of bottoms, as a fraction of the thigh (default 0.36). */
   inseam?: number;
-  /** A try-on from the shop, not one of the numbered units. */
+  /** A unit opened from the shop or a pack, not one of the listed units. */
   showroom?: boolean;
-  /**
-   * Accessories break the one-finish-one-effect rule on purpose: each
-   * accessory carries its own effect, whatever its finish.
-   */
-  effect?: { id: EffectId; name: string; line: string };
+  /** The card this unit holds. Absent = rolled from its serial. */
+  card?: string;
+  /** Not opened yet: the first chip read reveals the effect. */
+  sealed?: boolean;
+  /** The piece has no numbered run yet; its serial is for the demo. */
+  demoSerial?: boolean;
+  /** HUD theme, for pieces that carry the Runner HUD */
+  hud?: string;
+  /** Trying a card from the set on, not a unit anyone pulled. */
+  preview?: boolean;
 };
 
-export type UnitEffect = { id: EffectId; name: string; line: string };
-
-export function unitEffect(u: Unit): UnitEffect {
-  if (u.effect) return u.effect;
-  const f = finishes[u.finish];
-  return { id: f.effect, name: f.effectName, line: f.effectLine };
+/** The effect a unit holds: its card, or the one its serial rolls. */
+export function cardOf(u: Unit): Card {
+  return (u.card && cardById(u.card)) || rollCard(`${u.product}|${u.finish}|${u.unit}`, u.region, u.finish);
 }
 
 export const units: Unit[] = [
   {
     id: "tee-heat-087",
+    card: "flames",
     miles: 212,
     product: "Performance Tee",
     fit: "M",
@@ -177,6 +175,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-space-023",
+    card: "star-trail",
     miles: 486,
     product: "First Law Singlet",
     fit: "W",
@@ -188,17 +187,20 @@ export const units: Unit[] = [
   },
   {
     id: "short-pearl-041",
+    card: "ice-glow",
     miles: 64,
     product: '3" Lined Short',
     fit: "W",
     finish: "bone-pearl",
     region: "bottom",
+    inseam: 0.28,
     unit: 41,
     of: 60,
     washes: 8,
   },
   {
     id: "singlet-chrome-112",
+    card: "lightning",
     miles: 318,
     product: "First Law Singlet",
     fit: "M",
@@ -210,6 +212,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-reflect-007",
+    card: "light-streaks",
     miles: 540,
     product: "Full Reflect Singlet LTD",
     fit: "M",
@@ -221,6 +224,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-green-058",
+    card: "leaf-drift",
     miles: 150,
     product: "First Law Singlet",
     fit: "M",
@@ -232,6 +236,7 @@ export const units: Unit[] = [
   },
   {
     id: "singlet-peach-019",
+    card: "bubbles",
     miles: 330,
     product: "First Law Singlet",
     fit: "W",
@@ -243,6 +248,7 @@ export const units: Unit[] = [
   },
   {
     id: "runner-heat-001",
+    card: "footstrike",
     miles: 120,
     product: "Motion Runner",
     fit: "M",
@@ -253,14 +259,10 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the heel tab, printed QR on the tongue as backup",
-    effect: {
-      id: "strike",
-      name: "Footstrike",
-      line: "Every footstrike lands as a shockwave, and the shoes leave light on the road.",
-    },
   },
   {
     id: "runner-chrome-014",
+    card: "frost-step",
     miles: 350,
     product: "Motion Runner",
     fit: "W",
@@ -271,14 +273,10 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the heel tab, printed QR on the tongue as backup",
-    effect: {
-      id: "frost",
-      name: "Frost Step",
-      line: "Each step freezes the road. Ice prints spread under you and melt behind.",
-    },
   },
   {
     id: "cap-pearl-009",
+    card: "victory-laurel",
     miles: 610,
     product: "No-Stain Run Cap",
     fit: "M",
@@ -289,14 +287,11 @@ export const units: Unit[] = [
     of: 80,
     washes: 0,
     chip: "NFC sealed in the brim",
-    effect: {
-      id: "laurel",
-      name: "Victory Laurel",
-      line: "A gold laurel of light grows around your head and sheds dust as you run.",
-    },
   },
   {
     id: "band-peach-031",
+    card: "runner-hud",
+    hud: "rose",
     miles: 90,
     product: "Cooling Headband",
     fit: "W",
@@ -307,14 +302,10 @@ export const units: Unit[] = [
     of: 80,
     washes: 0,
     chip: "NFC woven into the band's seam",
-    effect: {
-      id: "steam",
-      name: "Steam",
-      line: "Heat rolls off you as steam, and every breath hangs in the cold.",
-    },
   },
   {
     id: "trail-space-022",
+    card: "ember-prints",
     miles: 520,
     product: "Trail Runner",
     fit: "M",
@@ -325,14 +316,11 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the heel tab, printed QR on the tongue as backup",
-    effect: {
-      id: "embers",
-      name: "Ember Prints",
-      line: "Every step burns a print into the road that cools from white to red to black.",
-    },
   },
   {
     id: "visor-chrome-044",
+    card: "runner-hud",
+    hud: "chrome",
     miles: 400,
     product: "Race Visor",
     fit: "W",
@@ -344,14 +332,10 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC sealed in the brim",
-    effect: {
-      id: "hud",
-      name: "Visor HUD",
-      line: "Pace, heart rate and splits float beside you. Simulated here; a watch feeds it for real.",
-    },
   },
   {
     id: "beanie-heat-013",
+    card: "corona",
     miles: 260,
     product: "Thermal Beanie",
     fit: "M",
@@ -363,14 +347,10 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the cuff label",
-    effect: {
-      id: "corona",
-      name: "Corona",
-      line: "A ring of fire burns around your head like a total eclipse, throwing solar flares off the rim.",
-    },
   },
   {
     id: "shell-chrome-005",
+    card: "ghost-runner",
     miles: 505,
     product: "Night Shell",
     fit: "M",
@@ -382,14 +362,10 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the zip garage",
-    effect: {
-      id: "ghost",
-      name: "Ghost Runner",
-      line: "Chrome afterimages of your last strides chase you down the road.",
-    },
   },
   {
     id: "aero-pearl-003",
+    card: "wings",
     miles: 700,
     product: "Aero Singlet",
     fit: "W",
@@ -400,11 +376,46 @@ export const units: Unit[] = [
     washes: 0,
     concept: true,
     chip: "NFC in the hem",
-    effect: {
-      id: "wings",
-      name: "Wings",
-      line: "Wings of light unfold off your shoulder blades and beat with your stride.",
-    },
+  },
+  {
+    id: "runner-chrome-077",
+    card: "lightning-steps",
+    miles: 340,
+    product: "Motion Runner",
+    fit: "M",
+    finish: "liquid-chrome",
+    region: "feet",
+    unit: 77,
+    of: 100,
+    washes: 0,
+    concept: true,
+    chip: "NFC in the heel tab, printed QR on the tongue as backup",
+  },
+  {
+    id: "split-space-066",
+    card: "comets",
+    miles: 280,
+    product: '5" Split Short',
+    fit: "M",
+    finish: "deep-space",
+    region: "bottom",
+    inseam: 0.36,
+    unit: 66,
+    of: 120,
+    washes: 17,
+  },
+  {
+    id: "short-pearl-018",
+    card: "spirit-aura",
+    miles: 410,
+    product: '3" Lined Short',
+    fit: "W",
+    finish: "bone-pearl",
+    region: "bottom",
+    inseam: 0.28,
+    unit: 18,
+    of: 60,
+    washes: 24,
   },
 ];
 
@@ -417,17 +428,20 @@ export function unitLabel(u: Unit): string {
 
 /**
  * Effects level up with the miles logged against a unit. `power`
- * scales how much the effect emits and how big it reads; each effect
- * also unlocks detail at higher levels (more leaves, more readouts,
- * longer wings).
+ * scales how much the effect emits and how big it reads, and each
+ * effect switches layers on by level (embers, flashes, more readouts).
  */
-export type Level = { n: 1 | 2 | 3 | 4; roman: string; label: string; min: number; power: number };
+export type Level = { n: 1 | 2 | 3; roman: string; label: string; min: number; power: number };
 
+/**
+ * Three steps, each one plainly bigger than the last. Level III is the
+ * effect as designed, with every layer on; the first two hold layers
+ * back as well as turning the volume down.
+ */
 export const LEVELS: Level[] = [
-  { n: 1, roman: "I", label: "First miles", min: 0, power: 0.45 },
-  { n: 2, roman: "II", label: "Broken in", min: 100, power: 0.7 },
-  { n: 3, roman: "III", label: "Seasoned", min: 300, power: 1 },
-  { n: 4, roman: "IV", label: "Legend", min: 500, power: 1.4 },
+  { n: 1, roman: "I", label: "First miles", min: 0, power: 0.38 },
+  { n: 2, roman: "II", label: "Broken in", min: 100, power: 0.68 },
+  { n: 3, roman: "III", label: "Full effect", min: 300, power: 1.1 },
 ];
 
 export function levelFor(miles: number): Level {

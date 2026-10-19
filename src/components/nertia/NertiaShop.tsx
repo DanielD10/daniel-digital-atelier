@@ -79,7 +79,7 @@ export default function NertiaShop({ base = "/images/nertia/shop/" }: Props) {
         <h2 id="nx-shop-title">The Liquid Series.</h2>
         <p className="nx-shop-lede">
           Six styles and the women&rsquo;s line, every piece numbered and chipped. Open anything to see
-          it in every finish, or try it on in AR.
+          it in every finish, or open a sealed one in AR and see what it holds.
         </p>
       </header>
 
@@ -316,7 +316,7 @@ function Detail({ p, startFit, base, onClose }: { p: Product; startFit: FitFilte
         <div className="nx-pdp-cta">
           {p.ar ? (
             <button type="button" className="nx-btn is-primary" onClick={tryOn}>
-              See it in AR <span aria-hidden="true">&#8594;</span>
+              {p.ar.fixed ? "See it in AR" : "Open one in AR"} <span aria-hidden="true">&#8594;</span>
             </button>
           ) : null}
           <button type="button" className="nx-btn" onClick={openSheet}>
@@ -334,8 +334,9 @@ function Detail({ p, startFit, base, onClose }: { p: Product; startFit: FitFilte
         </ul>
 
         <p className="nx-pdp-foot">
-          {p.run ? `${p.run} numbered units in Drop 001. ` : ""}Every piece carries its own NFC chip and AR
-          effect. Presale only · 50-wash guarantee · free repair or replace.
+          {p.run ? `${p.run} numbered units in Drop 001. ` : ""}Every piece carries its own NFC chip and one AR
+          effect from the Drop 001 set, sealed until the first tap. Presale only · 50-wash guarantee · free
+          repair or replace.
         </p>
       </div>
     </div>

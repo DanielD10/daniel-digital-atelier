@@ -3,22 +3,26 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LEVELS,
+  cardOf,
   categoryOf,
   finishes,
   levelFor,
   partnerFor,
   units,
-  unitEffect,
   unitLabel,
   type Category,
   type Level,
+  type Region,
   type Unit,
 } from "@/lib/nertia";
+import { HUD_THEMES, cardById, rarity, setNumber, type Card } from "@/lib/nertia-cards";
+import { addPulled } from "@/lib/nertia-collection";
 import { createEffect, LinkArc, type Effect, type Emitter, type Vec } from "./effects";
 import { DemoScene } from "./runner";
-import { showroomUnit, type Fit } from "@/lib/nertia-shop";
+import { packFor, previewUnit, showroomUnit, type Fit } from "@/lib/nertia-shop";
 import type { FinishId } from "@/lib/nertia";
 import { coverFit, PoseTracker } from "./tracker";
+import { EffectIcon, PackReveal } from "./NertiaCard";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "apparel", label: "Apparel" },
@@ -27,6 +31,22 @@ const CATEGORIES: { id: Category; label: string }[] = [
 ];
 
 const unitNo = (u: Unit) => String(u.unit).padStart(String(u.of).length, "0");
+
+const PACKS: { region: Region; label: string }[] = [
+  { region: "top", label: "Top" },
+  { region: "bottom", label: "Bottom" },
+  { region: "feet", label: "Shoes" },
+  { region: "head", label: "Hat" },
+];
+
+/** the effects a unit runs: its card, plus the bonus glow on Ultra and Secret pulls */
+function effectsOf(u: Unit): { key: string; card: Card }[] {
+  const c = cardOf(u);
+  const list = [{ key: `${c.engine}:${c.engine === "hud" ? (u.hud ?? "chrome") : (c.variant ?? "")}`, card: c }];
+  const b = c.bonus ? cardById(c.bonus) : undefined;
+  if (b) list.push({ key: `${b.engine}:${b.variant ?? ""}`, card: b });
+  return list;
+}
 
 type Mode = "demo" | "camera";
 type Chip = "idle" | "reading" | "live";
@@ -66,6 +86,8 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const [people, setPeople] = useState(0);
   /** a level the visitor is previewing; null = the unit's real miles */
   const [preview, setPreview] = useState<Level | null>(null);
+  /** a sealed unit being opened */
+  const [reveal, setReveal] = useState<{ unit: Unit; card: Card } | null>(null);
   const level = preview ?? levelFor(unit.miles);
 
   // The render loop reads these through refs so React re-renders never
@@ -85,8 +107,8 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     Object.assign(live.current, { mode, unit, chip, facing, paused, pair, power: level.power });
   }, [mode, unit, chip, facing, paused, pair, level]);
 
-  /** one effect per runner slot: 0 is you, 1 is whoever runs with you */
-  const effectsRef = useRef<({ id: string; fx: Effect } | null)[]>([null, null]);
+  /** the effects on each runner slot: 0 is you, 1 is whoever runs with you */
+  const effectsRef = useRef<{ key: string; fx: Effect }[][]>([[], []]);
   const linkRef = useRef(new LinkArc());
   const peopleRef = useRef(0);
   /** last frame's runners, for tapping the clothing itself */
@@ -100,7 +122,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
   const hoverRef = useRef(-1);
   const readRef = useRef<HTMLDivElement>(null);
   const clearAll = () => {
-    effectsRef.current.forEach((e) => e?.fx.clear());
+    effectsRef.current.forEach((list) => list.forEach((e) => e.fx.clear()));
     linkRef.current.clear();
   };
   const sceneRef = useRef<DemoScene | null>(null);
@@ -119,11 +141,39 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
     setChip("reading");
     live.current.intensity = 0;
     if (readTimer.current) window.clearTimeout(readTimer.current);
+    // a sealed unit's first read is the reveal
+    if (u.sealed) {
+      setReveal({ unit: u, card: cardOf(u) });
+      return;
+    }
     readTimer.current = window.setTimeout(() => {
       setChip("live");
       igniteNext.current = true;
     }, READ_MS);
   }, []);
+
+  /** the reveal is done: the unit is opened, its effect goes live */
+  const revealRef = useRef(reveal);
+  useEffect(() => {
+    revealRef.current = reveal;
+  }, [reveal]);
+  const opened = useCallback(() => {
+    const r = revealRef.current;
+    if (!r) return;
+    setReveal(null);
+    setUnit({ ...r.unit, sealed: false });
+    // a fresh pull has no miles yet; show it at the full effect, and
+    // the certificate offers the lower levels
+    setPreview(LEVELS[LEVELS.length - 1]);
+    setChip("live");
+    igniteNext.current = true;
+    addPulled([r.card.id]);
+  }, []);
+
+  const openPack = (region: Region) => {
+    setCat(categoryOf(region));
+    tap(packFor(region));
+  };
 
   // The lookbook's "See it in AR" buttons land here.
   useEffect(() => {
@@ -137,8 +187,22 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
       tap(u);
       stageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     };
+    // the set view previews any card here
+    const onPreview = (e: Event) => {
+      const c = cardById((e as CustomEvent<string>).detail);
+      if (!c) return;
+      const u = previewUnit(c, live.current.unit);
+      setCat(categoryOf(u.region));
+      tap(u);
+      setPreview(LEVELS[LEVELS.length - 1]);
+      stageRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
     window.addEventListener("nertia:tap", onTap);
-    return () => window.removeEventListener("nertia:tap", onTap);
+    window.addEventListener("nertia:preview", onPreview);
+    return () => {
+      window.removeEventListener("nertia:tap", onTap);
+      window.removeEventListener("nertia:preview", onPreview);
+    };
   }, [tap]);
 
   // Read the first chip by itself once the stage is in view, so a
@@ -303,21 +367,26 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
 
       const finish = finishes[L.unit.finish];
       const isLive = L.chip === "live";
-      const fxFor = (slot: number, u: Unit): Effect => {
-        const id = unitEffect(u).id;
+      const fxFor = (slot: number, u: Unit): Effect[] => {
+        const want = effectsOf(u);
         const cur = effectsRef.current[slot];
-        if (cur && cur.id === id) return cur.fx;
-        const next = { id, fx: createEffect(id) };
+        if (cur.length === want.length && cur.every((c, i) => c.key === want[i].key)) return cur.map((c) => c.fx);
+        const next = want.map((w) => cur.find((c) => c.key === w.key) ?? { key: w.key, fx: createEffect(w.card.engine, w.key.split(":")[1] || undefined) });
         effectsRef.current[slot] = next;
-        return next.fx;
+        return next.map((c) => c.fx);
       };
-      const run = (fx: Effect, em: Emitter | null) => {
-        if (em && igniteNext.current) fx.ignite(em);
-        fx.update(dt, em, L.intensity);
-        fx.draw(ctx);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-        ctx.globalAlpha = 1;
-        ctx.globalCompositeOperation = "source-over";
+      const run = (list: Effect[], em: Emitter | null) => {
+        // the bonus glow goes underneath the card's own effect
+        for (let i = list.length - 1; i >= 0; i--) {
+          const fx = list[i];
+          if (em && igniteNext.current) fx.ignite(em);
+          // the bonus glow sits back so the card's own effect leads
+          fx.update(dt, em, i === 0 ? L.intensity : L.intensity * 0.5);
+          fx.draw(ctx);
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = "source-over";
+        }
       };
 
       const target = isLive ? 1 : 0;
@@ -501,7 +570,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
           role="img"
           aria-label={
             mode === "demo"
-              ? `A runner in the ${unit.product}, ${finish.name}, ${chip === "live" ? `with the ${unitEffect(unit).name.toLowerCase()} effect active` : "effect inactive"}`
+              ? `A runner in the ${unit.product}, ${finish.name}, ${chip === "live" ? `with the ${cardOf(unit).name.toLowerCase()} effect active` : "effect inactive"}`
               : "Your camera feed with the AR effect applied"
           }
         />
@@ -607,11 +676,26 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
             {cam.note}
           </p>
         ) : null}
-        {chip === "idle" && !touched ? <p className="nx-cue">Tap the chip on the garment, or pick a unit</p> : null}
+        {chip === "idle" && !touched ? <p className="nx-cue">Tap the chip on the garment, or open a pack</p> : null}
+        {reveal ? <PackReveal key={reveal.unit.id} unit={reveal.unit} card={reveal.card} onDone={opened} /> : null}
       </div>
 
       <div className="nx-side">
-        <p className="micro nx-side-label">Drop 001 · Liquid Series — tap a chip</p>
+        <div className="nx-packs">
+          <p className="micro nx-side-label">Open a sealed unit</p>
+          <div className="nx-packs-row" role="group" aria-label="Open a pack">
+            {PACKS.map((p) => (
+              <button key={p.region} type="button" onClick={() => openPack(p.region)} disabled={!!reveal}>
+                <span className="nx-pack-mini" aria-hidden="true">
+                  +
+                </span>
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="nx-packs-note">Every unit holds one effect, sealed until its chip is first read. Same serial, same effect, every time.</p>
+        </div>
+        <p className="micro nx-side-label">Opened units — tap a chip</p>
         <div className="nx-tabs" role="group" aria-label="Category">
           {CATEGORIES.map((c) => (
             <button
@@ -647,7 +731,8 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
                       {u.product} <i>{u.concept ? "Concept" : u.fit}</i>
                     </span>
                     <span className="nx-unit-meta">
-                      {f.name} · {unitEffect(u).name}
+                      {f.name} · {cardOf(u).name}
+                      <em style={{ color: rarity(cardOf(u).rarity).color }}> {"★".repeat(rarity(cardOf(u).rarity).stars)}</em>
                     </span>
                   </span>
                   <span className="nx-unit-no">{String(u.unit).padStart(String(u.of).length, "0")}</span>
@@ -665,6 +750,7 @@ export default function NertiaAR({ allowCamera = true, saveStill }: Props = {}) 
             setTouched(true);
             setPreview(l.n === levelFor(unit.miles).n ? null : l);
           }}
+          onTheme={(hud) => setUnit((u) => ({ ...u, hud }))}
         />
       </div>
     </section>
@@ -678,20 +764,30 @@ function Certificate({
   chip,
   level,
   onPreview,
+  onTheme,
 }: {
   unit: Unit;
   chip: Chip;
   level: Level;
   onPreview: (l: Level) => void;
+  onTheme: (hud: string) => void;
 }) {
   const f = finishes[unit.finish];
   const real = levelFor(unit.miles);
   const next = LEVELS.find((l) => l.min > unit.miles);
   const toNext = next ? (unit.miles - real.min) / (next.min - real.min) : 1;
-  const fx = unitEffect(unit);
+  const card = cardOf(unit);
+  const r = rarity(card.rarity);
+  const bonus = card.bonus ? cardById(card.bonus) : undefined;
   const [no, of] = unitLabel(unit).split(" / ");
+  const sealed = !!unit.sealed;
+  const kicker = unit.preview
+    ? "Set preview · not a pulled unit"
+    : unit.showroom
+      ? `Pack pull · ${unit.demoSerial ? "demo serial, real numbers come at presale" : `${categoryOf(unit.region) === "apparel" ? "Drop 001" : "concept"} unit`}`
+      : `Certificate of unit${unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}`;
   return (
-    <article className={`nx-cert is-${chip}`} aria-live="polite">
+    <article className={`nx-cert is-${chip}`} aria-live="polite" style={{ ["--rc" as string]: r.color }}>
       <header className="nx-cert-head">
         <span className="nx-cert-brand">NERTIA</span>
         <span className="nx-cert-status">
@@ -703,22 +799,54 @@ function Certificate({
               Authenticated
             </>
           ) : chip === "reading" ? (
-            "Reading…"
+            sealed ? "Opening…" : "Reading…"
           ) : (
             "Awaiting tap"
           )}
         </span>
       </header>
 
-      <p className="nx-cert-kicker">
-        {unit.showroom
-          ? "Showroom try-on · numbers are assigned at presale"
-          : `Certificate of unit${unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}`}
-      </p>
+      <p className="nx-cert-kicker">{kicker}</p>
       <p className="nx-cert-no">
-        {unit.showroom ? "—" : no}
-        {unit.showroom ? <span>try-on</span> : <span>/ {of}</span>}
+        {unit.preview ? "—" : no}
+        {unit.preview ? <span>preview</span> : <span>/ {of}</span>}
       </p>
+
+      <div className={`nx-cert-card is-${card.rarity}${sealed ? " is-sealed" : ""}`}>
+        <EffectIcon engine={sealed ? "sparkle" : card.engine} className="nx-cert-icon" />
+        <div>
+          <p className="nx-cert-fx">{sealed ? "Sealed effect" : card.name}</p>
+          <p className="nx-cert-rar">
+            {sealed ? (
+              "Revealed on first tap"
+            ) : card.fixed ? (
+              "Standard on this piece"
+            ) : (
+              <>
+                <b>{"★".repeat(r.stars)}</b> {r.label} · {setNumber(card)}
+                {bonus ? ` · + ${bonus.name}` : ""}
+              </>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {card.fixed && !sealed ? (
+        <div className="nx-themes" role="group" aria-label="HUD theme">
+          <span className="nx-themes-label">Theme</span>
+          {HUD_THEMES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              aria-pressed={(unit.hud ?? "chrome") === t.id}
+              title={t.label}
+              aria-label={t.label}
+              style={{ ["--tc" as string]: t.color }}
+              onClick={() => onTheme(t.id)}
+            />
+          ))}
+        </div>
+      ) : null}
 
       <dl className="nx-cert-rows">
         <div>
@@ -732,12 +860,6 @@ function Certificate({
           <dd>
             {f.name}
             {f.note ? ` · ${f.note}` : ""}
-          </dd>
-        </div>
-        <div>
-          <dt>Effect license</dt>
-          <dd>
-            <b>{fx.name}</b> — bound to this unit
           </dd>
         </div>
         {unit.chip ? (
@@ -759,12 +881,12 @@ function Certificate({
         <div>
           <dt>Miles</dt>
           <dd>
-            {unit.showroom ? `Showroom unit, shown at Level ${real.roman}` : `${unit.miles} logged · Level ${real.roman}, ${real.label}`}
+            {unit.preview ? "Shown at the level you pick" : `${unit.miles} logged · Level ${real.roman}, ${real.label}`}
             <span className="nx-meter" aria-hidden="true">
               <span style={{ width: `${toNext * 100}%` }} />
             </span>
             <span className="nx-next">
-              {next ? `${next.min - unit.miles} mi to Level ${next.roman}` : "Top level"}
+              {next ? `${next.min - unit.miles} mi to Level ${next.roman}` : "Full effect unlocked"}
             </span>
           </dd>
         </div>
@@ -785,7 +907,7 @@ function Certificate({
               ))}
             </span>
             <span className="nx-next">
-              {level.n === real.n ? "Tap a level to preview it" : `Previewing ${level.label}`}
+              {level.n === real.n ? "Tap a level to preview it" : `Previewing Level ${level.roman}, ${level.label}`}
             </span>
           </dd>
         </div>
@@ -795,7 +917,7 @@ function Certificate({
         </div>
       </dl>
 
-      <p className="nx-cert-line">{fx.line}</p>
+      <p className="nx-cert-line">{sealed ? "Tap the chip to open it." : card.line}</p>
     </article>
   );
 }
@@ -862,13 +984,13 @@ function drawHud(
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${1.5 * dpr}px`;
   ctx.fillStyle = "rgba(239,234,225,0.6)";
   ctx.fillText(
-    `${unit.product.toUpperCase()} · ${f.name.toUpperCase()} · ${unit.showroom ? "SHOWROOM" : unitLabel(unit)}`,
+    `${unit.product.toUpperCase()} · ${f.name.toUpperCase()} · ${unit.preview ? "SET PREVIEW" : unitLabel(unit)}`,
     pad,
     H - pad,
   );
 
   if (isLive) {
-    const label = `${unitEffect(unit).name.toUpperCase()} · LIVE`;
+    const label = `${cardOf(unit).name.toUpperCase()} · LIVE`;
     const w = ctx.measureText(label).width;
     const x = W - pad - w;
     // on a phone the unit line runs full width, so the live tag moves

@@ -3,8 +3,10 @@ import Link from "next/link";
 import Masthead from "@/components/Masthead";
 import NertiaAR from "@/components/nertia/NertiaAR";
 import NertiaLookbook from "@/components/nertia/NertiaLookbook";
+import NertiaSet from "@/components/nertia/NertiaSet";
 import NertiaShop from "@/components/nertia/NertiaShop";
 import { finishes } from "@/lib/nertia";
+import { ELEMENTS, FINISH_TYPE, RARITIES, cards } from "@/lib/nertia-cards";
 import { getProject } from "@/lib/projects";
 
 /**
@@ -43,12 +45,14 @@ export default function NertiaPage() {
 
         <p className="lede">
           A running line where every garment carries a chip, and every chip
-          unlocks that garment&rsquo;s own AR effect. This is the working
-          prototype. Tap a unit to read its chip, or switch to your camera
-          and wear it.
+          holds one AR effect, sealed until the first tap. This is the
+          working prototype. Open a sealed unit, read an opened one, or
+          switch to your camera and wear it.
         </p>
 
         <NertiaAR />
+
+        <NertiaSet />
 
         <NertiaShop />
 
@@ -75,13 +79,23 @@ export default function NertiaPage() {
           </section>
 
           <section>
-            <p className="micro nx-h">02 — One finish, one effect</p>
+            <p className="micro nx-h">02 — Every unit is a pull</p>
             <h2>The certificate is also a license.</h2>
             <p>
-              Each finish owns one signature effect. Owning unit 087 means
-              owning its flames. Sell the shirt and the flames go with it.
-              That&rsquo;s a token doing an actual job, without asking anyone
-              to care about a wallet.
+              Every unit holds one effect from the Drop 001 set, rolled from
+              its serial when it&rsquo;s made and sealed until the chip is
+              first read. Opening a unit works like opening a pack of cards.
+              Unit 087 always holds the same effect, so a rare pull makes that
+              shirt worth more at resale, and the effect goes with it when
+              it&rsquo;s sold. That&rsquo;s a token doing an actual job,
+              without asking anyone to care about a wallet.
+            </p>
+            <p>
+              The set has {cards.length} effects across tops, bottoms, shoes,
+              hats and body glows, in six rarities with published odds:{" "}
+              {RARITIES.map((r) => `${r.label} ${Math.round(r.odds * 100)}%`).join(", ")}. Ultra and Secret
+              pulls come with a body glow on top. The finish sets the type,
+              and a garment pulls its own type three times as often:
             </p>
             <ul className="nx-list">
               {Object.values(finishes).map((f) => (
@@ -92,20 +106,17 @@ export default function NertiaPage() {
                     aria-hidden="true"
                   />
                   <b>{f.name}</b>
-                  <span>{f.effectName}</span>
+                  <span>{ELEMENTS[FINISH_TYPE[f.id]].label} type</span>
                 </li>
               ))}
             </ul>
             <p style={{ marginTop: "24px" }}>
-              <b>Headwear and concepts.</b> Headwear breaks the one-finish
-              rule on purpose: each piece carries its own effect. The No-Stain
-              Run Cap grows a gold Victory Laurel, a nod to the Greek and Roman
-              roots the brand started from, and the Cooling Headband rolls off
-              Steam. Beyond the drop, labelled concept: shoes with Footstrike,
-              Frost Step or Ember Prints (chip in the heel tab, QR on the
-              tongue as backup), a visor with a HUD, a beanie wearing a Corona
-              like a total eclipse, a shell that leaves a Ghost Runner behind
-              you, and a singlet that grows Wings.
+              <b>The one exception.</b> The Cooling Headband carries the Runner
+              HUD on every unit, because it&rsquo;s a tool, not a collectible:
+              pace, heart rate, distance and splits floating beside you, in a
+              theme the owner picks. Beyond the drop, labelled concept: Motion
+              and Trail Runner shoes (chip in the heel tab, QR on the tongue as
+              backup), a visor and a beanie.
             </p>
           </section>
 
@@ -121,12 +132,15 @@ export default function NertiaPage() {
               launch event.
             </p>
             <p>
-              <b>Mileage levels.</b> Every effect levels up with the miles
-              logged against the unit: Level I at first, Level IV past 500
-              miles. Flames grow from sparks to a blaze, the laurel fills in
-              leaf by leaf, the HUD unlocks more readouts, the ghost leaves
-              more echoes. A numbered unit gets more valuable the more
-              it&rsquo;s worn. Preview each level on the certificate.
+              <b>Mileage levels.</b> Every effect has three levels, earned
+              with the miles logged against the unit: Level I out of the bag,
+              Level II at 100 miles, Level III, the full effect, at 300. Each
+              level switches layers on, not just volume: flames get embers and
+              smoke at II and light up the runner at III; lightning only
+              crackles at I, throws bolts at II and lights the street at III;
+              the HUD adds readouts. A common at Level III can outshine a rare
+              fresh out of the bag, so the effect rewards running, not just
+              luck. Preview each level on the certificate.
             </p>
           </section>
 
@@ -174,8 +188,8 @@ export default function NertiaPage() {
           </section>
 
           <p className="micro nx-stack">
-            Next.js · TypeScript · Canvas 2D · MediaPipe Pose · Web NFC
-            (planned)
+            Next.js · TypeScript · Canvas 2D · WebGL shaders · MediaPipe Pose
+            · Web NFC (planned)
           </p>
         </div>
       </main>

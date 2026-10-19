@@ -1,5 +1,7 @@
 /**
- * NERTIA effect engine — five 2D particle systems, one per finish.
+ * NERTIA effect engine — the original effects (flames, stars, mist,
+ * lightning and the rest). The Drop 001 set adds more in fx-body.ts,
+ * fx-ground.ts and fx-head.ts.
  *
  * Every effect consumes the same Emitter, so the demo runner and the
  * live camera feed drive them identically:
@@ -19,226 +21,32 @@
  */
 
 import type { EffectId } from "@/lib/nertia";
-import { GLField } from "./glfield";
+import { FIRE_PALETTES, GLField, type FirePalette } from "./glfield";
+import {
+  System,
+  blurSprite,
+  capsulePath,
+  centroid,
+  channel,
+  hexRgb,
+  lerpV,
+  levelOf,
+  lvl,
+  normV,
+  quad,
+  rampAt,
+  rand,
+  softSprite,
+  BOLT_STYLES,
+  type BoltStyle,
+  type Effect,
+  type Emitter,
+  type P,
+  type Vec,
+} from "./fxkit";
+import { createSetEffect } from "./effects-set";
 
-export type Vec = { x: number; y: number };
-
-export type Emitter = {
-  path: Vec[];
-  scale: number;
-  bodyVel: Vec;
-  worldVel: Vec;
-  /** Footwear only: where a foot touched down this frame. */
-  strikes?: Vec[];
-  /**
-   * Headwear only: the head as a circle. `up` points out of the crown,
-   * `fwd` out of the face; both are unit vectors in screen space.
-   */
-  head?: { c: Vec; r: number; up: Vec; fwd: Vec; front?: boolean };
-  /**
-   * Mileage level, 0.45 (first miles) to 1.4 (legend). Scales how much
-   * an effect emits and how big it reads. Defaults to 1.
-   */
-  power?: number;
-  /** Chest point — where linked runners connect. */
-  core?: Vec;
-  /** Where the garment's chip (and its + mark) sits — the tap target. */
-  chip?: Vec;
-  /** The whole body as capsules [a, b, radius], for full-body effects. */
-  body?: [Vec, Vec, number][];
-  /**
-   * Torso frame for effects anchored to the back. `side` is true when
-   * the body is side-on to the camera (both shoulders overlap).
-   */
-  torso?: { neck: Vec; pelvis: Vec; lSh: Vec; rSh: Vec; up: Vec; fwd: Vec; side: boolean };
-};
-
-export interface Effect {
-  /** intensity 0..1 — ramps in when a unit is tapped. */
-  update(dt: number, emitter: Emitter | null, intensity: number): void;
-  draw(ctx: CanvasRenderingContext2D): void;
-  clear(): void;
-  /** A one-off burst, fired when the chip is read. */
-  ignite(emitter: Emitter): void;
-}
-
-type P = {
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  age: number;
-  life: number;
-  size: number;
-  seed: number;
-  /** effect-specific variant: color index, sprite index, kind flag */
-  k: number;
-};
-
-const rand = (a: number, b: number) => a + Math.random() * (b - a);
-
-/* ─────────────────────────── geometry ─────────────────────────── */
-
-function pathLength(path: Vec[]): number {
-  let len = 0;
-  for (let i = 1; i < path.length; i++) {
-    len += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
-  }
-  return len;
-}
-
-/** A uniformly distributed point along the polyline. */
-function samplePath(path: Vec[], total?: number): Vec {
-  if (path.length === 1) return { ...path[0] };
-  const len = total ?? pathLength(path);
-  let d = Math.random() * len;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1];
-    const b = path[i];
-    const seg = Math.hypot(b.x - a.x, b.y - a.y);
-    if (d <= seg || i === path.length - 1) {
-      const t = seg > 0 ? Math.min(1, d / seg) : 0;
-      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-    }
-    d -= seg;
-  }
-  return { ...path[path.length - 1] };
-}
-
-function centroid(path: Vec[]): Vec {
-  let x = 0;
-  let y = 0;
-  for (const p of path) {
-    x += p.x;
-    y += p.y;
-  }
-  return { x: x / path.length, y: y / path.length };
-}
-
-/* ─────────────────────────── sprites ─────────────────────────── */
-
-/**
- * Soft round sprites are pre-rendered once per color. Building a
- * radial gradient per particle per frame is what makes canvas
- * particle systems crawl on phones; drawImage of a cached bitmap
- * does not.
- */
-function softSprite(color: string, size = 64, core = 0): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = c.height = size;
-  const g = c.getContext("2d")!;
-  const r = size / 2;
-  const grad = g.createRadialGradient(r, r, 0, r, r, r);
-  grad.addColorStop(0, color);
-  if (core > 0) grad.addColorStop(core, color);
-  grad.addColorStop(1, "rgba(0,0,0,0)");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, size, size);
-  return c;
-}
-
-/** a soft-focus copy of a sprite, for things close to the lens */
-function blurSprite(src: HTMLCanvasElement, r = 3): HTMLCanvasElement {
-  const c = document.createElement("canvas");
-  c.width = src.width + r * 4;
-  c.height = src.height + r * 4;
-  const g = c.getContext("2d")!;
-  const taps: [number, number][] = [];
-  for (let y = -r; y <= r; y += r) for (let x = -r; x <= r; x += r) taps.push([x, y]);
-  g.globalAlpha = 1.6 / taps.length;
-  for (const [x, y] of taps) g.drawImage(src, r * 2 + x, r * 2 + y);
-  return c;
-}
-
-
-/* ─────────────────────────── base system ─────────────────────── */
-
-abstract class System implements Effect {
-  protected ps: P[] = [];
-  protected t = 0;
-  protected carry = 0;
-  protected abstract max: number;
-
-  /** particles per second at intensity 1 */
-  protected abstract rate(e: Emitter): number;
-  protected abstract spawn(e: Emitter, at: Vec): P | null;
-  protected abstract step(p: P, dt: number, e: Emitter | null): void;
-  abstract draw(ctx: CanvasRenderingContext2D): void;
-  protected onDeath(_p: P): void {}
-
-  /** last emitter seen, so dying particles keep relaxing to the air */
-  protected last: Emitter | null = null;
-
-  update(dt: number, e: Emitter | null, intensity: number) {
-    this.t += dt;
-    if (e) this.last = e;
-
-    if (e && intensity > 0 && e.path.length) {
-      const power = e.power ?? 1;
-      this.carry += this.rate(e) * intensity * power * dt;
-      const total = pathLength(e.path);
-      const cap = this.max * Math.max(1, power);
-      const grow = 0.7 + 0.3 * power;
-      while (this.carry >= 1) {
-        this.carry -= 1;
-        if (this.ps.length >= cap) break;
-        const p = this.spawn(e, samplePath(e.path, total));
-        if (p) {
-          p.size *= grow;
-          // born somewhere inside this frame, not all at its start —
-          // otherwise a slow frame leaves particles in clumps
-          const sub = Math.random() * dt;
-          p.age = sub;
-          p.x += (p.vx + e.worldVel.x) * 0.5 * sub;
-          p.y += (p.vy + e.worldVel.y) * 0.5 * sub;
-          this.ps.push(p);
-        }
-      }
-    } else {
-      this.carry = 0;
-    }
-
-    const ps = this.ps;
-    for (let i = ps.length - 1; i >= 0; i--) {
-      const p = ps[i];
-      p.age += dt;
-      if (p.age >= p.life) {
-        this.onDeath(p);
-        ps[i] = ps[ps.length - 1];
-        ps.pop();
-        continue;
-      }
-      this.step(p, dt, this.last);
-    }
-  }
-
-  ignite(e: Emitter) {
-    const total = pathLength(e.path);
-    const n = Math.min(this.max - this.ps.length, Math.round(this.rate(e) * 0.45));
-    for (let i = 0; i < n; i++) {
-      const p = this.spawn(e, samplePath(e.path, total));
-      if (p) {
-        p.vx *= 1.6;
-        p.vy *= 1.6;
-        this.ps.push(p);
-      }
-    }
-  }
-
-  clear() {
-    this.ps.length = 0;
-    this.carry = 0;
-  }
-
-  /** exponential relax of velocity toward the air */
-  protected drag(p: P, dt: number, e: Emitter | null, k: number) {
-    const wx = e ? e.worldVel.x : 0;
-    const wy = e ? e.worldVel.y : 0;
-    const f = 1 - Math.exp(-k * dt);
-    p.vx += (wx - p.vx) * f;
-    p.vy += (wy - p.vy) * f;
-  }
-}
+export type { Effect, Emitter, Vec } from "./fxkit";
 
 /* ═══════════════════════ HEAT SHIFT — FLAMES ═══════════════════════
    Real fire, three layers deep:
@@ -250,6 +58,22 @@ abstract class System implements Effect {
       throws warm light back onto the runner.
    Without WebGL it falls back to stretched glowing sprites. */
 
+type FlameStyle = {
+  pal: FirePalette;
+  embers: string[];
+  /** light the fire throws on the runner */
+  light: string;
+  smoke: string;
+  /** black flame is laid over the scene instead of added to it */
+  dark?: boolean;
+};
+
+const FLAME_STYLES: Record<string, FlameStyle> = {
+  heat: { pal: "heat", embers: ["#fff3c4", "#ffc35a", "#ff7a2a", "#e0218a", "#7a1020"], light: "rgba(255,120,40,0.6)", smoke: "rgba(60,48,46,0.55)" },
+  cold: { pal: "cold", embers: ["#ffffff", "#c4f2ff", "#5cc8ff", "#2f7bff", "#14246e"], light: "rgba(70,150,255,0.6)", smoke: "rgba(38,46,66,0.5)" },
+  void: { pal: "void", embers: ["#f0dcff", "#b066ff", "#7a2fd6", "#3a0f6e", "#120420"], light: "rgba(150,70,255,0.4)", smoke: "rgba(8,4,14,0.75)", dark: true },
+};
+
 class Flames extends System {
   protected max = 720;
   private ramp: HTMLCanvasElement[];
@@ -259,24 +83,26 @@ class Flames extends System {
   private glow: HTMLCanvasElement;
   private smoke: P[] = [];
   private iNow = 0;
-  private emberCols = ["#fff3c4", "#ffc35a", "#ff7a2a", "#e0218a", "#7a1020"];
+  private st: FlameStyle;
+  private emberCols: string[];
 
-  constructor() {
+  constructor(variant?: string) {
     super();
-    const steps = [
-      "rgba(255,236,190,0.75)",
-      "rgba(255,196,96,0.72)",
-      "rgba(255,140,44,0.68)",
-      "rgba(255,92,26,0.6)",
-      "rgba(236,52,70,0.45)",
-      "rgba(224,33,138,0.3)",
-      "rgba(120,20,80,0.14)",
-    ];
-    this.ramp = steps.map((c) => softSprite(c, 64));
-    this.ember = softSprite("rgba(255,220,150,1)", 16, 0.3);
+    this.st = FLAME_STYLES[variant ?? "heat"] ?? FLAME_STYLES.heat;
+    this.emberCols = this.st.embers;
+    // 2D fallback: the fire ramp, core to tip, as soft sprites
+    const pal = FIRE_PALETTES[this.st.pal];
+    const alphas = [0.75, 0.72, 0.68, 0.6, 0.45, 0.3, 0.14];
+    const stops = [pal[4], pal[3], pal[2], pal[1], pal[0], pal[0], pal[0]];
+    this.ramp = stops.map((c, i) => {
+      const [r, g, b] = hexRgb(c);
+      return softSprite(`rgba(${r},${g},${b},${alphas[i]})`, 64);
+    });
+    const [er, eg, eb] = hexRgb(this.st.embers[1]);
+    this.ember = softSprite(`rgba(${er},${eg},${eb},1)`, 16, 0.3);
     this.blob = softSprite("rgba(255,255,255,1)", 64);
-    this.puff = softSprite("rgba(60,48,46,0.55)", 64);
-    this.glow = softSprite("rgba(255,120,40,0.6)", 128);
+    this.puff = softSprite(this.st.smoke, 64);
+    this.glow = softSprite(this.st.light, 128);
   }
 
   protected rate(e: Emitter) {
@@ -285,15 +111,18 @@ class Flames extends System {
 
   protected spawn(e: Emitter, at: Vec): P {
     const s = e.scale;
-    const ember = Math.random() < 0.09;
+    // embers come in at Level II, and thicken at the full effect
+    const lv = lvl(e);
+    const ember = lv > 1 && Math.random() < (lv === 3 ? 0.11 : 0.06);
     return {
       x: at.x + rand(-0.04, 0.04) * s,
       y: at.y + rand(-0.04, 0.04) * s,
       vx: e.bodyVel.x * 0.85 + rand(-0.35, 0.35) * s * (ember ? 2 : 1),
       vy: e.bodyVel.y * 0.85 - rand(0.6, 1.5) * s * (ember ? 1.4 : 1),
       age: 0,
-      life: ember ? rand(0.9, 1.9) : rand(0.38, 0.8),
-      size: ember ? rand(0.6, 1.5) : rand(0.12, 0.24) * s,
+      // each level makes the fire taller and longer, not just denser
+      life: ember ? rand(0.9, 1.9) : rand(0.38, 0.8) * (lv === 1 ? 0.5 : lv === 2 ? 0.8 : 1.1),
+      size: ember ? rand(0.6, 1.5) : rand(0.12, 0.24) * s * (lv === 1 ? 0.6 : lv === 2 ? 0.82 : 1.05),
       seed: Math.random() * 100,
       k: ember ? 1 : 0,
     };
@@ -311,8 +140,8 @@ class Flames extends System {
   }
 
   protected onDeath(p: P) {
-    // flame tips that burn out leave a wisp of smoke
-    if (p.k === 0 && Math.random() < 0.06 && this.smoke.length < 70) {
+    // flame tips that burn out leave a wisp of smoke (Level II up)
+    if (p.k === 0 && lvl(this.last) > 1 && Math.random() < 0.06 && this.smoke.length < 70) {
       this.smoke.push({ ...p, age: 0, life: rand(1, 1.8), size: p.size * 0.9, vy: p.vy * 0.4, k: 0 });
     }
   }
@@ -360,9 +189,10 @@ class Flames extends System {
     }
 
     // heat mask: the garment edge itself, then every heat particle
+    const lv = lvl(e);
     const m = gl.begin(W, H);
     if (this.iNow > 0.02 && e.path.length > 1) {
-      m.globalAlpha = 0.42 * this.iNow;
+      m.globalAlpha = (lv === 1 ? 0.1 : lv === 2 ? 0.26 : 0.45) * this.iNow;
       const step = s * 0.07;
       for (let i = 1; i < e.path.length; i++) {
         const a = e.path[i - 1];
@@ -389,13 +219,24 @@ class Flames extends System {
     const lean = Math.min(1.0, Math.hypot(rel.x, rel.y) / (s * 5));
     const rl = Math.hypot(rel.x, rel.y) || 1;
     const dir = { x: (rel.x / rl) * lean, y: -1 + (rel.y / rl) * lean };
-    const fire = gl.renderFire({ t: this.t, dir, size: s, palette: "heat" });
-    ctx.globalCompositeOperation = "lighter";
+    const fire = gl.renderFire({ t: this.t, dir, size: s * (lv === 1 ? 0.6 : lv === 2 ? 0.85 : 1.15), palette: this.st.pal });
+    if (this.st.dark && this.iNow > 0.02) {
+      // black fire needs something behind it to be black against: a
+      // violet haze, so the flame reads as a hole with a lit rim
+      const c = centroid(e.path);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.5 * this.iNow;
+      const d = s * 6;
+      ctx.drawImage(this.glow, c.x - d * 0.65, c.y - d * 0.6, d, d);
+    }
+    ctx.globalCompositeOperation = this.st.dark ? "source-over" : "lighter";
     ctx.globalAlpha = 1;
     ctx.drawImage(fire, 0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
 
-    // the fire lights the runner, flickering
-    if (this.iNow > 0.02) {
+    // at the full effect the fire lights the runner, flickering (black
+    // flame doesn't give off light)
+    if (this.iNow > 0.02 && lv === 3 && !this.st.dark) {
       let cx = 0;
       let cy = 0;
       for (const p of e.path) {
@@ -526,7 +367,8 @@ class Stars extends System {
   protected spawn(e: Emitter, at: Vec): P {
     const s = e.scale;
     const roll = Math.random();
-    const neb = roll < 0.06;
+    // nebula gas comes in at Level II
+    const neb = lvl(e) > 1 && roll < 0.06;
     const dust = !neb && roll < 0.42;
     const r = s * (neb ? 0.15 : 0.4);
     const a = Math.random() * Math.PI * 2;
@@ -556,7 +398,8 @@ class Stars extends System {
   update(dt: number, e: Emitter | null, intensity: number) {
     super.update(dt, e, intensity);
     const air = this.last?.worldVel ?? { x: 0, y: 0 };
-    if (e && intensity > 0.5 && e.path.length) {
+    // shooting stars are a full-effect layer
+    if (e && intensity > 0.5 && e.path.length && lvl(e) === 3) {
       this.meteorAt -= dt * (e.power ?? 1);
       if (this.meteorAt <= 0) {
         this.meteorAt = rand(1.2, 2.6);
@@ -729,17 +572,23 @@ class Mist extends System {
   private blob: HTMLCanvasElement;
   private glint: HTMLCanvasElement;
   private glints: P[] = [];
+  /** Shadow: black smoke laid over the road instead of light mist */
+  private dark: boolean;
+  private rim = softSprite("rgba(140,70,255,0.5)", 64);
 
-  constructor() {
+  constructor(variant?: string) {
     super();
-    this.sprites = [
-      softSprite("rgba(244,238,228,0.55)", 128),
-      softSprite("rgba(246,214,228,0.5)", 128),
-      softSprite("rgba(208,240,232,0.5)", 128),
-      softSprite("rgba(255,250,240,0.6)", 128),
-    ];
+    this.dark = variant === "shadow";
+    this.sprites = this.dark
+      ? [softSprite("rgba(14,10,20,0.6)", 128), softSprite("rgba(30,14,44,0.55)", 128), softSprite("rgba(8,6,12,0.65)", 128), softSprite("rgba(40,20,60,0.45)", 128)]
+      : [
+          softSprite("rgba(244,238,228,0.55)", 128),
+          softSprite("rgba(246,214,228,0.5)", 128),
+          softSprite("rgba(208,240,232,0.5)", 128),
+          softSprite("rgba(255,250,240,0.6)", 128),
+        ];
     this.blob = softSprite("rgba(255,255,255,1)", 64);
-    this.glint = softSprite("rgba(255,250,245,1)", 16, 0.3);
+    this.glint = softSprite(this.dark ? "rgba(190,120,255,1)" : "rgba(255,250,245,1)", 16, 0.3);
   }
 
   protected rate(e: Emitter) {
@@ -756,16 +605,17 @@ class Mist extends System {
       });
     }
     return {
-      x: at.x + rand(-0.08, 0.08) * s,
-      y: at.y + rand(-0.05, 0.08) * s,
-      vx: e.bodyVel.x * 0.6 + rand(-0.3, 0.3) * s,
-      // mist is heavier than air — it rolls down and out
-      vy: e.bodyVel.y * 0.6 + rand(-0.15, 0.3) * s,
+      x: at.x + rand(-0.1, 0.1) * s,
+      y: at.y + rand(-0.12, 0.02) * s,
+      // ground fog: it spills sideways off the shoes, not up
+      vx: e.bodyVel.x * 0.6 + rand(-0.6, 0.6) * s,
+      vy: e.bodyVel.y * 0.6 + rand(-0.12, 0.08) * s,
       age: 0,
-      life: rand(1.4, 3.4),
-      size: rand(0.18, 0.55) * s,
+      life: rand(1.4, 3.2),
+      size: rand(0.16, 0.42) * s,
       seed: Math.random() * 100,
       k: Math.floor(Math.random() * 4),
+      fy: at.y + 0.03 * s,
     };
   }
 
@@ -773,10 +623,14 @@ class Mist extends System {
     const s = e ? e.scale : 100;
     this.drag(p, dt, e, 1.6);
     p.vx += Math.sin(this.t * 1.3 + p.seed) * s * 0.25 * dt;
-    // it settles toward the road as it thins out
+    // heavier than air: it settles onto the road and spreads along it
     p.vy += s * 0.18 * dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
+    if (p.fy !== undefined && p.y > p.fy) {
+      p.y = p.fy;
+      p.vy = 0;
+    }
   }
 
   update(dt: number, e: Emitter | null, intensity: number) {
@@ -813,7 +667,8 @@ class Mist extends System {
         const f = p.age / p.life;
         m.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.15)) * 0.5;
         const r = p.size * (1 + f * 2.2);
-        m.drawImage(this.blob, p.x - r, p.y - r, r * 2, r * 2);
+        // fog hangs in a low, wide bank
+        m.drawImage(this.blob, p.x - r * 1.5, p.y - r * 0.5, r * 3, r * 0.75);
       }
       const air = e.worldVel;
       const al = Math.hypot(air.x, air.y) || 1;
@@ -821,14 +676,25 @@ class Mist extends System {
         t: this.t,
         flow: { x: (air.x / al) * 0.5, y: 0.12 },
         size: e.scale * 0.9,
-        colors: ["#fffaf2", "#ffd9ea", "#d4fff3"],
-        alpha: 1,
+        colors: this.dark ? ["#0a0710", "#2a1244", "#6a34b8"] : ["#fffaf2", "#ffd9ea", "#d4fff3"],
+        alpha: this.dark ? 0.92 : 1,
         detail: 2.4,
       });
-      ctx.globalCompositeOperation = "screen";
+      if (this.dark) {
+        // a violet halo under the smoke, so black reads against the night
+        ctx.globalCompositeOperation = "lighter";
+        for (const p of this.ps) {
+          const f = p.age / p.life;
+          ctx.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.15)) * 0.16;
+          const r = p.size * (1.4 + f * 2.4);
+          ctx.drawImage(this.rim, p.x - r * 1.5, p.y - r * 0.6, r * 3, r * 1.2);
+        }
+        ctx.globalAlpha = 1;
+      }
+      ctx.globalCompositeOperation = this.dark ? "source-over" : "screen";
       ctx.drawImage(fog, 0, 0, W, H);
     } else {
-      ctx.globalCompositeOperation = "screen";
+      ctx.globalCompositeOperation = this.dark ? "source-over" : "screen";
       for (const p of this.ps) {
         const f = p.age / p.life;
         ctx.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.15)) * 0.24;
@@ -878,6 +744,7 @@ type Arc = { pts: Vec[]; age: number; life: number };
 
 class Lightning implements Effect {
   private t = 0;
+  private st: BoltStyle;
   private bolts: Bolt[] = [];
   private arcs: Arc[] = [];
   private sparks: P[] = [];
@@ -886,35 +753,20 @@ class Lightning implements Effect {
   private flash = 0;
   private intensity = 0;
   private last: Emitter | null = null;
-  private glow = softSprite("rgba(150,190,255,0.7)", 128);
-  private dot = softSprite("rgba(220,240,255,1)", 16, 0.3);
+  private glow: HTMLCanvasElement;
+  private dot: HTMLCanvasElement;
 
-  /** jagged channel from a to b, in relative coordinates */
-  private static channel(a: Vec, b: Vec, rough: number, depth = 6): Vec[] {
-    let pts = [a, b];
-    let disp = Math.hypot(b.x - a.x, b.y - a.y) * rough;
-    for (let k = 0; k < depth; k++) {
-      const next: Vec[] = [pts[0]];
-      for (let i = 1; i < pts.length; i++) {
-        const p = pts[i - 1];
-        const q = pts[i];
-        const nx = -(q.y - p.y);
-        const ny = q.x - p.x;
-        const nl = Math.hypot(nx, ny) || 1;
-        const off = (Math.random() - 0.5) * disp;
-        next.push({ x: (p.x + q.x) / 2 + (nx / nl) * off, y: (p.y + q.y) / 2 + (ny / nl) * off }, q);
-      }
-      pts = next;
-      disp *= 0.55;
-    }
-    return pts;
+  constructor(variant?: string) {
+    this.st = BOLT_STYLES[variant ?? "storm"] ?? BOLT_STYLES.storm;
+    this.glow = softSprite(this.st.glow, 128);
+    this.dot = softSprite(this.st.spark, 16, 0.3);
   }
 
   /** rebuild a bolt's shape (each restrike takes a new path) */
   private shape(b: Bolt, power: number) {
     b.lit = 2;
     // fewer subdivisions, rougher early: sharp kinks, not a wiggle
-    b.pts = Lightning.channel({ x: 0, y: 0 }, b.end, 0.46, 5);
+    b.pts = channel({ x: 0, y: 0 }, b.end, 0.46, 5);
     b.branches = [];
     const n = Math.round(2 + 2 * power + Math.random() * 2);
     const len = Math.hypot(b.end.x, b.end.y);
@@ -925,7 +777,7 @@ class Lightning implements Effect {
       const ang = base + (Math.random() < 0.5 ? -1 : 1) * rand(0.35, 0.9);
       const L = len * rand(0.18, 0.42) * (1 - j / b.pts.length);
       const to = { x: from.x + Math.cos(ang) * L, y: from.y + Math.sin(ang) * L };
-      b.branches.push(Lightning.channel(from, to, 0.38, 4));
+      b.branches.push(channel(from, to, 0.38, 4));
     }
   }
 
@@ -983,7 +835,9 @@ class Lightning implements Effect {
     const s = this.last?.scale ?? 100;
 
     if (e && e.path.length > 1 && intensity > 0.3) {
-      this.nextStrike -= dt * (0.55 + 0.6 * power);
+      // Level I only crackles; bolts come in at II and strike often at III
+      const lv = lvl(e);
+      this.nextStrike -= lv === 1 ? 0 : dt * (lv === 3 ? 1.25 : 0.55);
       if (this.nextStrike <= 0) {
         this.nextStrike = rand(0.6, 1.2);
         this.strike(e);
@@ -997,7 +851,7 @@ class Lightning implements Effect {
         const a = e.path[i];
         const b = e.path[j];
         const lift = s * rand(-0.12, 0.12);
-        const pts = Lightning.channel(
+        const pts = channel(
           { x: a.x + rand(-0.04, 0.04) * s, y: a.y + lift },
           { x: b.x + rand(-0.04, 0.04) * s, y: b.y - lift },
           0.45,
@@ -1060,9 +914,9 @@ class Lightning implements Effect {
       for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x + ox, pts[i].y + oy);
     };
     for (const [mul, col, al] of [
-      [9, "rgba(138,124,255,1)", 0.22],
-      [3.5, "rgba(120,220,255,1)", 0.6],
-      [1, "rgba(255,255,255,1)", 1],
+      [9, this.st.stroke[0], 0.22],
+      [3.5, this.st.stroke[1], 0.6],
+      [1, this.st.stroke[2], 1],
     ] as [number, string, number][]) {
       ctx.globalAlpha = a * al;
       ctx.strokeStyle = col;
@@ -1083,10 +937,10 @@ class Lightning implements Effect {
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
-    // the strike lights the whole scene for an instant
+    // at the full effect a strike lights the whole scene for an instant
     if (this.flash > 0.02) {
-      ctx.globalAlpha = this.flash * 0.1 * this.intensity;
-      ctx.fillStyle = "rgb(170,190,255)";
+      ctx.globalAlpha = lvl(e) === 3 ? this.flash * 0.1 * this.intensity : 0;
+      ctx.fillStyle = this.st.flash;
       ctx.fillRect(0, 0, W, H);
       const c = centroid(e.path);
       ctx.globalAlpha = this.flash * 0.6 * this.intensity;
@@ -1141,7 +995,7 @@ class Lightning implements Effect {
     for (const p of this.sparks) {
       const f = p.age / p.life;
       ctx.globalAlpha = (1 - f) * this.intensity;
-      ctx.strokeStyle = "rgba(200,235,255,1)";
+      ctx.strokeStyle = this.st.spark;
       ctx.lineWidth = Math.max(0.8, p.size * (s / 140));
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
@@ -1600,10 +1454,15 @@ class Strike implements Effect {
   private last: Emitter | null = null;
   private intensity = 0;
   private spark: HTMLCanvasElement;
-  private colors = ["#fff1c9", "#ffb627", "#ff5c1a", "#e0218a"];
+  private colors: string[];
+  /** ring, second ring, ribbon head, ribbon body, ribbon tail */
+  private lines: string[];
 
-  constructor() {
-    this.spark = softSprite("rgba(255,214,140,1)", 24, 0.2);
+  constructor(variant?: string) {
+    const neon = variant === "neon";
+    this.colors = neon ? ["#ffffff", "#7ff6ff", "#ff4fd8", "#8a6bff"] : ["#fff1c9", "#ffb627", "#ff5c1a", "#e0218a"];
+    this.lines = neon ? ["#7ff6ff", "#ff4fd8", "#ffffff", "#7ff6ff", "#ff4fd8"] : ["#ffb627", "#e0218a", "#fff1c9", "#ff8a3a", "#e0218a"];
+    this.spark = softSprite(neon ? "rgba(170,240,255,1)" : "rgba(255,214,140,1)", 24, 0.2);
   }
 
   update(dt: number, e: Emitter | null, intensity: number) {
@@ -1623,7 +1482,8 @@ class Strike implements Effect {
       }
       while (tr.length && tr[0].age > 0.42) tr.shift();
       const foot = e?.path[i];
-      if (foot && intensity > 0.05) tr.push({ x: foot.x, y: foot.y, age: 0 });
+      // light ribbons off the shoes come in at Level II
+      if (foot && intensity > 0.05 && lvl(e) > 1) tr.push({ x: foot.x, y: foot.y, age: 0 });
       else if (!e) tr.length = 0;
     }
 
@@ -1704,7 +1564,7 @@ class Strike implements Effect {
         if (g <= 0) continue;
         const rx = r.s * (0.15 + g * 1.5);
         ctx.globalAlpha = (1 - f) * (k ? 0.45 : 0.9);
-        ctx.strokeStyle = k ? "#e0218a" : "#ffb627";
+        ctx.strokeStyle = k ? this.lines[1] : this.lines[0];
         ctx.lineWidth = Math.max(1, r.s * 0.022 * (1 - f * 0.6));
         ctx.beginPath();
         ctx.ellipse(r.x, r.y, rx, rx * 0.16, 0, 0, Math.PI * 2);
@@ -1727,7 +1587,7 @@ class Strike implements Effect {
         const life = 1 - b.age / 0.42;
         if (life <= 0) continue;
         ctx.globalAlpha = life * 0.85 * this.intensity;
-        ctx.strokeStyle = i > tr.length - 4 ? "#fff1c9" : life > 0.5 ? "#ff8a3a" : "#e0218a";
+        ctx.strokeStyle = i > tr.length - 4 ? this.lines[2] : life > 0.5 ? this.lines[3] : this.lines[4];
         ctx.lineWidth = Math.max(1, s * 0.03 * life);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -2226,8 +2086,9 @@ class Steam extends System {
       vx: e.bodyVel.x * 0.7 + up.x * r * 1.2 + rand(-0.3, 0.3) * r,
       vy: e.bodyVel.y * 0.7 + up.y * r * rand(1.2, 2.4),
       age: 0,
-      life: rand(1.2, 2.2),
-      size: rand(0.5, 0.9) * r,
+      // thin and short-lived: heat coming off a head, not a cloud
+      life: rand(0.6, 1.1),
+      size: rand(0.22, 0.42) * r,
       seed: Math.random() * 100,
       k: Math.floor(Math.random() * 3),
     };
@@ -2235,7 +2096,7 @@ class Steam extends System {
 
   protected step(p: P, dt: number, e: Emitter | null) {
     const r = e?.head?.r ?? 20;
-    this.drag(p, dt, e, 1.4);
+    this.drag(p, dt, e, 1.1);
     p.vy -= r * 1.6 * dt; // warm air keeps rising
     p.vx += Math.sin(this.t * 1.7 + p.seed) * r * 1.4 * dt;
     p.x += p.vx * dt;
@@ -2279,8 +2140,8 @@ class Steam extends System {
       const m = gl.begin(W, H);
       for (const p of this.ps) {
         const f = p.age / p.life;
-        m.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.2)) * (p.k === 2 ? 0.6 : 0.42);
-        const r = p.size * (1 + f * 2.4);
+        m.globalAlpha = Math.sin(Math.PI * Math.min(1, f * 1.2)) * (p.k === 2 ? 0.5 : 0.3);
+        const r = p.size * (1 + f * 1.6);
         m.drawImage(this.blob, p.x - r, p.y - r, r * 2, r * 2);
       }
       const air = e.worldVel;
@@ -2290,8 +2151,8 @@ class Steam extends System {
         flow: { x: (air.x / al) * 0.45, y: -0.35 },
         size: (e.head?.r ?? e.scale * 0.27) * 3.2,
         colors: ["#e9eef3", "#ffffff", "#c9d3dc"],
-        alpha: 1,
-        detail: 2.6,
+        alpha: 0.7,
+        detail: 3.4,
       });
       ctx.globalCompositeOperation = "screen";
       ctx.drawImage(fog, 0, 0, W, H);
@@ -2308,48 +2169,6 @@ class Steam extends System {
   }
 }
 
-
-/* ─────────────────────────── shared helpers ─────────────────────── */
-
-function lerpV(a: Vec, b: Vec, t: number): Vec {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-}
-function normV(a: Vec): Vec {
-  const m = Math.hypot(a.x, a.y) || 1;
-  return { x: a.x / m, y: a.y / m };
-}
-function levelOf(power: number): 1 | 2 | 3 | 4 {
-  return power >= 1.3 ? 4 : power >= 0.95 ? 3 : power >= 0.65 ? 2 : 1;
-}
-function hexRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-/** sample a color ramp at t in [0, 1] */
-function rampAt(stops: string[], t: number, a = 1): string {
-  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
-  const i = Math.min(stops.length - 2, Math.floor(x));
-  const f = x - i;
-  const p = hexRgb(stops[i]);
-  const q = hexRgb(stops[i + 1]);
-  const c = p.map((v, k) => Math.round(v + (q[k] - v) * f));
-  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
-}
-function quad(p0: Vec, p1: Vec, p2: Vec, t: number): Vec {
-  const u = 1 - t;
-  return {
-    x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
-    y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y,
-  };
-}
-/** capsule outline as a path (caller fills) */
-function capsulePath(ctx: CanvasRenderingContext2D, a: Vec, b: Vec, r: number) {
-  const ang = Math.atan2(b.y - a.y, b.x - a.x);
-  ctx.moveTo(a.x + Math.cos(ang + Math.PI / 2) * r, a.y + Math.sin(ang + Math.PI / 2) * r);
-  ctx.arc(a.x, a.y, r, ang + Math.PI / 2, ang + (3 * Math.PI) / 2);
-  ctx.arc(b.x, b.y, r, ang - Math.PI / 2, ang + Math.PI / 2);
-  ctx.closePath();
-}
 
 /* ═══════════════════════ FOOTWEAR — EMBER PRINTS ═══════════════════
    Every footstrike burns a print into the road. It starts white-hot
@@ -2401,8 +2220,8 @@ class Embers implements Effect {
       if (this.prints.length > 16) this.prints.shift();
     }
 
-    // drips off the shoes
-    if (e && intensity > 0.2) {
+    // drips off the shoes: full effect only
+    if (e && intensity > 0.2 && lvl(e) === 3) {
       for (const f of e.path) {
         if (Math.random() < dt * 14 * power) {
           this.drips.push({
@@ -2493,7 +2312,7 @@ class Embers implements Effect {
     // fresh prints are still burning: low flames lick up off them
     const gl = GLField.get();
     const e = this.last;
-    if (gl && e) {
+    if (gl && e && lvl(e) > 1) {
       const W = ctx.canvas.width;
       const H = ctx.canvas.height;
       const m = gl.begin(W, H);
@@ -2540,13 +2359,33 @@ class Embers implements Effect {
   }
 }
 
-/* ═══════════════════════ HEADWEAR — VISOR HUD ══════════════════════
-   A holographic readout beside the runner's head. The numbers are
+/* ═══════════════════════ HEADWEAR — RUNNER HUD ═════════════════════
+   A holographic readout beside the runner's head, standard on the
+   Cooling Headband, in a theme the owner picks. The numbers are
    simulated (and say so); in production a watch feeds them. Higher
    levels unlock more readouts. */
 
+const HUD_COLORS: Record<string, { c: string; panel: string }> = {
+  chrome: { c: "#7ff0ff", panel: "rgba(8,28,36,0.42)" },
+  heat: { c: "#ffa25a", panel: "rgba(36,14,6,0.45)" },
+  night: { c: "#8dff9a", panel: "rgba(6,26,10,0.45)" },
+  rose: { c: "#ffb0c4", panel: "rgba(36,10,20,0.45)" },
+  gold: { c: "#ffd772", panel: "rgba(30,22,6,0.45)" },
+  mono: { c: "#f2efe8", panel: "rgba(14,14,16,0.45)" },
+};
+
 class Hud implements Effect {
   private t = 0;
+  private col: string;
+  private rgb: string;
+  private panel: string;
+
+  constructor(theme?: string) {
+    const th = HUD_COLORS[theme ?? "chrome"] ?? HUD_COLORS.chrome;
+    this.col = th.c;
+    this.rgb = hexRgb(th.c).join(",");
+    this.panel = th.panel;
+  }
   private boot = 0;
   private head: Emitter["head"] | null = null;
   private last: Emitter | null = null;
@@ -2592,9 +2431,11 @@ class Hud implements Effect {
     const level = levelOf(this.last?.power ?? 1);
     const r = h.r;
     const W = ctx.canvas.width;
-    const cyan = "#7ff0ff";
+    const cyan = this.col;
+    const rgba = (a: number) => `rgba(${this.rgb},${a})`;
 
-    const rows = level === 1 ? 1 : level === 2 ? 2 : level === 3 ? 3 : 4;
+    // Level I: pace and heart rate. II adds distance and cadence. III, the splits graph.
+    const rows = level + 1;
     const pw = r * 4.2;
     const ph = r * (0.9 + rows * 0.95);
     // ahead of the face; flip to the other side if it would leave the frame
@@ -2615,7 +2456,7 @@ class Hud implements Effect {
       x: h.c.x + h.fwd.x * r * 1.1 * side - h.up.x * r * 0.1,
       y: h.c.y + h.fwd.y * r * 1.1 * side - h.up.y * r * 0.1,
     };
-    ctx.strokeStyle = "rgba(127,240,255,0.55)";
+    ctx.strokeStyle = rgba(0.55);
     ctx.lineWidth = Math.max(1, r * 0.03);
     ctx.setLineDash([r * 0.12, r * 0.1]);
     ctx.beginPath();
@@ -2631,9 +2472,9 @@ class Hud implements Effect {
     ctx.rect(-4, -4, pw + 8, (ph + 8) * this.boot);
     ctx.clip();
 
-    ctx.fillStyle = "rgba(8,28,36,0.42)";
+    ctx.fillStyle = this.panel;
     ctx.fillRect(0, 0, pw, ph);
-    ctx.fillStyle = "rgba(127,240,255,0.05)";
+    ctx.fillStyle = rgba(0.05);
     for (let y = 0; y < ph; y += Math.max(3, r * 0.08)) ctx.fillRect(0, y, pw, 1);
 
     // corner brackets
@@ -2657,18 +2498,18 @@ class Hud implements Effect {
     const lab = `${Math.round(r * 0.26)}px ui-monospace, "SF Mono", Menlo, monospace`;
     const big = `600 ${Math.round(r * 0.62)}px ui-monospace, "SF Mono", Menlo, monospace`;
     const mid = `500 ${Math.round(r * 0.42)}px ui-monospace, "SF Mono", Menlo, monospace`;
-    ctx.shadowColor = "rgba(127,240,255,0.8)";
+    ctx.shadowColor = rgba(0.8);
     ctx.shadowBlur = r * 0.25;
     ctx.textBaseline = "alphabetic";
 
     ctx.font = lab;
-    ctx.fillStyle = "rgba(127,240,255,0.6)";
+    ctx.fillStyle = rgba(0.6);
     ctx.fillText("SIM", pw - pad - ctx.measureText("SIM").width, pad + r * 0.2);
 
     const p = this.pace();
     const pace = `${Math.floor(p / 60)}:${String(Math.round(p % 60)).padStart(2, "0")}`;
     let y = pad + r * 0.25;
-    ctx.fillStyle = "rgba(127,240,255,0.7)";
+    ctx.fillStyle = rgba(0.7);
     ctx.fillText("PACE", pad, y);
     y += r * 0.68;
     ctx.font = big;
@@ -2746,7 +2587,7 @@ class Ghost implements Effect {
     this.intensity = intensity;
     if (e) this.last = e;
     const air = this.last?.worldVel ?? { x: 0, y: 0 };
-    const count = [3, 5, 7, 9][levelOf(this.last?.power ?? 1) - 1];
+    const count = [3, 6, 9][levelOf(this.last?.power ?? 1) - 1];
     const life = count * Ghost.EVERY + 0.05;
 
     for (const q of this.echoes) {
@@ -2790,7 +2631,7 @@ class Ghost implements Effect {
       sc.height = H;
     }
     const g = sc.getContext("2d")!;
-    const count = [3, 5, 7, 9][levelOf(this.last?.power ?? 1) - 1];
+    const count = [3, 6, 9][levelOf(this.last?.power ?? 1) - 1];
     const life = count * Ghost.EVERY + 0.05;
 
     ctx.save();
@@ -3361,6 +3202,12 @@ export class LinkArc {
    energy. Leaves are pre-rendered sprites, so a hundred of them cost a
    hundred drawImage calls and nothing else. */
 
+const LEAF_STYLES: Record<string, { fronts: string[]; backs: string[]; mote: string; petal?: boolean }> = {
+  green: { fronts: ["#7a9a2e", "#2fae63", "#8fe6b8", "#4cc27a"], backs: ["#4d6219", "#1a6e3d", "#5aa882", "#2c7d4c"], mote: "rgba(160,255,210,1)" },
+  autumn: { fronts: ["#e0471b", "#f2a024", "#c22a1e", "#e8c040"], backs: ["#8f2a10", "#9e6312", "#741812", "#94781e"], mote: "rgba(255,200,120,1)" },
+  sakura: { fronts: ["#ffd3e1", "#ffb7cd", "#fff0f4", "#ff9fbd"], backs: ["#e8a6bb", "#d98aa4", "#efd0d9", "#cc7a96"], mote: "rgba(255,220,235,1)", petal: true },
+};
+
 class Leaves extends System {
   protected max = 160;
   private fronts: HTMLCanvasElement[];
@@ -3370,16 +3217,49 @@ class Leaves extends System {
   private motes: P[] = [];
   private mote: HTMLCanvasElement;
 
-  constructor() {
+  private petal: boolean;
+
+  constructor(variant?: string) {
     super();
-    const fronts = ["#7a9a2e", "#2fae63", "#8fe6b8", "#4cc27a"];
-    const backs = ["#4d6219", "#1a6e3d", "#5aa882", "#2c7d4c"];
-    this.fronts = fronts.map((c) => Leaves.leaf(c, true));
-    this.backs = backs.map((c) => Leaves.leaf(c, false));
+    const v = LEAF_STYLES[variant ?? "green"] ?? LEAF_STYLES.green;
+    this.petal = !!v.petal;
+    const draw = v.petal ? Leaves.petalShape : Leaves.leaf;
+    this.fronts = v.fronts.map((c) => draw(c, true));
+    this.backs = v.backs.map((c) => draw(c, false));
     // a few leaves pass close to the lens, big and out of focus
     this.frontsSoft = this.fronts.map((c) => blurSprite(c, 3));
     this.backsSoft = this.backs.map((c) => blurSprite(c, 3));
-    this.mote = softSprite("rgba(160,255,210,1)", 16, 0.25);
+    this.mote = softSprite(v.mote, 16, 0.25);
+  }
+
+  /** a cherry blossom petal: rounded, with a notch at the tip */
+  private static petalShape(color: string, front: boolean): HTMLCanvasElement {
+    const c = document.createElement("canvas");
+    c.width = 64;
+    c.height = 32;
+    const g = c.getContext("2d")!;
+    g.translate(32, 16);
+    g.beginPath();
+    g.moveTo(-26, 0);
+    g.bezierCurveTo(-18, -15, 14, -16, 26, -5);
+    g.lineTo(19, 0);
+    g.lineTo(26, 5);
+    g.bezierCurveTo(14, 16, -18, 15, -26, 0);
+    g.closePath();
+    const grad = g.createLinearGradient(-26, 0, 26, 0);
+    grad.addColorStop(0, front ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.2)");
+    grad.addColorStop(0.5, "rgba(255,255,255,0)");
+    g.fillStyle = color;
+    g.fill();
+    g.fillStyle = grad;
+    g.fill();
+    g.strokeStyle = front ? "rgba(255,240,245,0.5)" : "rgba(120,40,70,0.2)";
+    g.lineWidth = 0.8;
+    g.beginPath();
+    g.moveTo(-24, 0);
+    g.quadraticCurveTo(0, -1, 18, 0);
+    g.stroke();
+    return c;
   }
 
   /** a pointed leaf with a midrib, drawn along +x */
@@ -3438,7 +3318,7 @@ class Leaves extends System {
   protected step(p: P, dt: number, e: Emitter | null) {
     const s = e ? e.scale : 100;
     this.drag(p, dt, e, 1.8);
-    p.vy += s * 0.45 * dt; // leaves fall, slowly
+    p.vy += s * (this.petal ? 0.26 : 0.45) * dt; // leaves fall slowly, petals slower
     p.vx += Math.sin(this.t * 4 + p.seed) * s * 1.3 * dt;
     p.vy += Math.cos(this.t * 3 + p.seed) * s * 0.6 * dt;
     p.x += p.vx * dt;
@@ -3515,22 +3395,22 @@ class Leaves extends System {
 
 /* ─────────────────────────── factory ─────────────────────────── */
 
-export function createEffect(id: EffectId): Effect {
+export function createEffect(id: EffectId, variant?: string): Effect {
   switch (id) {
     case "flames":
-      return new Flames();
+      return new Flames(variant);
     case "stars":
       return new Stars();
     case "mist":
-      return new Mist();
+      return new Mist(variant);
     case "bubbles":
       return new Bubbles();
     case "lightning":
-      return new Lightning();
+      return new Lightning(variant);
     case "streaks":
       return new Streaks();
     case "strike":
-      return new Strike();
+      return new Strike(variant);
     case "frost":
       return new Frost();
     case "laurel":
@@ -3540,7 +3420,7 @@ export function createEffect(id: EffectId): Effect {
     case "embers":
       return new Embers();
     case "hud":
-      return new Hud();
+      return new Hud(variant);
     case "ghost":
       return new Ghost();
     case "wings":
@@ -3548,7 +3428,8 @@ export function createEffect(id: EffectId): Effect {
     case "corona":
       return new Corona();
     case "leaves":
-      return new Leaves();
+      return new Leaves(variant);
+    default:
+      return createSetEffect(id, variant) ?? new Stars();
   }
 }
-

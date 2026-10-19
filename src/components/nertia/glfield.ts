@@ -14,7 +14,7 @@
  * effect falls back to its 2D drawing.
  */
 
-import type { Vec } from "./effects";
+import type { Vec } from "./fxkit";
 
 const VERT = `
 attribute vec2 a;
@@ -65,22 +65,27 @@ float mask(vec2 p) { return texture2D(u_mask, p / u_res).r; }
  * direction: a slow one bends whole tongues sideways, a fast one tears
  * the edges. The lookup is pushed back against the flow, so heat is
  * dragged out of the source into licking tips. Temperature maps
- * through a blackbody-ish ramp; the Heat Shift palette cools to
- * magenta at the tips instead of red.
+ * through a five-step ramp: blackbody by default (the Heat Shift
+ * palette cools to magenta at the tips), or any palette an effect
+ * passes — blue fire, gold, or near-black flame with a violet edge.
  */
 const FIRE = `${NOISE}
 uniform vec2 u_dir;
-uniform float u_pal;
 uniform vec2 u_center;
 uniform float u_radial;
+// five-step temperature ramp, tip to core
+uniform vec3 u_c0;
+uniform vec3 u_c1;
+uniform vec3 u_c2;
+uniform vec3 u_c3;
+uniform vec3 u_c4;
 
 vec3 ramp(float T) {
-  vec3 tip = mix(vec3(0.75, 0.08, 0.03), vec3(0.85, 0.12, 0.45), u_pal);
-  vec3 c = mix(tip * 0.5, tip, smoothstep(0.1, 0.3, T));
-  c = mix(c, vec3(1.0, 0.36, 0.07), smoothstep(0.28, 0.55, T));
-  c = mix(c, vec3(1.0, 0.64, 0.16), smoothstep(0.5, 0.8, T));
-  c = mix(c, vec3(1.0, 0.88, 0.5), smoothstep(0.78, 1.05, T));
-  c = mix(c, vec3(1.0, 0.98, 0.9), smoothstep(1.05, 1.4, T));
+  vec3 c = mix(u_c0 * 0.5, u_c0, smoothstep(0.1, 0.3, T));
+  c = mix(c, u_c1, smoothstep(0.28, 0.55, T));
+  c = mix(c, u_c2, smoothstep(0.5, 0.8, T));
+  c = mix(c, u_c3, smoothstep(0.78, 1.05, T));
+  c = mix(c, u_c4, smoothstep(1.05, 1.4, T));
   return c;
 }
 
@@ -152,6 +157,19 @@ void main() {
   gl_FragColor = vec4(col * a, a);
 }`;
 
+/** Fire ramps, tip to core. */
+export const FIRE_PALETTES = {
+  heat: ["#d91f73", "#ff5c12", "#ffa329", "#ffe080", "#fffae6"],
+  lava: ["#bf1408", "#ff5c12", "#ffa329", "#ffe080", "#fffae6"],
+  cold: ["#1636d9", "#2f7bff", "#5cc8ff", "#c4f2ff", "#ffffff"],
+  spirit: ["#3159e6", "#4fb0ff", "#a2e6ff", "#e8fbff", "#ffffff"],
+  solar: ["#e05a00", "#ffa000", "#ffd240", "#fff0a6", "#fffdf2"],
+  crimson: ["#6e0014", "#c4001f", "#ff2a2a", "#ff8f70", "#ffe8dc"],
+  // drawn over the scene, not added to it: black core, violet edge
+  void: ["#a060ff", "#000000", "#000000", "#000000", "#000000"],
+};
+export type FirePalette = keyof typeof FIRE_PALETTES;
+
 type Prog = { p: WebGLProgram; u: Record<string, WebGLUniformLocation | null> };
 
 const hexVec = (hex: string): [number, number, number] => {
@@ -208,7 +226,7 @@ export class GLField {
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
 
     this.fire = this.program(FIRE, [
-      "u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_dir", "u_pal", "u_center", "u_radial",
+      "u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_dir", "u_center", "u_radial", "u_c0", "u_c1", "u_c2", "u_c3", "u_c4",
     ]);
     this.fog = this.program(FOG, [
       "u_mask", "u_res", "u_t", "u_size", "u_alpha", "u_flow", "u_c1", "u_c2", "u_c3", "u_detail",
@@ -301,17 +319,19 @@ export class GLField {
     dir: Vec;
     size: number;
     alpha?: number;
-    palette?: "heat" | "lava";
+    /** a named palette, or five colors tip to core */
+    palette?: FirePalette | string[];
     /** lick outward from this stage-space point instead of along `dir` */
     center?: Vec;
   }) {
     const gl = this.gl;
+    const pal = Array.isArray(o.palette) ? o.palette : FIRE_PALETTES[o.palette ?? "heat"];
     return this.run(this.fire, (u) => {
       gl.uniform1f(u.u_t, o.t);
       gl.uniform1f(u.u_size, Math.max(4, o.size * this.res));
       gl.uniform1f(u.u_alpha, o.alpha ?? 1);
       gl.uniform2f(u.u_dir, o.dir.x, o.dir.y);
-      gl.uniform1f(u.u_pal, o.palette === "lava" ? 0 : 1);
+      [u.u_c0, u.u_c1, u.u_c2, u.u_c3, u.u_c4].forEach((loc, i) => gl.uniform3fv(loc, hexVec(pal[i])));
       gl.uniform2f(u.u_center, (o.center?.x ?? 0) * this.res, (o.center?.y ?? 0) * this.res);
       gl.uniform1f(u.u_radial, o.center ? 1 : 0);
     });
