@@ -29,5 +29,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.5,
   }));
 
-  return [...pages, ...projectPages, ...nertia];
+  // LUXE's working prototype, a static page in public/luxe
+  const luxe: MetadataRoute.Sitemap = [
+    { url: `${base}/luxe`, lastModified: now, changeFrequency: "monthly", priority: 0.5 },
+  ];
+
+  return [...pages, ...projectPages, ...nertia, ...luxe];
 }

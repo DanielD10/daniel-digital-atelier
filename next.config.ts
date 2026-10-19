@@ -32,6 +32,11 @@ const nextConfig: NextConfig = {
     formats: ["image/avif", "image/webp"],
   },
 
+  /** LUXE's prototype is one static page; give it a clean URL. */
+  async rewrites() {
+    return [{ source: "/luxe", destination: "/luxe/index.html" }];
+  },
+
   async headers() {
     return [
       {

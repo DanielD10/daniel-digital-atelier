@@ -11,8 +11,10 @@ import { projects, getProject } from "@/lib/projects";
 type Props = { params: Promise<{ slug: string }> };
 
 export function generateStaticParams() {
-  // NERTIA has its own static route at /work/nertia.
-  return projects.filter((p) => p.slug !== "nertia").map((p) => ({ slug: p.slug }));
+  // NERTIA and LUXE have their own static routes under /work.
+  return projects
+    .filter((p) => p.slug !== "nertia" && p.slug !== "luxe")
+    .map((p) => ({ slug: p.slug }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {

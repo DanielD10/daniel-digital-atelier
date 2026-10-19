@@ -136,8 +136,19 @@ Vercel → Settings → Environment Variables for production.
 | `RESEND_API_KEY` | no | Turns on contact email delivery |
 | `CONTACT_FROM_EMAIL` | with Resend | Must be on a domain verified in Resend |
 | `CONTACT_TO_EMAIL` | no | Where enquiries land |
+| `LUXE_AI_PROVIDER` | no | `gemini` or `anthropic`. Turns on the AI in the LUXE demo at `/luxe` |
+| `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` | with the provider | Key for the provider you picked |
+| `LUXE_AI_MODEL` | no | Model ID override (defaults: `gemini-flash-latest`, `claude-haiku-5-5`) |
 
 ## Still to add
 
-- `public/images/projects/*.webp` — replace the `.art-*` gradient stand-ins for LUXE, NEXUS and ALTURA
-- Real case studies for LUXE, NEXUS and ALTURA on `/work/[slug]` (NERTIA's is done)
+- `public/images/projects/*.webp` — replace the `.art-*` gradient stand-ins for NEXUS and ALTURA (LUXE's is done)
+- Real case studies for NEXUS and ALTURA on `/work/[slug]` (NERTIA's and LUXE's are done)
+
+## LUXE
+
+- `/work/luxe` — the case page (`src/app/work/luxe/page.tsx`)
+- `/luxe` — the working prototype, one static page at `public/luxe/index.html`
+- `/api/luxe/ai` — the prototype's AI when it runs on this site. Off until
+  `LUXE_AI_PROVIDER` and a key are set. Inside the Claude app the page uses
+  Claude on the viewer's own account and never calls this route.

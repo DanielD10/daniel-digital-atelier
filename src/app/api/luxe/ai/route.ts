@@ -73,7 +73,7 @@ function fail(code: string, error: string, status: number, headers?: Record<stri
 /** Accepts a prompt string or user/assistant turns; merges repeats; must end on the user. */
 function toTurns(input: unknown): Turn[] | null {
   let raw: Turn[] = [];
-  if (typeof input === "string") raw = [{ role: "user", content: input }];
+  if (typeof input === "string") raw = input.trim() ? [{ role: "user", content: input }] : [];
   else if (Array.isArray(input)) {
     raw = input
       .filter(

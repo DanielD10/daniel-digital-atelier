@@ -17,9 +17,10 @@ export const projects: Project[] = [
   {
     slug: "luxe",
     name: "LUXE",
-    kind: "Travel platform",
-    tags: ["Concept", "Product design", "Creative engineering"],
+    kind: "Travel platform · AI",
+    tags: ["Concept", "Working prototype", "AI"],
     artClass: "art-luxe",
+    image: "/images/projects/luxe.webp",
     summary:
       "A booking experience for places worth the flight. Built around imagery first, search second.",
   },
