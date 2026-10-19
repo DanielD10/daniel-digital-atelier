@@ -716,8 +716,8 @@ function Certificate({
           : `Certificate of unit${unit.concept ? ` · ${categoryOf(unit.region)} concept` : ""}`}
       </p>
       <p className="nx-cert-no">
-        {no}
-        <span>/ {of}</span>
+        {unit.showroom ? "—" : no}
+        {unit.showroom ? <span>try-on</span> : <span>/ {of}</span>}
       </p>
 
       <dl className="nx-cert-rows">
@@ -862,7 +862,7 @@ function drawHud(
   if ("letterSpacing" in ctx) (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${1.5 * dpr}px`;
   ctx.fillStyle = "rgba(239,234,225,0.6)";
   ctx.fillText(
-    `${unit.product.toUpperCase()} · ${f.name.toUpperCase()} · ${unitLabel(unit)}`,
+    `${unit.product.toUpperCase()} · ${f.name.toUpperCase()} · ${unit.showroom ? "SHOWROOM" : unitLabel(unit)}`,
     pad,
     H - pad,
   );

@@ -7,7 +7,7 @@
  * shop says so, rather than inventing it.
  */
 
-import { finishes, type FinishId, type Region, type Unit } from "./nertia";
+import { finishes, units, type FinishId, type Region, type Unit, type UnitEffect } from "./nertia";
 
 export type ShopCategory = "singlets" | "tees" | "shorts" | "womens" | "accessories";
 export type Fit = "M" | "W";
@@ -43,11 +43,21 @@ export type Product = {
   /** product sheet id in the lookbook */
   sheet: string;
   /** how the AR demo wears it; absent = no AR try-on */
-  ar?: { region: Region; sleeves?: boolean; inseam?: number };
+  ar?: {
+    region: Region;
+    sleeves?: boolean;
+    inseam?: number;
+    headgear?: Unit["headgear"];
+    /** headwear carries its own effect, whatever the finish */
+    effect?: UnitEffect;
+  };
   fitNote?: Partial<Record<Fit, string>>;
   /** one design for everyone: no fit choice */
   unisex?: boolean;
 };
+
+/** headwear effects are defined once, on their numbered units */
+const effectOf = (unitId: string) => units.find((u) => u.id === unitId)?.effect;
 
 const shot = (src: string, w: number, h: number, contain = false): Shot => ({ src, w, h, contain });
 const RUN = ["XS", "S", "M", "L", "XL", "2XL"];
@@ -275,6 +285,79 @@ export const catalog: Product[] = [
     ar: { region: "top" },
   },
   {
+    id: "run-cap",
+    name: "No-Stain Run Cap",
+    cat: "accessories",
+    price: 48,
+    run: null,
+    tagline: "Stay in motion. No sweat stains, all distance.",
+    sizeNote: "One size · adjustable buckle",
+    features: [
+      ["No sweat stains", "Salt-ring resistant fabric keeps you looking fresh"],
+      ["Laser perf venting", "Max airflow, stay cool"],
+      ["Quick-dry sweatband", "Wicks sweat, dries fast"],
+      ["Adjustable fit", "Low-profile buckle, ponytail ready"],
+      ["Reflective logo", "More visibility, more miles"],
+      ["Tested to 50 washes", "Free repair or replace"],
+    ],
+    finishes: [
+      { id: "full-reflect", M: shot("cap-u-full-reflect", 300, 159, true), W: shot("cap-u-full-reflect", 300, 159, true) },
+      { id: "deep-space", M: shot("cap-u-deep-space", 300, 159, true), W: shot("cap-u-deep-space", 300, 159, true) },
+      { id: "bone-pearl", M: shot("cap-u-bone-pearl", 300, 159, true), W: shot("cap-u-bone-pearl", 300, 159, true) },
+      { id: "green-shift", M: shot("cap-u-green-shift", 300, 159, true), W: shot("cap-u-green-shift", 300, 159, true) },
+    ],
+    details: [
+      { shot: shot("cap-hero", 500, 370, true), label: "Full Reflect" },
+      { shot: shot("cap-d-front", 300, 202), label: "Front view" },
+      { shot: shot("cap-d-side", 300, 202), label: "Laser perf venting" },
+      { shot: shot("cap-d-back", 300, 217), label: "Adjustable back" },
+      { shot: shot("cap-d-interior", 300, 207), label: "Quick-dry sweatband" },
+      { shot: shot("cap-d-fabric", 300, 203), label: "No-stain fabric" },
+      { shot: shot("cap-d-men", 308, 222), label: "Men's" },
+      { shot: shot("cap-d-women", 300, 230), label: "Women's" },
+      { shot: shot("cap-d-pony", 300, 314), label: "Ponytail ready" },
+    ],
+    sheet: "run-cap",
+    unisex: true,
+    ar: { region: "head", headgear: "cap", effect: effectOf("cap-pearl-009") },
+  },
+  {
+    id: "cooling-headband",
+    name: "Cooling Headband",
+    cat: "accessories",
+    price: 24,
+    run: null,
+    tagline: "Lightweight. Cooling. Zero distractions.",
+    sizeNote: "One size",
+    features: [
+      ["Cooling knit", "Keeps you cool even on hot runs"],
+      ["Sweat wicking", "Pulls sweat away, stays dry"],
+      ["No-slip grip", "Silicone interior stays in place"],
+      ["Lightweight fit", "Ultra-light, barely there"],
+      ["Reflective detail", "More visibility, more miles"],
+      ["Tested to 50 washes", "Free repair or replace"],
+    ],
+    finishes: [
+      { id: "deep-space", M: shot("band-u-deep-space", 300, 200, true), W: shot("band-u-deep-space", 300, 200, true) },
+      { id: "heat-shift", M: shot("band-u-heat-shift", 300, 203, true), W: shot("band-u-heat-shift", 300, 203, true) },
+      { id: "green-shift", M: shot("band-u-green-shift", 300, 203, true), W: shot("band-u-green-shift", 300, 203, true) },
+      { id: "peach-shift", W: shot("band-u-peach-shift", 300, 203, true) },
+      { id: "bone-pearl", M: shot("band-u-bone-pearl", 300, 201, true), W: shot("band-u-bone-pearl", 300, 201, true) },
+    ],
+    details: [
+      { shot: shot("band-hero", 520, 369, true), label: "Deep Space" },
+      { shot: shot("band-d-front", 300, 172), label: "Front view" },
+      { shot: shot("band-d-grip", 300, 172), label: "Silicone no-slip grip" },
+      { shot: shot("band-d-side", 300, 172), label: "Contoured fit" },
+      { shot: shot("band-d-knit", 300, 170), label: "Cooling knit" },
+      { shot: shot("band-d-reflect", 300, 174), label: "Reflective detail" },
+      { shot: shot("band-d-men", 300, 338), label: "Men's" },
+      { shot: shot("band-d-women", 300, 311), label: "Women's" },
+    ],
+    sheet: "cooling-headband",
+    ar: { region: "head", headgear: "band", effect: effectOf("band-peach-031") },
+  },
+  {
     id: "motion-pouch",
     name: "Motion Pouch",
     cat: "accessories",
@@ -346,12 +429,14 @@ export function showroomUnit(productId: string, finish: FinishId, fit: Fit): Uni
   for (const c of productId + finish + fit) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return {
     id: `try-${productId}-${finish}-${fit}`,
-    product: p.name.replace(/ LTD$/, " LTD"),
+    product: p.name,
     fit,
     finish,
     region: p.ar.region,
     sleeves: p.ar.sleeves,
     inseam: p.ar.inseam,
+    headgear: p.ar.headgear,
+    effect: p.ar.effect,
     unit: (h % run) + 1,
     of: run,
     washes: 0,

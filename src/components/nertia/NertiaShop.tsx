@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- plain <img> so the same
    component also runs in the standalone page bundle, outside Next. */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { finishes, type FinishId } from "@/lib/nertia";
 import {
   catalog,
@@ -138,7 +138,11 @@ function Card({ p, fit, base, onOpen }: { p: Product; fit: FitFilter; base: stri
   return (
     <article className="nx-card">
       <button type="button" className="nx-card-hit" onClick={onOpen} aria-label={`${p.name}, ${finishes[cur].name}`}>
-        <span className={`nx-card-img${shot.contain ? " is-contain" : ""}${shot.h / shot.w > 1.9 ? " is-tall" : ""}`}>
+        <span
+          className={`nx-card-img${shot.contain ? " is-contain" : ""}${shot.h / shot.w > 1.9 ? " is-tall" : ""}`}
+          // wide product shots zoom in until the product fills the card
+          style={shot.contain ? ({ "--z": Math.max(1, Math.min(1.55, (shot.w / shot.h) * 0.47)) } as CSSProperties) : undefined}
+        >
           <img src={`${base}${shot.src}.webp`} alt="" width={shot.w} height={shot.h} loading="lazy" decoding="async" />
           {p.badge ? <span className="nx-badge">{p.badge}</span> : null}
           <span className="nx-card-cta" aria-hidden="true">

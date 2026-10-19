@@ -97,15 +97,15 @@ export default function NertiaPage() {
               ))}
             </ul>
             <p style={{ marginTop: "24px" }}>
-              <b>Concepts beyond Drop 001.</b> Accessories and two concept
-              pieces break the one-finish rule on purpose: each carries its
-              own effect. Shoes (chip in the heel tab, QR on the tongue as
-              backup) get Footstrike, Frost Step or Ember Prints. Headwear
-              gets Victory Laurel, a nod to the Greek and Roman roots the
-              brand started from, plus Steam, a Visor HUD and Corona, a ring
-              of fire around your head like a total eclipse. The
-              Night Shell leaves a Ghost Runner behind you and the Aero
-              Singlet grows Wings. All of it is labelled concept.
+              <b>Headwear and concepts.</b> Headwear breaks the one-finish
+              rule on purpose: each piece carries its own effect. The No-Stain
+              Run Cap grows a gold Victory Laurel, a nod to the Greek and Roman
+              roots the brand started from, and the Cooling Headband rolls off
+              Steam. Beyond the drop, labelled concept: shoes with Footstrike,
+              Frost Step or Ember Prints (chip in the heel tab, QR on the
+              tongue as backup), a visor with a HUD, a beanie wearing a Corona
+              like a total eclipse, a shell that leaves a Ghost Runner behind
+              you, and a singlet that grows Wings.
             </p>
           </section>
 

@@ -39,7 +39,7 @@ export const projects: Project[] = [
     tags: ["Own venture", "In development", "AR prototype"],
     artClass: "art-nertia",
     summary:
-      "Numbered running wear where each garment's chip unlocks its own AR effect. Flames, stars, mist, chrome, light.",
+      "Numbered running wear where each garment's chip unlocks its own AR effect. Flames, stars, lightning, mist, light.",
   },
   {
     slug: "altura",

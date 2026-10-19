@@ -32,7 +32,7 @@ export type EffectId =
   | "wings"
   | "corona"
   | "leaves"
-  | "petals";
+  | "lightning";
 
 export type Finish = {
   id: FinishId;
@@ -80,9 +80,9 @@ export const finishes: Record<FinishId, Finish> = {
   "liquid-chrome": {
     id: "liquid-chrome",
     name: "Liquid Chrome",
-    effect: "bubbles",
-    effectName: "Bubbles",
-    effectLine: "Chrome bubbles rise off the shoulders and pop in your wake.",
+    effect: "lightning",
+    effectName: "Lightning",
+    effectLine: "Electricity crawls across the chrome and cracks off you in forked bolts.",
     ramp: ["#d9dde3", "#8a7cff", "#3fd1c6", "#c9ccd6"],
     accent: "#9fe3dc",
   },
@@ -107,9 +107,9 @@ export const finishes: Record<FinishId, Finish> = {
   "peach-shift": {
     id: "peach-shift",
     name: "Peach Shift",
-    effect: "petals",
-    effectName: "Petals",
-    effectLine: "Peach and coral petals spill off your shoulders and drift down in your wake.",
+    effect: "bubbles",
+    effectName: "Bubbles",
+    effectLine: "Peach and coral bubbles rise off your shoulders and pop in your wake.",
     ramp: ["#ffb38a", "#ff9aa8", "#ff6f61", "#ffc9a8"],
     accent: "#ff8f7a",
     note: "Women's exclusive",
@@ -135,7 +135,7 @@ export type Unit = {
   unit: number;
   of: number;
   washes: number;
-  /** Footwear and headwear are outside Drop 001 — labelled as concepts everywhere. */
+  /** Pieces outside Drop 001 — labelled as concepts everywhere. */
   concept?: boolean;
   /** How the demo runner draws headwear. */
   headgear?: "cap" | "band" | "visor" | "beanie";
@@ -280,7 +280,7 @@ export const units: Unit[] = [
   {
     id: "cap-pearl-009",
     miles: 610,
-    product: "Race Cap",
+    product: "No-Stain Run Cap",
     fit: "M",
     finish: "bone-pearl",
     region: "head",
@@ -288,7 +288,6 @@ export const units: Unit[] = [
     unit: 9,
     of: 80,
     washes: 0,
-    concept: true,
     chip: "NFC sealed in the brim",
     effect: {
       id: "laurel",
@@ -297,17 +296,16 @@ export const units: Unit[] = [
     },
   },
   {
-    id: "band-reflect-031",
+    id: "band-peach-031",
     miles: 90,
-    product: "Race Headband",
+    product: "Cooling Headband",
     fit: "W",
-    finish: "full-reflect",
+    finish: "peach-shift",
     region: "head",
     headgear: "band",
     unit: 31,
     of: 80,
     washes: 0,
-    concept: true,
     chip: "NFC woven into the band's seam",
     effect: {
       id: "steam",
@@ -619,6 +617,44 @@ export const lookbook: Sheet[] = [
       { x: 2.55, y: 58.21, w: 30.94, h: 25.04, product: "motion-pouch", label: "Men's, waist" },
       { x: 34.61, y: 58.21, w: 29.98, h: 25.04, product: "motion-pouch", label: "Women's, waist" },
       { x: 65.55, y: 58.21, w: 31.9, h: 25.04, product: "motion-pouch", label: "Crossbody" },
+    ],
+  },
+  {
+    id: "run-cap",
+    file: "run-cap.webp",
+    title: "No-Stain Run Cap",
+    kind: "$48 · Adjustable",
+    caption: "Salt-ring resistant, laser-perf venting, quick-dry sweatband. Four finishes.",
+    alt: "No-Stain Run Cap product sheet: the cap in Full Reflect, Deep Space, Bone Pearl and Green Shift, front, side, back and interior views, worn by a man and a woman.",
+    product: "run-cap",
+    spots: [
+      { x: 35.09, y: 6.38, w: 39.87, h: 29.51, try: { product: "run-cap", finish: "full-reflect", fit: "M" }, label: "Full Reflect" },
+      { x: 2.71, y: 40.19, w: 22.81, h: 12.12, try: { product: "run-cap", finish: "full-reflect", fit: "M" }, label: "Full Reflect" },
+      { x: 26.63, y: 40.19, w: 22.81, h: 12.12, try: { product: "run-cap", finish: "deep-space", fit: "M" }, label: "Deep Space" },
+      { x: 50.56, y: 40.19, w: 22.81, h: 12.12, try: { product: "run-cap", finish: "bone-pearl", fit: "M" }, label: "Bone Pearl" },
+      { x: 74.48, y: 40.19, w: 22.81, h: 12.12, try: { product: "run-cap", finish: "green-shift", fit: "M" }, label: "Green Shift" },
+      { x: 9.41, y: 74.8, w: 24.56, h: 17.7, try: { product: "run-cap", finish: "full-reflect", fit: "M" }, label: "Full Reflect · men's" },
+      { x: 45.14, y: 74.8, w: 23.13, h: 17.7, try: { product: "run-cap", finish: "deep-space", fit: "W" }, label: "Deep Space · women's" },
+      { x: 69.22, y: 74.8, w: 28.07, h: 17.7, try: { product: "run-cap", finish: "full-reflect", fit: "W" }, label: "Full Reflect · women's" },
+    ],
+  },
+  {
+    id: "cooling-headband",
+    file: "cooling-headband.webp",
+    title: "Cooling Headband",
+    kind: "$24 · One size",
+    caption: "Cooling knit with a silicone no-slip grip. Five finishes, Peach Shift for women.",
+    alt: "Cooling Headband product sheet: the headband in Deep Space, Heat Shift, Green Shift, Peach Shift and Bone Pearl, with grip and knit details, worn by a man and a woman.",
+    product: "cooling-headband",
+    spots: [
+      { x: 31.9, y: 5.58, w: 45.45, h: 32.3, try: { product: "cooling-headband", finish: "deep-space", fit: "M" }, label: "Deep Space" },
+      { x: 2.55, y: 40.19, w: 18.42, h: 12.28, try: { product: "cooling-headband", finish: "deep-space", fit: "M" }, label: "Deep Space" },
+      { x: 21.85, y: 40.19, w: 18.18, h: 12.28, try: { product: "cooling-headband", finish: "heat-shift", fit: "M" }, label: "Heat Shift" },
+      { x: 40.83, y: 40.19, w: 18.18, h: 12.28, try: { product: "cooling-headband", finish: "green-shift", fit: "M" }, label: "Green Shift" },
+      { x: 59.97, y: 40.19, w: 18.18, h: 12.28, try: { product: "cooling-headband", finish: "peach-shift", fit: "W" }, label: "Peach Shift · women's" },
+      { x: 78.95, y: 40.19, w: 18.34, h: 12.28, try: { product: "cooling-headband", finish: "bone-pearl", fit: "M" }, label: "Bone Pearl" },
+      { x: 8.61, y: 73.84, w: 37.32, h: 18.66, try: { product: "cooling-headband", finish: "deep-space", fit: "M" }, label: "Deep Space · men's" },
+      { x: 55.34, y: 73.84, w: 41.95, h: 18.66, try: { product: "cooling-headband", finish: "peach-shift", fit: "W" }, label: "Peach Shift · women's" },
     ],
   },
 ];

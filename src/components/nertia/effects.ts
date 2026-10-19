@@ -853,8 +853,313 @@ class Mist extends System {
   }
 }
 
-/* ═══════════════════════ LIQUID CHROME — BUBBLES ═══════════════════
-   Soap-film bubbles. The film's interference colours swirl as it
+/* ═══════════════════════ LIQUID CHROME — LIGHTNING ═════════════════
+   Chrome conducts. Small arcs crawl across the garment constantly,
+   jumping between points on its surface, and every second or so a
+   forked bolt cracks off the runner: a main channel with branches,
+   restriking two or three times before it dies, lighting the whole
+   scene for an instant. Sparks spit off wherever a bolt ends.
+   Bolts are rebuilt every restrike with midpoint displacement, so no
+   two look alike. Higher levels strike more often, further, with more
+   branches. */
+
+type Bolt = {
+  /** anchor on the garment: index into the emitter path */
+  at: number;
+  /** channel points relative to the anchor */
+  pts: Vec[];
+  branches: Vec[][];
+  end: Vec;
+  age: number;
+  life: number;
+  strikes: number[];
+  width: number;
+  /** frames left at full brightness — a strike shows even on a slow frame */
+  lit: number;
+};
+
+type Arc = { pts: Vec[]; age: number; life: number };
+
+class Lightning implements Effect {
+  private t = 0;
+  private bolts: Bolt[] = [];
+  private arcs: Arc[] = [];
+  private sparks: P[] = [];
+  private nextStrike = 0.5;
+  private nextArc = 0;
+  private flash = 0;
+  private intensity = 0;
+  private last: Emitter | null = null;
+  private glow = softSprite("rgba(150,190,255,0.7)", 128);
+  private dot = softSprite("rgba(220,240,255,1)", 16, 0.3);
+
+  /** jagged channel from a to b, in relative coordinates */
+  private static channel(a: Vec, b: Vec, rough: number, depth = 6): Vec[] {
+    let pts = [a, b];
+    let disp = Math.hypot(b.x - a.x, b.y - a.y) * rough;
+    for (let k = 0; k < depth; k++) {
+      const next: Vec[] = [pts[0]];
+      for (let i = 1; i < pts.length; i++) {
+        const p = pts[i - 1];
+        const q = pts[i];
+        const nx = -(q.y - p.y);
+        const ny = q.x - p.x;
+        const nl = Math.hypot(nx, ny) || 1;
+        const off = (Math.random() - 0.5) * disp;
+        next.push({ x: (p.x + q.x) / 2 + (nx / nl) * off, y: (p.y + q.y) / 2 + (ny / nl) * off }, q);
+      }
+      pts = next;
+      disp *= 0.55;
+    }
+    return pts;
+  }
+
+  /** rebuild a bolt's shape (each restrike takes a new path) */
+  private shape(b: Bolt, power: number) {
+    b.lit = 2;
+    // fewer subdivisions, rougher early: sharp kinks, not a wiggle
+    b.pts = Lightning.channel({ x: 0, y: 0 }, b.end, 0.46, 5);
+    b.branches = [];
+    const n = Math.round(2 + 2 * power + Math.random() * 2);
+    const len = Math.hypot(b.end.x, b.end.y);
+    for (let i = 0; i < n; i++) {
+      const j = Math.floor(rand(0.15, 0.75) * b.pts.length);
+      const from = b.pts[j];
+      const base = Math.atan2(b.end.y, b.end.x);
+      const ang = base + (Math.random() < 0.5 ? -1 : 1) * rand(0.35, 0.9);
+      const L = len * rand(0.18, 0.42) * (1 - j / b.pts.length);
+      const to = { x: from.x + Math.cos(ang) * L, y: from.y + Math.sin(ang) * L };
+      b.branches.push(Lightning.channel(from, to, 0.38, 4));
+    }
+  }
+
+  private strike(e: Emitter) {
+    const s = e.scale;
+    const power = e.power ?? 1;
+    const at = Math.floor(Math.random() * e.path.length);
+    // bolts crack away from the runner: back with the air, and down
+    const rel = { x: e.worldVel.x - e.bodyVel.x, y: e.worldVel.y - e.bodyVel.y };
+    const rl = Math.hypot(rel.x, rel.y);
+    let dir: Vec;
+    if (rl > s * 1.2) {
+      dir = { x: rel.x / rl, y: rand(0.1, 0.9) };
+    } else {
+      const c = centroid(e.path);
+      const p = e.path[at];
+      dir = { x: p.x < c.x ? -1 : 1, y: rand(-0.4, 0.9) };
+    }
+    const dl = Math.hypot(dir.x, dir.y) || 1;
+    const L = s * rand(2.2, 3.4) * (0.75 + 0.35 * power);
+    const b: Bolt = {
+      at,
+      pts: [],
+      branches: [],
+      end: { x: (dir.x / dl) * L, y: (dir.y / dl) * L },
+      age: 0,
+      life: rand(0.32, 0.5),
+      // restrike times: the channel flickers on and off
+      strikes: [0, rand(0.06, 0.1), rand(0.16, 0.24)].slice(0, 2 + (Math.random() < 0.6 ? 1 : 0)),
+      width: s * rand(0.034, 0.05),
+      lit: 2,
+    };
+    this.shape(b, power);
+    this.bolts.push(b);
+    this.flash = Math.max(this.flash, 0.9);
+    this.spark(e.path[at].x + b.end.x, e.path[at].y + b.end.y, s, 14 * power);
+  }
+
+  private spark(x: number, y: number, s: number, n: number) {
+    for (let i = 0; i < n && this.sparks.length < 260; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = s * rand(1, 4);
+      this.sparks.push({
+        x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - s,
+        age: 0, life: rand(0.2, 0.5), size: rand(0.6, 1.4), seed: 0, k: 0,
+      });
+    }
+  }
+
+  update(dt: number, e: Emitter | null, intensity: number) {
+    this.t += dt;
+    this.intensity = intensity;
+    if (e) this.last = e;
+    const power = this.last?.power ?? 1;
+    const s = this.last?.scale ?? 100;
+
+    if (e && e.path.length > 1 && intensity > 0.3) {
+      this.nextStrike -= dt * (0.55 + 0.6 * power);
+      if (this.nextStrike <= 0) {
+        this.nextStrike = rand(0.6, 1.2);
+        this.strike(e);
+      }
+      // crawling arcs between nearby points on the garment
+      this.nextArc -= dt * (0.6 + 0.8 * power);
+      while (this.nextArc <= 0) {
+        this.nextArc += rand(0.03, 0.08);
+        const i = Math.floor(Math.random() * e.path.length);
+        const j = Math.min(e.path.length - 1, Math.max(0, i + (Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2))));
+        const a = e.path[i];
+        const b = e.path[j];
+        const lift = s * rand(-0.12, 0.12);
+        const pts = Lightning.channel(
+          { x: a.x + rand(-0.04, 0.04) * s, y: a.y + lift },
+          { x: b.x + rand(-0.04, 0.04) * s, y: b.y - lift },
+          0.45,
+          4,
+        );
+        this.arcs.push({ pts, age: 0, life: rand(0.06, 0.14) });
+        if (Math.random() < 0.25) this.spark(b.x, b.y, s * 0.5, 3);
+      }
+    }
+
+    for (let i = this.bolts.length - 1; i >= 0; i--) {
+      const b = this.bolts[i];
+      const before = b.age;
+      b.age += dt;
+      for (const st of b.strikes) {
+        if (st > 0 && before < st && b.age >= st) {
+          this.shape(b, power);
+          this.flash = Math.max(this.flash, 0.55);
+        }
+      }
+      if (b.age > b.life) this.bolts.splice(i, 1);
+    }
+    for (let i = this.arcs.length - 1; i >= 0; i--) {
+      this.arcs[i].age += dt;
+      if (this.arcs[i].age > this.arcs[i].life) this.arcs.splice(i, 1);
+    }
+    const air = this.last?.worldVel ?? { x: 0, y: 0 };
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const p = this.sparks[i];
+      p.age += dt;
+      if (p.age >= p.life) {
+        this.sparks.splice(i, 1);
+        continue;
+      }
+      const f = 1 - Math.exp(-3 * dt);
+      p.vx += (air.x - p.vx) * f;
+      p.vy += s * 5 * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
+    this.flash *= Math.exp(-9 * dt);
+  }
+
+  ignite(e: Emitter) {
+    if (e.path.length > 1) this.strike(e);
+  }
+
+  clear() {
+    this.bolts.length = 0;
+    this.arcs.length = 0;
+    this.sparks.length = 0;
+    this.flash = 0;
+  }
+
+  /** one channel, drawn as plasma: violet bloom, cyan body, white core */
+  private stroke(ctx: CanvasRenderingContext2D, pts: Vec[], ox: number, oy: number, w: number, a: number) {
+    const path = () => {
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x + ox, pts[0].y + oy);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x + ox, pts[i].y + oy);
+    };
+    for (const [mul, col, al] of [
+      [9, "rgba(138,124,255,1)", 0.22],
+      [3.5, "rgba(120,220,255,1)", 0.6],
+      [1, "rgba(255,255,255,1)", 1],
+    ] as [number, string, number][]) {
+      ctx.globalAlpha = a * al;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = Math.max(0.8, w * mul);
+      path();
+      ctx.stroke();
+    }
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    const e = this.last;
+    if (!e) return;
+    const s = e.scale;
+    const W = ctx.canvas.width;
+    const H = ctx.canvas.height;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // the strike lights the whole scene for an instant
+    if (this.flash > 0.02) {
+      ctx.globalAlpha = this.flash * 0.1 * this.intensity;
+      ctx.fillStyle = "rgb(170,190,255)";
+      ctx.fillRect(0, 0, W, H);
+      const c = centroid(e.path);
+      ctx.globalAlpha = this.flash * 0.6 * this.intensity;
+      const d = s * 6;
+      ctx.drawImage(this.glow, c.x - d / 2, c.y - d / 2, d, d);
+    }
+
+    // a constant cold glow on the chrome, flickering with the arcs
+    if (this.intensity > 0.05) {
+      const c = centroid(e.path);
+      ctx.globalAlpha = (0.12 + 0.08 * Math.random()) * this.intensity;
+      const d = s * 3;
+      ctx.drawImage(this.glow, c.x - d / 2, c.y - d / 2, d, d);
+    }
+
+    for (const a of this.arcs) {
+      const f = a.age / a.life;
+      this.stroke(ctx, a.pts, 0, 0, s * 0.014, (1 - f) * this.intensity);
+    }
+
+    for (const b of this.bolts) {
+      const anchor = e.path[Math.min(b.at, e.path.length - 1)];
+      if (!anchor) continue;
+      // on during each strike, flickering off between
+      let on = 0;
+      for (const st of b.strikes) {
+        const dtS = b.age - st;
+        if (dtS >= 0 && dtS < 0.09) on = Math.max(on, 1 - dtS / 0.09);
+      }
+      if (b.lit > 0) {
+        on = 1;
+        b.lit--;
+      }
+      const tail = Math.max(0, 1 - b.age / b.life) * 0.5; // afterglow in the air
+      const a = Math.max(on, tail) * this.intensity;
+      if (a < 0.02) continue;
+      // bloom: a soft halo of light along the channel
+      ctx.globalAlpha = a * 0.22;
+      const hd = b.width * 14;
+      for (let i = 0; i < b.pts.length; i += 6) {
+        const q = b.pts[i];
+        ctx.drawImage(this.glow, anchor.x + q.x - hd / 2, anchor.y + q.y - hd / 2, hd, hd);
+      }
+      this.stroke(ctx, b.pts, anchor.x, anchor.y, b.width, a);
+      for (const br of b.branches) this.stroke(ctx, br, anchor.x, anchor.y, b.width * 0.55, a * 0.8);
+      // hot point where the bolt ends
+      ctx.globalAlpha = a;
+      const d = s * 0.7;
+      ctx.drawImage(this.glow, anchor.x + b.end.x - d / 2, anchor.y + b.end.y - d / 2, d, d);
+    }
+
+    for (const p of this.sparks) {
+      const f = p.age / p.life;
+      ctx.globalAlpha = (1 - f) * this.intensity;
+      ctx.strokeStyle = "rgba(200,235,255,1)";
+      ctx.lineWidth = Math.max(0.8, p.size * (s / 140));
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * 0.02, p.y - p.vy * 0.02);
+      ctx.stroke();
+      const d = p.size * (s / 110) * 4;
+      ctx.drawImage(this.dot, p.x - d / 2, p.y - d / 2, d, d);
+    }
+    ctx.restore();
+  }
+}
+
+/* ═══════════════════════ PEACH SHIFT — BUBBLES ═════════════════════
+   Soap-film bubbles in the Peach Shift palette. The film's interference colours swirl as it
    drains (16 pre-rendered frames, played per bubble), a thin dark
    patch drifts near the top where the film is thinnest, and a window
    reflection sits on one side with a small kick light opposite. They
@@ -872,7 +1177,7 @@ class Bubbles extends System {
     super();
     this.frames = [];
     for (let i = 0; i < Bubbles.FRAMES; i++) this.frames.push(Bubbles.render(128, i / Bubbles.FRAMES));
-    this.drop = softSprite("rgba(220,250,255,0.9)", 16, 0.3);
+    this.drop = softSprite("rgba(255,214,196,0.9)", 16, 0.3);
   }
 
   private static render(size: number, phase: number): HTMLCanvasElement {
@@ -886,7 +1191,8 @@ class Bubbles extends System {
     const film = document.createElement("canvas");
     film.width = film.height = size;
     const f = film.getContext("2d")!;
-    const hues = ["#ff6ad5", "#ffd36b", "#5ff2e0", "#8a7cff", "#9dff8a", "#ff6ad5"];
+    // peach, blush, coral, gold, a touch of lilac where the film thins
+    const hues = ["#ffb38a", "#ff9aa8", "#ff6f61", "#ffd27a", "#d9a6ff", "#ffb38a"];
     const swirl = (rot: number, alpha: number) => {
       if (typeof f.createConicGradient === "function") {
         const cg = f.createConicGradient(rot, r, r);
@@ -909,7 +1215,7 @@ class Bubbles extends System {
     f.globalAlpha = 1;
     const rim = f.createRadialGradient(r, r, R * 0.45, r, r, R);
     rim.addColorStop(0, "rgba(0,0,0,0.04)");
-    rim.addColorStop(0.75, "rgba(0,0,0,0.45)");
+    rim.addColorStop(0.75, "rgba(0,0,0,0.6)");
     rim.addColorStop(0.95, "rgba(0,0,0,0.95)");
     rim.addColorStop(1, "rgba(0,0,0,0)");
     f.fillStyle = rim;
@@ -928,7 +1234,7 @@ class Bubbles extends System {
     g.fill();
 
     // fine outline
-    g.strokeStyle = "rgba(230,245,255,0.55)";
+    g.strokeStyle = "rgba(255,226,214,0.6)";
     g.lineWidth = size * 0.012;
     g.beginPath();
     g.arc(r, r, R, 0, Math.PI * 2);
@@ -1041,7 +1347,7 @@ class Bubbles extends System {
     }
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    ctx.strokeStyle = "rgba(220,245,255,0.9)";
+    ctx.strokeStyle = "rgba(255,200,184,0.9)";
     for (const q of this.pops) {
       const f = q.age / 0.22;
       ctx.globalAlpha = 1 - f;
@@ -3219,118 +3525,6 @@ class Leaves extends System {
   }
 }
 
-/* ═══════════════════════ PEACH SHIFT — PETALS ══════════════════════
-   Petals spill off the shoulders and drift down in your wake, slower
-   and softer than leaves: each one sways, spins and flips through
-   peach, blush and coral, with a warm haze where they're thickest. */
-
-class Petals extends System {
-  protected max = 170;
-  private sprites: HTMLCanvasElement[];
-  private soft: HTMLCanvasElement[];
-  private haze: HTMLCanvasElement;
-
-  constructor() {
-    super();
-    const pairs: [string, string][] = [
-      ["#ffe4d2", "#ffb38a"],
-      ["#ffe0e6", "#ff9aa8"],
-      ["#ffd6cc", "#ff6f61"],
-      ["#fff0e4", "#ffc9a8"],
-    ];
-    this.sprites = pairs.map(([tip, base]) => Petals.petal(tip, base));
-    this.soft = this.sprites.map((c) => blurSprite(c, 3));
-    this.haze = softSprite("rgba(255,150,130,0.35)", 96);
-  }
-
-  /** a rounded petal with a notch at the wide end, tip pointing up */
-  private static petal(tip: string, base: string): HTMLCanvasElement {
-    const c = document.createElement("canvas");
-    c.width = 40;
-    c.height = 56;
-    const g = c.getContext("2d")!;
-    g.translate(20, 28);
-    const L = 26;
-    const W = 17;
-    g.beginPath();
-    g.moveTo(0, -L);
-    g.bezierCurveTo(W, -L * 0.45, W * 0.95, L * 0.7, W * 0.3, L);
-    g.quadraticCurveTo(0, L * 0.78, -W * 0.3, L);
-    g.bezierCurveTo(-W * 0.95, L * 0.7, -W, -L * 0.45, 0, -L);
-    g.closePath();
-    const grad = g.createLinearGradient(0, -L, 0, L);
-    grad.addColorStop(0, base);
-    grad.addColorStop(0.75, tip);
-    grad.addColorStop(1, "#ffffff");
-    g.fillStyle = grad;
-    g.fill();
-    g.strokeStyle = "rgba(255,255,255,0.35)";
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(0, -L * 0.8);
-    g.lineTo(0, L * 0.6);
-    g.stroke();
-    return c;
-  }
-
-  protected rate(e: Emitter) {
-    return 22 + e.scale * 0.28;
-  }
-
-  protected spawn(e: Emitter, at: Vec): P {
-    const s = e.scale;
-    return {
-      x: at.x + rand(-0.05, 0.05) * s,
-      y: at.y + rand(-0.05, 0.05) * s,
-      vx: e.bodyVel.x * 0.6 + rand(-0.3, 0.3) * s,
-      vy: e.bodyVel.y * 0.6 - rand(0.1, 0.5) * s,
-      age: 0,
-      life: rand(1.8, 3),
-      size: rand(0.09, 0.14) * s,
-      seed: Math.random() * 100,
-      k: Math.floor(Math.random() * 4),
-    };
-  }
-
-  protected step(p: P, dt: number, e: Emitter | null) {
-    const s = e ? e.scale : 100;
-    this.drag(p, dt, e, 1.4);
-    p.vy += s * 0.32 * dt;
-    p.vx += Math.sin(this.t * 2.2 + p.seed) * s * 0.9 * dt;
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
-  }
-
-  draw(ctx: CanvasRenderingContext2D) {
-    ctx.save();
-    // a warm haze where the petals are thickest
-    ctx.globalCompositeOperation = "lighter";
-    for (let i = 0; i < this.ps.length; i += 6) {
-      const p = this.ps[i];
-      const f = p.age / p.life;
-      ctx.globalAlpha = Math.sin(Math.PI * f) * 0.12;
-      const d = p.size * 10;
-      ctx.drawImage(this.haze, p.x - d / 2, p.y - d / 2, d, d);
-    }
-    ctx.globalCompositeOperation = "source-over";
-    for (const p of this.ps) {
-      const f = p.age / p.life;
-      const ang = p.seed + p.age * (((p.seed % 1) - 0.5) * 5) + Math.sin(this.t * 2 + p.seed) * 0.4;
-      const flip = Math.cos(p.age * (2 + (p.seed % 2)) + p.seed);
-      ctx.globalAlpha = Math.min(1, f * 6) * (f > 0.75 ? (1 - f) / 0.25 : 1) * (flip >= 0 ? 1 : 0.8);
-      ctx.setTransform(1, 0, 0, 1, p.x, p.y);
-      ctx.rotate(ang);
-      ctx.scale(Math.max(0.15, Math.abs(flip)), 1);
-      const near = p.seed > 93;
-      const H = p.size * (near ? 5 : 2.2);
-      if (near) ctx.globalAlpha *= 0.8;
-      ctx.drawImage(near ? this.soft[p.k] : this.sprites[p.k], (-H * 0.714) / 2, -H / 2, H * 0.714, H);
-    }
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.restore();
-  }
-}
-
 /* ─────────────────────────── factory ─────────────────────────── */
 
 export function createEffect(id: EffectId): Effect {
@@ -3343,6 +3537,8 @@ export function createEffect(id: EffectId): Effect {
       return new Mist();
     case "bubbles":
       return new Bubbles();
+    case "lightning":
+      return new Lightning();
     case "streaks":
       return new Streaks();
     case "strike":
@@ -3365,8 +3561,6 @@ export function createEffect(id: EffectId): Effect {
       return new Corona();
     case "leaves":
       return new Leaves();
-    case "petals":
-      return new Petals();
   }
 }
 
