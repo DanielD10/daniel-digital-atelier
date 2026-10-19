@@ -514,36 +514,22 @@ class View {
       ctx.fillText(label, x + 2 * dpr, top - 8 * dpr);
     }
 
-    // item box rows
+    // item box rows: the box art is drawn once and stamped, so the glow
+    // costs nothing per frame
+    const s = Lh * 0.46;
+    const box = this.box(s, dpr);
     for (const row of BOX_ROWS) {
       const x = X(row);
       if (x < -Lh || x > W + Lh) continue;
       for (let l = 0; l < 6; l++) {
         const y = laneY(l) + Math.sin(now * 3 + l) * Lh * 0.06;
-        const s = Lh * 0.46;
         ctx.save();
         ctx.translate(x, y);
         ctx.rotate(Math.sin(now * 1.6 + l * 0.7) * 0.25);
-        const g = ctx.createLinearGradient(-s / 2, -s / 2, s / 2, s / 2);
-        g.addColorStop(0, "rgba(255,92,26,0.9)");
-        g.addColorStop(0.5, "rgba(224,33,138,0.85)");
-        g.addColorStop(1, "rgba(138,124,255,0.9)");
-        ctx.shadowColor = "rgba(255,92,26,0.6)";
-        ctx.shadowBlur = 14 * dpr;
-        ctx.fillStyle = g;
-        roundRect(ctx, -s / 2, -s / 2, s, s, s * 0.18);
-        ctx.fill();
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "#fff";
-        ctx.font = `700 ${s * 0.7}px "Helvetica Neue", Arial, sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("?", 0, s * 0.04);
+        ctx.drawImage(box, -box.width / 2, -box.height / 2);
         ctx.restore();
       }
     }
-    ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
 
     // potholes: a hazard across the road
     for (const tr of race.traps) {
@@ -670,6 +656,36 @@ class View {
       ctx.fillStyle = "rgba(6,6,9,0.55)";
       ctx.fillRect(0, 0, W, H);
     }
+  }
+
+  private boxArt: HTMLCanvasElement | null = null;
+
+  /** the item box, with its glow, rendered once per size */
+  private box(s: number, dpr: number): HTMLCanvasElement {
+    const pad = Math.ceil(16 * dpr);
+    const size = Math.ceil(s) + pad * 2;
+    if (this.boxArt && this.boxArt.width === size) return this.boxArt;
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const g = c.getContext("2d")!;
+    g.translate(size / 2, size / 2);
+    const grad = g.createLinearGradient(-s / 2, -s / 2, s / 2, s / 2);
+    grad.addColorStop(0, "rgba(255,92,26,0.9)");
+    grad.addColorStop(0.5, "rgba(224,33,138,0.85)");
+    grad.addColorStop(1, "rgba(138,124,255,0.9)");
+    g.shadowColor = "rgba(255,92,26,0.6)";
+    g.shadowBlur = 14 * dpr;
+    g.fillStyle = grad;
+    roundRect(g, -s / 2, -s / 2, s, s, s * 0.18);
+    g.fill();
+    g.shadowBlur = 0;
+    g.fillStyle = "#fff";
+    g.font = `700 ${s * 0.7}px "Helvetica Neue", Arial, sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("?", 0, s * 0.04);
+    this.boxArt = c;
+    return c;
   }
 
   /** an arrow at the screen edge for runners out of view */

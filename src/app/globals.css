@@ -5309,9 +5309,7 @@ main { position: relative; z-index: 3; }
   width: 118px;
   padding: 12px 10px 10px;
   border: 1px solid rgba(239, 234, 225, 0.18);
-  background: rgba(8, 8, 12, 0.72);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  background: rgba(8, 8, 12, 0.82);
   pointer-events: none;
 }
 .rc-slot.is-full { border-color: rgba(255, 92, 26, 0.75); box-shadow: 0 0 24px rgba(255, 92, 26, 0.25); }
@@ -5481,6 +5479,9 @@ main { position: relative; z-index: 3; }
 .rca { margin-top: clamp(64px, 9vw, 110px); }
 .rca-filter { margin-bottom: 18px; }
 .rca-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+@media (min-width: 1280px) {
+  .rca-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
 .rca-card {
   --kc: #5ee0c0;
   display: grid;
@@ -5514,10 +5515,11 @@ main { position: relative; z-index: 3; }
 .rca-rows div { display: grid; grid-template-columns: 62px minmax(0, 1fr); gap: 10px; }
 .rca-rows dt { padding-top: 2px; font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--bone-dim); }
 .rca-rows dd { margin: 0; font-size: 13px; line-height: 1.55; color: #bdb6ab; }
-.rca-odds { display: flex; gap: 14px; padding-top: 12px; border-top: 1px solid rgba(74, 69, 62, 0.35); }
-.rca-odds span { display: inline-flex; align-items: flex-end; gap: 6px; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); }
-.rca-odds i { display: block; width: 6px; height: 18px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
-.rca-odds b { display: block; width: 100%; height: 100%; background: var(--kc); transform-origin: bottom; }
+.rca-odds { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding-top: 12px; border-top: 1px solid rgba(74, 69, 62, 0.35); }
+.rca-odds span { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); }
+.rca-odds b { margin-left: 3px; font-weight: 500; font-size: 11px; letter-spacing: 0; color: var(--bone-soft); font-variant-numeric: tabular-nums; }
+.rca-odds .is-top b { color: var(--kc); }
+.rca-odds-label { flex-basis: 100%; }
 
 /* modes, fair play, gear */
 .rcm { margin-top: clamp(64px, 9vw, 110px); }
@@ -5560,7 +5562,7 @@ main { position: relative; z-index: 3; }
   .rcs li:nth-child(n + 3) { margin-top: 22px; }
   .rcm-grid { grid-template-columns: minmax(0, 1fr); }
   .rcm-grid li:not(:nth-child(3n + 1)) { padding-left: 0; border-left: 0; }
-  .nxo-steps li { grid-template-columns: 96px minmax(0, 1fr); }
+  .nxo-steps li { grid-template-columns: 96px minmax(0, 1fr); row-gap: 4px; }
   .nxo-sl { grid-column: 2; }
 }
 @media (max-width: 640px) {

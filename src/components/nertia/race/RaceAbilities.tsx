@@ -68,13 +68,11 @@ export default function RaceAbilities() {
                 </div>
               ) : null}
             </dl>
-            <div className="rca-odds" aria-label={`Box odds: ${BUCKETS.map((b, i) => `${b.toLowerCase()} ${Math.round(odds[i] * 100)}%`).join(", ")}`}>
+            <div className="rca-odds">
+              <span className="rca-odds-label">Box odds</span>
               {BUCKETS.map((b, i) => (
-                <span key={b}>
-                  <i>
-                    <b style={{ transform: `scaleY(${Math.min(1, odds[i] / 0.14)})` }} />
-                  </i>
-                  {b}
+                <span key={b} className={odds[i] === Math.max(...odds) && odds[i] > 0 ? "is-top" : undefined}>
+                  {b} <b>{odds[i] > 0 ? `${Math.max(1, Math.round(odds[i] * 100))}%` : "—"}</b>
                 </span>
               ))}
             </div>

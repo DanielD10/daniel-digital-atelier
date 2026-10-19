@@ -50,7 +50,8 @@ src/
 │   ├── sitemap.ts            Generated from lib/projects.ts
 │   ├── opengraph-image.tsx   Social share card, generated at build
 │   ├── icon.tsx              Favicon, generated at build
-│   ├── work/nertia/page.tsx  NERTIA case study: the AR prototype, shop and sheets
+│   ├── work/nertia/          NERTIA's own section: layout + section bar,
+│   │                         overview, ar/, effects/, race/, shop/
 │   ├── work/[slug]/page.tsx  The other case studies
 │   ├── lab/page.tsx          The studio in 3D
 │   ├── api/contact/route.ts  Enquiry endpoint
@@ -74,6 +75,8 @@ src/
 │   │   ├── runner.ts         The procedural demo runner
 │   │   ├── tracker.ts        MediaPipe pose → effect emitters
 │   │   ├── NertiaShop.tsx    Storefront and product panel
+│   │   ├── NertiaNav.tsx     The section bar (tabs live in tabs.ts)
+│   │   ├── race/             NERTIA Race: engine, playable view, abilities
 │   │   └── NertiaLookbook.tsx Product sheets with hotspots
 │   └── ...
 ├── lib/
@@ -82,6 +85,7 @@ src/
 │   ├── nertia-cards.ts       The effect set: rarities, types, seeded pulls
 │   ├── nertia-collection.ts  Which cards this browser has pulled
 │   ├── nertia-shop.ts        NERTIA catalog, pack pieces, previews
+│   ├── nertia-race.ts        Race abilities, modes and fair-play rules
 │   ├── contact-schema.ts     Validation shared by client and server
 │   ├── rate-limit.ts         Fixed-window limiter
 │   └── site.ts               Name, description, canonical URL resolution
