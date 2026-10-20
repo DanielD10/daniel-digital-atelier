@@ -117,7 +117,7 @@ export default function LuxeCase() {
           </div>
           <div>
             <dt>Real photos</dt>
-            <dd>113</dd>
+            <dd>128</dd>
           </div>
           <div>
             <dt>Home airports</dt>
