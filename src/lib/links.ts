@@ -3,4 +3,4 @@
  * NEXT_PUBLIC_LUXE_URL once it has a custom domain; until then this
  * points at its Vercel address.
  */
-export const LUXE_URL = (process.env.NEXT_PUBLIC_LUXE_URL || "https://luxe-danield10.vercel.app").replace(/\/$/, "");
+export const LUXE_URL = (process.env.NEXT_PUBLIC_LUXE_URL || "https://luxe-six-chi.vercel.app").replace(/\/$/, "");
