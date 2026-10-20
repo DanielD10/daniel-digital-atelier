@@ -735,10 +735,11 @@ main { position: relative; z-index: 3; }
 }
 
 .art-luxe {
-  /* the app's opening screen: Atacama at dusk */
+  /* LUXE's opening photo: overwater villas, Noonu Atoll, Maldives.
+     Ishan @seefromthesky / Unsplash */
   background:
-    linear-gradient(180deg, rgba(5, 4, 4, 0.1), rgba(5, 4, 4, 0.35)),
-    url("/images/projects/luxe.webp") 62% 40% / cover no-repeat,
+    linear-gradient(180deg, rgba(5, 4, 4, 0.1), rgba(5, 4, 4, 0.4)),
+    url("/images/projects/luxe-art.webp") 55% 45% / cover no-repeat,
     #080706;
 }
 .art-nexus {

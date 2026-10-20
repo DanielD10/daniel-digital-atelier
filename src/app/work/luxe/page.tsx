@@ -104,7 +104,7 @@ export default function LuxeCase() {
               src="/images/projects/luxe.webp"
               alt="LUXE's home page: an aerial photo of overwater villas in the Maldives under the headline Places worth the flight."
               width={1600}
-              height={740}
+              height={1099}
             />
             <figcaption className="micro">Home · the live site</figcaption>
           </figure>
