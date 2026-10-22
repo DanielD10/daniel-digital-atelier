@@ -1,7 +1,6 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
 import EarthVeil from "./EarthVeil";
 
 /**
@@ -23,37 +22,27 @@ const EarthGlobe = dynamic(() => import("./EarthGlobe"), { ssr: false });
 
 export default function HeroBackdrop() {
   /**
-   * And the real globe waits for a gap.
+   * The real globe loads immediately. It used to wait for a
+   * requestIdleCallback gap, which read beautifully on paper —
+   * nothing competing with first paint — and was wrong.
    *
-   * It is decorative, it is behind the text, and there is already
-   * a planet drawn under it — so there is no reason for three.js
-   * and four textures to be competing with first paint and
-   * hydration for the main thread. Measured on the home page
-   * before this: twenty-six long tasks, 8.6 seconds of them, the
-   * worst a single 1.4-second block. Held back to the first idle
-   * gap, with a timeout so a page that never goes idle still gets
-   * its globe.
+   * Measured against the build before it: the planet went from
+   * being on screen at 1034ms to 2321ms. Over a second of extra
+   * waiting, spent looking at the stand-in, to buy main-thread
+   * headroom that first paint did not actually need; blocking
+   * before paint is 0ms either way. The globe is the first thing
+   * anyone sees on this site, so it arrives as fast as it can.
+   *
+   * What genuinely cost something was never the loading. It was
+   * EarthVeil continuing to draw after this took over, which is
+   * fixed in EarthVeil itself and is independent of when the
+   * globe mounts.
    */
-  const [lift, setLift] = useState(false);
-  useEffect(() => {
-    type Idle = {
-      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number;
-      cancelIdleCallback?: (h: number) => void;
-    };
-    const w = window as unknown as Idle;
-    if (w.requestIdleCallback) {
-      const h = w.requestIdleCallback(() => setLift(true), { timeout: 2500 });
-      return () => w.cancelIdleCallback?.(h);
-    }
-    const h = window.setTimeout(() => setLift(true), 1200);
-    return () => window.clearTimeout(h);
-  }, []);
-
   return (
     <div className="space-layer" aria-hidden="true">
       <div className="veil">
         <EarthVeil />
-        {lift ? <EarthGlobe /> : null}
+        <EarthGlobe />
       </div>
     </div>
   );

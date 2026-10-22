@@ -46,7 +46,14 @@ import { landmasses } from "@/lib/landmasses";
 
 const SPIN_PERIOD_MS = 90_000; // one full turn every 90s — visibly live
 const DEG = Math.PI / 180;
-const FRAME_MS = 1000 / 30; // a 90s rotation does not need 60fps
+/**
+ * Full rate. This was capped to 30fps on the theory that a 90-second
+ * rotation could not tell the difference. It can: this is the planet
+ * you look at while the real globe loads, and at half rate it reads
+ * as a stutter on the first thing anyone sees. The cap saved very
+ * little anyway — the cost was the per-frame shadowBlur and the
+ * gradients, both of which are gone.
+ */
 const SUN_TTL_MS = 30_000; // the sun moves 15deg an hour
 
 /** Sub-solar point: the lat/lon where the sun is directly overhead. */
@@ -172,7 +179,6 @@ export default function EarthVeil() {
     let sun = { lat: 0, lon: 0 };
     let sunAt = -Infinity;
 
-    let last = -Infinity;
     let ticks = 0;
     let poll = 0;
 
@@ -270,7 +276,6 @@ export default function EarthVeil() {
         poll = 0;
         if (running || document.hidden) return;
         running = true;
-        last = -Infinity;
         resize();
         frame = requestAnimationFrame(draw);
       }, 1000);
@@ -278,17 +283,6 @@ export default function EarthVeil() {
 
     function draw(time: number) {
       if (!running) return;
-
-      /**
-       * Hold to 30fps. One rotation takes 90 seconds; at that speed
-       * the difference between 30 and 60 is invisible and the cost is
-       * exactly half.
-       */
-      if (time - last < FRAME_MS) {
-        frame = requestAnimationFrame(draw);
-        return;
-      }
-      last = time;
 
       /**
        * Are we still on screen?
@@ -485,7 +479,6 @@ export default function EarthVeil() {
           return;
         }
         running = true;
-        last = -Infinity;
         frame = requestAnimationFrame(draw);
       }
     };
