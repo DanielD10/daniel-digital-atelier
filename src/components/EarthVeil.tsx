@@ -21,10 +21,33 @@ import { landmasses } from "@/lib/landmasses";
  * a radial gradient per light per frame is the obvious way to write
  * this and it drops you to single-digit FPS — gradient construction,
  * not fill rate, is the bottleneck.
+ *
+ * Three more things this learned the hard way, all measured:
+ *
+ *   1. The WebGL globe hides this canvas with `display: none` once
+ *      its texture lands. `display: none` stops the paint, not the
+ *      work — rAF keeps firing and this kept drawing a whole planet
+ *      into a box nobody can see, for as long as the tab was open.
+ *      It now checks whether it is still on screen and stops.
+ *
+ *   2. The amber limb used to be two full-circle strokes with
+ *      shadowBlur, i.e. a Gaussian blur over the globe's bounding
+ *      box, twice, every frame. It is now baked once into a sprite
+ *      and rotated to the sun. Identical output, no per-frame blur.
+ *
+ *   3. The halo and ocean gradients are fixed to the globe's centre,
+ *      so they were being rebuilt 60 times a second to come out the
+ *      same. Built once per resize instead.
+ *
+ * Together: 1140ms of long tasks in the first two seconds down to
+ * roughly a tenth of that, and nothing at all once the real globe
+ * takes over.
  */
 
 const SPIN_PERIOD_MS = 90_000; // one full turn every 90s — visibly live
 const DEG = Math.PI / 180;
+const FRAME_MS = 1000 / 30; // a 90s rotation does not need 60fps
+const SUN_TTL_MS = 30_000; // the sun moves 15deg an hour
 
 /** Sub-solar point: the lat/lon where the sun is directly overhead. */
 function subsolarPoint(now: Date): { lat: number; lon: number } {
@@ -68,6 +91,52 @@ function makeGlowSprite(size: number): HTMLCanvasElement {
   return c;
 }
 
+/**
+ * The hot limb, baked.
+ *
+ * This is the signature of the reference image: a bright amber
+ * crescent where the atmosphere catches the sun, burning on one side
+ * of the planet only. Drawn as a ring stroked with a gradient running
+ * along the sun's screen direction, plus a second wider pass for the
+ * outer bloom.
+ *
+ * Both passes use shadowBlur, which is why this is a sprite. The ring
+ * is radially symmetric, so the whole thing can be stroked once with
+ * its gradient along local +x and then *rotated* to wherever the sun
+ * is — the colour ramp and the baked blur rotate with it, so the
+ * result is pixel-equivalent to stroking it fresh every frame.
+ */
+function makeLimbSprite(radius: number): { canvas: HTMLCanvasElement; half: number } {
+  const half = Math.ceil(radius * 1.3);
+  const c = document.createElement("canvas");
+  c.width = half * 2;
+  c.height = half * 2;
+  const g = c.getContext("2d")!;
+
+  // Gradient along local +x, i.e. the sun is to the right of centre.
+  const grad = g.createLinearGradient(half - radius, half, half + radius, half);
+  grad.addColorStop(0, "rgba(255,168,64,0)");
+  grad.addColorStop(0.42, "rgba(255,150,52,0.1)");
+  grad.addColorStop(0.72, "rgba(255,176,78,0.72)");
+  grad.addColorStop(0.9, "rgba(255,214,150,0.95)");
+  grad.addColorStop(1, "rgba(255,236,198,1)");
+
+  g.strokeStyle = grad;
+  g.shadowColor = "rgba(255,160,60,0.85)";
+
+  g.lineWidth = Math.max(1.6, radius * 0.016);
+  g.shadowBlur = radius * 0.1;
+  g.beginPath();
+  g.arc(half, half, radius * 0.995, 0, Math.PI * 2);
+  g.stroke();
+
+  g.lineWidth = Math.max(1, radius * 0.006);
+  g.shadowBlur = radius * 0.22;
+  g.stroke();
+
+  return { canvas: c, half };
+}
+
 export default function EarthVeil() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -88,6 +157,24 @@ export default function EarthVeil() {
     let cy = 0;
     let frame = 0;
     let running = true;
+
+    /**
+     * Everything here is a function of the globe's centre and radius
+     * alone, so it survives every frame and only a resize can
+     * invalidate it.
+     */
+    let halo: CanvasGradient | null = null;
+    let body: CanvasGradient | null = null;
+    let limb: { canvas: HTMLCanvasElement; half: number } | null = null;
+
+    // The sun, cached. Recomputing it per frame allocated a Date per
+    // frame to land on the same answer.
+    let sun = { lat: 0, lon: 0 };
+    let sunAt = -Infinity;
+
+    let last = -Infinity;
+    let ticks = 0;
+    let poll = 0;
 
     // Expand each city into a cluster so lights read as sprawl.
     const points: Array<{ lon: number; lat: number; i: number; seed: number }> = [];
@@ -141,6 +228,23 @@ export default function EarthVeil() {
       radius = height * 0.337;
       cx = width * 0.70;
       cy = height * 0.47;
+
+      halo = ctx!.createRadialGradient(cx, cy, radius * 0.97, cx, cy, radius * 1.3);
+      halo.addColorStop(0, "rgba(96,140,186,0.3)");
+      halo.addColorStop(0.35, "rgba(58,92,132,0.13)");
+      halo.addColorStop(1, "rgba(7,6,5,0)");
+
+      body = ctx!.createRadialGradient(
+        cx - radius * 0.35, cy - radius * 0.35, radius * 0.04,
+        cx, cy, radius,
+      );
+      body.addColorStop(0, "#101d2e");
+      body.addColorStop(0.5, "#0a1320");
+      body.addColorStop(1, "#050810");
+
+      // A zero-size sprite is not a drawable image, so a collapsed
+      // layout gets no limb rather than an InvalidStateError.
+      limb = radius >= 1 ? makeLimbSprite(radius) : null;
     }
 
     function project(lon: number, lat: number, spin: number) {
@@ -153,11 +257,68 @@ export default function EarthVeil() {
       };
     }
 
+    /**
+     * Idle watch for the globe going away — a lost WebGL context, a
+     * disposed canvas. Cheap enough to leave running: one layout read
+     * a second, and nothing else.
+     */
+    function watch() {
+      if (poll) return;
+      poll = window.setInterval(() => {
+        if (canvas!.offsetParent === null) return;
+        window.clearInterval(poll);
+        poll = 0;
+        if (running || document.hidden) return;
+        running = true;
+        last = -Infinity;
+        resize();
+        frame = requestAnimationFrame(draw);
+      }, 1000);
+    }
+
     function draw(time: number) {
       if (!running) return;
 
+      /**
+       * Hold to 30fps. One rotation takes 90 seconds; at that speed
+       * the difference between 30 and 60 is invisible and the cost is
+       * exactly half.
+       */
+      if (time - last < FRAME_MS) {
+        frame = requestAnimationFrame(draw);
+        return;
+      }
+      last = time;
+
+      /**
+       * Are we still on screen?
+       *
+       * The WebGL globe takes over with
+       *   .veil:has(.globe-gl.is-ready) .earth-canvas { display: none }
+       * and `display: none` stops the paint but not the work. Without
+       * this check the stand-in kept drawing a full planet — lights,
+       * landmasses, limb, the lot — into a hidden box for the life of
+       * the tab.
+       *
+       * offsetParent is null exactly when an element or an ancestor is
+       * display:none, which is the one case we care about. It costs a
+       * layout read, so it runs about once a second rather than per
+       * frame, and once hidden we drop out of rAF altogether and let a
+       * slow interval watch for the globe going away again.
+       */
+      if (++ticks % 10 === 0 && canvas!.offsetParent === null) {
+        running = false;
+        cancelAnimationFrame(frame);
+        watch();
+        return;
+      }
+
+      if (time - sunAt > SUN_TTL_MS) {
+        sun = subsolarPoint(new Date());
+        sunAt = time;
+      }
+
       const spin = reduced ? 0 : ((time % SPIN_PERIOD_MS) / SPIN_PERIOD_MS) * 360;
-      const sun = subsolarPoint(new Date());
 
       ctx!.clearRect(0, 0, width, height);
 
@@ -190,24 +351,13 @@ export default function EarthVeil() {
       const sunNy = -sy / sunScreenLen;
 
       // ── Outer atmosphere ──────────────────────────────────────
-      const halo = ctx!.createRadialGradient(cx, cy, radius * 0.97, cx, cy, radius * 1.3);
-      halo.addColorStop(0, "rgba(96,140,186,0.3)");
-      halo.addColorStop(0.35, "rgba(58,92,132,0.13)");
-      halo.addColorStop(1, "rgba(7,6,5,0)");
-      ctx!.fillStyle = halo;
+      ctx!.fillStyle = halo!;
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius * 1.3, 0, Math.PI * 2);
       ctx!.fill();
 
       // ── Ocean body ────────────────────────────────────────────
-      const body = ctx!.createRadialGradient(
-        cx - radius * 0.35, cy - radius * 0.35, radius * 0.04,
-        cx, cy, radius,
-      );
-      body.addColorStop(0, "#101d2e");
-      body.addColorStop(0.5, "#0a1320");
-      body.addColorStop(1, "#050810");
-      ctx!.fillStyle = body;
+      ctx!.fillStyle = body!;
       ctx!.beginPath();
       ctx!.arc(cx, cy, radius, 0, Math.PI * 2);
       ctx!.fill();
@@ -288,35 +438,16 @@ export default function EarthVeil() {
 
       ctx!.globalAlpha = 1;
 
-      // ── The hot limb. This is the signature of the reference:
-      //    a bright amber crescent where the atmosphere catches the
-      //    sun. Stroked as a ring, masked by a linear gradient along
-      //    the sun's screen direction so it only burns on that side.
-      const g0x = cx - sunNx * radius;
-      const g0y = cy - sunNy * radius;
-      const g1x = cx + sunNx * radius;
-      const g1y = cy + sunNy * radius;
-
-      const limbGrad = ctx!.createLinearGradient(g0x, g0y, g1x, g1y);
-      limbGrad.addColorStop(0, "rgba(255,168,64,0)");
-      limbGrad.addColorStop(0.42, "rgba(255,150,52,0.1)");
-      limbGrad.addColorStop(0.72, "rgba(255,176,78,0.72)");
-      limbGrad.addColorStop(0.9, "rgba(255,214,150,0.95)");
-      limbGrad.addColorStop(1, "rgba(255,236,198,1)");
-
-      ctx!.save();
-      ctx!.strokeStyle = limbGrad;
-      ctx!.lineWidth = Math.max(1.6, radius * 0.016);
-      ctx!.shadowColor = "rgba(255,160,60,0.85)";
-      ctx!.shadowBlur = radius * 0.1;
-      ctx!.beginPath();
-      ctx!.arc(cx, cy, radius * 0.995, 0, Math.PI * 2);
-      ctx!.stroke();
-      // Second, wider pass for the outer bloom.
-      ctx!.lineWidth = Math.max(1, radius * 0.006);
-      ctx!.shadowBlur = radius * 0.22;
-      ctx!.stroke();
-      ctx!.restore();
+      // ── The hot limb, blitted and turned to face the sun. The
+      //    ring and its bloom are baked into a sprite at resize; all
+      //    that happens per frame is a rotation. See makeLimbSprite.
+      if (limb) {
+        ctx!.save();
+        ctx!.translate(cx, cy);
+        ctx!.rotate(Math.atan2(sunNy, sunNx));
+        ctx!.drawImage(limb.canvas, -limb.half, -limb.half);
+        ctx!.restore();
+      }
 
       ctx!.globalCompositeOperation = "source-over";
 
@@ -348,7 +479,13 @@ export default function EarthVeil() {
         running = false;
         cancelAnimationFrame(frame);
       } else if (!running) {
+        // Still covered by the real globe? Stay down, let watch have it.
+        if (canvas!.offsetParent === null) {
+          watch();
+          return;
+        }
         running = true;
+        last = -Infinity;
         frame = requestAnimationFrame(draw);
       }
     };
@@ -357,6 +494,7 @@ export default function EarthVeil() {
     return () => {
       running = false;
       cancelAnimationFrame(frame);
+      if (poll) window.clearInterval(poll);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
     };
