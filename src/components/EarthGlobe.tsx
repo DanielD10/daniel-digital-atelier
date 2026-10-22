@@ -175,11 +175,12 @@ export default function EarthGlobe() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 }, uAspect: { value: 1 } },
+      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 }, uAspect: { value: 1 }, uTravel: { value: 0 } },
       vertexShader: `
         attribute float aSize;
         uniform float uWarp;
         uniform float uAspect;
+        uniform float uTravel;
         varying float vFade;
         varying float vSeed;
         varying float vWarp;
@@ -187,7 +188,17 @@ export default function EarthGlobe() {
         varying float vStretch;
 
         void main() {
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          /* The stars stream toward you on the GPU.
+             This used to be a CPU loop over all 5200 of them every
+             frame, followed by needsUpdate — which re-uploaded the
+             whole 62kb position buffer, sixty times a second, for as
+             long as the page was open. Now the travelled distance is
+             one float and the wrap happens here. The span matches the
+             old bounds exactly: z runs to 2 and restarts at -420. */
+          vec3 sp = position;
+          sp.z = mod(sp.z + uTravel + 420.0, 422.0) - 420.0;
+
+          vec4 mv = modelViewMatrix * vec4(sp, 1.0);
           float d = -mv.z;
           vFade = smoothstep(0.0, 60.0, d) * (1.0 - smoothstep(260.0, 420.0, d));
           vSeed = aSize;
@@ -516,6 +527,9 @@ export default function EarthGlobe() {
 
     const clock = new THREE.Timer();
     let elapsed = 0;
+    let starTravel = 0;
+    const sunFixed = new THREE.Vector3();
+    let sunAt = -Infinity;
 
     function animate() {
       if (disposed) return;
@@ -534,14 +548,10 @@ export default function EarthGlobe() {
         if (warp < 0.0004) warp = 0;
         const w = warp * warp * (3 - 2 * warp);
 
-        const pos = starGeo.attributes.position as THREE.BufferAttribute;
-        const arr = pos.array as Float32Array;
-        const speed = (BASE_SPEED + WARP_SPEED * w) * dt;
-        for (let i = 2; i < arr.length; i += 3) {
-          arr[i] += speed;
-          if (arr[i] > 2) arr[i] = -420;
-        }
-        pos.needsUpdate = true;
+        // One number instead of a buffer. Kept wrapped at the span so
+        // it never grows large enough to lose float precision.
+        starTravel = (starTravel + (BASE_SPEED + WARP_SPEED * w) * dt) % 422;
+        starMat.uniforms.uTravel.value = starTravel;
         starMat.uniforms.uWarp.value = w;
 
         // Widening the lens as the stars accelerate: the planet
@@ -570,9 +580,18 @@ export default function EarthGlobe() {
        * Done this way the terminator stays locked to real geography
        * however the globe is turned.
        */
-      uniforms.uSun.value
-        .copy(sunDirection(new Date()))
-        .applyQuaternion(earth.quaternion);
+      /* The sun's own direction is recomputed twice a minute, not
+         sixty times a second. It moves 15 degrees an hour, so a frame
+         could never show the difference — and a Date allocated every
+         frame is the kind of steady garbage that shows up as stutter
+         rather than as cost. The rotation into world space still
+         happens per frame, which is what keeps the terminator locked
+         to real geography while the planet turns. */
+      if (elapsed - sunAt > 30) {
+        sunFixed.copy(sunDirection(new Date()));
+        sunAt = elapsed;
+      }
+      uniforms.uSun.value.copy(sunFixed).applyQuaternion(earth.quaternion);
 
       renderer.render(scene, camera);
     }
