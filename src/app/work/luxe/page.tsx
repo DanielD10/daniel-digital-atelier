@@ -105,6 +105,16 @@ export default function LuxeCase() {
               alt="LUXE's home page: an aerial photo of overwater villas in the Maldives under the headline Places worth the flight."
               width={1600}
               height={1099}
+              /* Lazy because of where this image gets fetched from.
+                 The home page prefetches this route, and React
+                 preloads the heroes it finds in the payload — so every
+                 visitor to the front page downloaded 112kb of Maldives
+                 they never saw, and Chrome logged it as a preload that
+                 went unused. Lazy keeps it out of that prefetch. It
+                 sits in the viewport on this page, so it is discovered
+                 and fetched immediately on arrival either way. */
+              loading="lazy"
+              decoding="async"
             />
             <figcaption className="micro">Home · the live site</figcaption>
           </figure>

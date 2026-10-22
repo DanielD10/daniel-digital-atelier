@@ -94,6 +94,10 @@ export default function NertiaOverview() {
             alt="Drop 001 lineup: runners in iridescent NERTIA singlets and shorts across the seven finishes."
             width={976}
             height={670}
+            /* Same reason as the LUXE hero: the front page prefetches
+               this route and was preloading this with it. */
+            loading="lazy"
+            decoding="async"
           />
           <figcaption className="micro">Drop 001 · The Liquid Series</figcaption>
         </figure>
