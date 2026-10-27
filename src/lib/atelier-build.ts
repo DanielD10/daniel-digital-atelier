@@ -3327,7 +3327,7 @@ export function buildRoom(): Built {
   tvLight.position.copy(tvScreenPos).add(new THREE.Vector3(0.25, 0, 0.3));
   root.add(tvLight);
 
-  return {
+  const roomBuilt: Built = {
     root,
     screen: {
       position: new THREE.Vector3(0, screenY, screenZ + 0.002),
@@ -3394,5 +3394,209 @@ export function buildRoom(): Built {
       for (const d of disposables) d.dispose();
     },
   };
+
+  foldStatics(roomBuilt, root, disposables);
+  return roomBuilt;
+}
+
+/**
+ * Collapse the room's static scenery into as few draws as it can be.
+ *
+ * The room is modelled as hundreds of separate little objects, and
+ * the GPU is charged per object, not per triangle — 823 of them is
+ * 3,103 draw calls once the two shadow passes and the bloom pass have
+ * each walked the room again, for only 144k triangles. That is the
+ * whole reason the lab is heavy.
+ *
+ * Two passes, neither of which changes a single pixel:
+ *
+ *   1. Share materials that are already identical. 275 material
+ *      objects in here describe only 142 distinct appearances — the
+ *      same oak, the same matte black, built fresh at each call
+ *      site. Meshes pointing at a duplicate are repointed at one
+ *      canonical copy.
+ *
+ *   2. Weld everything that then shares a material into one mesh per
+ *      material, with each object's transform baked into its own
+ *      copy of the geometry.
+ *
+ * This is deliberately timid about what it will touch. Anything the
+ * room hands back to the renderer can be animated, raycast, recoloured
+ * or swapped by season, so every object reachable from the returned
+ * handles is left exactly as it was, as is anything carrying a name
+ * (names are how clicks find their target), anything whose material is
+ * animated, and anything with a material array.
+ *
+ * What is left is scenery that will never move or be addressed again,
+ * and that is safe to fuse.
+ */
+function foldStatics(
+  built: Built,
+  root: THREE.Group,
+  disposables: Array<{ dispose: () => void }>,
+) {
+  /* Everything reachable from the returned handles, and every
+     material they use, is off limits. Walk the object rather than
+     listing its fields, so a handle added later is protected
+     automatically instead of silently becoming mergeable. */
+  const liveObjects = new Set<THREE.Object3D>();
+  const liveMaterials = new Set<string>();
+  const seen = new Set<unknown>();
+
+  const sweep = (v: unknown, depth = 0) => {
+    if (!v || depth > 6 || seen.has(v)) return;
+    if (typeof v !== "object") return;
+    seen.add(v);
+    const o = v as THREE.Object3D & { material?: THREE.Material | THREE.Material[] };
+    if (o.isObject3D) {
+      o.traverse((d) => {
+        liveObjects.add(d);
+        const m = (d as THREE.Mesh).material;
+        if (m) for (const x of ([] as THREE.Material[]).concat(m)) liveMaterials.add(x.uuid);
+      });
+      return;
+    }
+    if ((v as THREE.Material).isMaterial) {
+      liveMaterials.add((v as THREE.Material).uuid);
+      return;
+    }
+    if (Array.isArray(v)) { for (const x of v) sweep(x, depth + 1); return; }
+    for (const x of Object.values(v as Record<string, unknown>)) sweep(x, depth + 1);
+  };
+  for (const [k, v] of Object.entries(built)) if (k !== "root") sweep(v);
+
+  const protectedMesh = (m: THREE.Mesh): boolean => {
+    if (Array.isArray(m.material) || !m.material) return true;
+    if (liveMaterials.has(m.material.uuid)) return true;
+    for (let a: THREE.Object3D | null = m; a; a = a.parent) {
+      if (liveObjects.has(a)) return true;
+      if (a !== m && a.name) return true;
+      if (a === root) break;
+    }
+    return !!m.name;
+  };
+
+  /* What matters for welding is whether the MESH is addressed, not
+     whether its material is. A merged mesh keeps the very same
+     material instance, so anything that recolours or animates that
+     material at runtime still reaches it — the fire still pulses, the
+     neon still shifts. A live material only endangers the dedupe step
+     below, where one material gets swapped for another. */
+  const candidates: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    if (Array.isArray(m.material) || !m.material) return;
+    if (m.name) return;
+    for (let a: THREE.Object3D | null = m; a; a = a.parent) {
+      if (liveObjects.has(a)) return;
+      if (a !== m && a.name) return;
+      if (a === root) break;
+    }
+    candidates.push(m);
+  });
+
+  /* Pass 1 — one material per distinct appearance. The signature is
+     everything that reaches the fragment: colour, finish, maps,
+     blending, which side is drawn. A patched material (the fur) keeps
+     to itself, since its shader is rewritten per instance. */
+  const canonical = new Map<string, THREE.Material>();
+  const signature = (m: THREE.Material): string | null => {
+    const s = m as THREE.MeshStandardMaterial & {
+      onBeforeCompile?: unknown;
+      emissiveIntensity?: number;
+    };
+    if (s.onBeforeCompile && s.onBeforeCompile.toString().length > 40) return null;
+    return [
+      m.type,
+      s.color?.getHexString?.() ?? "-",
+      s.roughness ?? "-", s.metalness ?? "-",
+      s.emissive?.getHexString?.() ?? "-", s.emissiveIntensity ?? "-",
+      s.map?.uuid ?? "-", s.normalMap?.uuid ?? "-", s.alphaMap?.uuid ?? "-",
+      s.aoMap?.uuid ?? "-", s.roughnessMap?.uuid ?? "-", s.emissiveMap?.uuid ?? "-",
+      m.transparent ? "t" : "o", m.opacity, m.side, m.blending,
+      m.depthWrite ? "dw" : "-", m.depthTest ? "dt" : "-",
+      s.flatShading ? "fs" : "-", m.vertexColors ? "vc" : "-",
+    ].join("|");
+  };
+
+  for (const mesh of candidates) {
+    const mat = mesh.material as THREE.Material;
+    // Never swap a material something else animates, in either
+    // direction: not away from it, and not onto it.
+    if (liveMaterials.has(mat.uuid)) continue;
+    const sig = signature(mat);
+    if (!sig) continue;
+    const already = canonical.get(sig);
+    if (!already) canonical.set(sig, mat);
+    else if (already !== mat) mesh.material = already;
+  }
+
+  /* Pass 2 — one mesh per material, per parent, per shadow setting.
+     Grouping by parent keeps each run inside the transform it was
+     built against; grouping by the shadow flags keeps anything that
+     deliberately does not cast from starting to. */
+  const groups = new Map<string, THREE.Mesh[]>();
+  for (const mesh of candidates) {
+    if (!mesh.parent) continue;
+    const mat = mesh.material as THREE.Material;
+    const key = [
+      mesh.parent.uuid, mat.uuid,
+      mesh.castShadow ? 1 : 0, mesh.receiveShadow ? 1 : 0,
+      /* Compatibility belongs in the key, not in a check afterwards.
+         mergeGeometries refuses a run whose members disagree about
+         being indexed or about their attribute set, so geometries
+         that could never merge are never grouped together in the
+         first place. */
+      attributeKey(mesh.geometry),
+    ].join("|");
+    const g = groups.get(key);
+    if (g) g.push(mesh);
+    else groups.set(key, [mesh]);
+  }
+
+  for (const run of groups.values()) {
+    if (run.length < 2) continue;
+    const first = run[0];
+    const parts: THREE.BufferGeometry[] = [];
+    let ok = true;
+    for (const m of run) {
+      m.updateMatrix();
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrix);
+      // mergeGeometries needs a matching attribute set across the run.
+      if (parts.length && !sameAttributes(parts[0], g)) { g.dispose(); ok = false; break; }
+      parts.push(g);
+    }
+    if (!ok) { for (const g of parts) g.dispose(); continue; }
+
+    const merged = mergeGeometries(parts, false);
+    for (const g of parts) g.dispose();
+    if (!merged) continue;
+
+    const out = new THREE.Mesh(merged, first.material);
+    out.castShadow = first.castShadow;
+    out.receiveShadow = first.receiveShadow;
+    const parent = first.parent ?? root;
+    for (const m of run) m.parent?.remove(m);
+    parent.add(out);
+    disposables.push(merged);
+  }
+}
+
+/** Everything mergeGeometries insists on agreeing across a run. */
+function attributeKey(g: THREE.BufferGeometry): string {
+  const attrs = Object.keys(g.attributes).sort()
+    .map((k) => {
+      const a = g.attributes[k] as THREE.BufferAttribute;
+      return `${k}:${a.itemSize}:${a.normalized ? 1 : 0}:${a.array.constructor.name}`;
+    })
+    .join(",");
+  const morph = Object.keys(g.morphAttributes ?? {}).sort().join(",");
+  return `${g.index ? "idx" : "raw"};${attrs};${morph}`;
+}
+
+function sameAttributes(a: THREE.BufferGeometry, b: THREE.BufferGeometry): boolean {
+  return attributeKey(a) === attributeKey(b);
 }
 
