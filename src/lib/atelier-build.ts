@@ -380,7 +380,15 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
 /* ── Shape of the room ─────────────────────────────────────── */
 
 const ROOM = { w: 6, h: 3, d: 5, backZ: -2.6, leftX: -3, rightX: 3 };
-const WIN = { x0: -1.7, x1: 1.9, y0: 1.05, y1: 2.45 };
+/* Glazing, not a window.
+   The old aperture was 3.6m x 1.4m punched into a 3m wall — a
+   domestic window, and the city outside was fighting for a third
+   of the back wall. This is 5.1m x 1.91m, running to within 14cm
+   of the ceiling, which is most of what makes the view read the
+   way it does in a penthouse. The bottom stays at 0.95 so the
+   sill is still a sill: the desk is 0.76 and the white cat sits
+   up there. */
+const WIN = { x0: -2.55, x1: 2.55, y0: 0.95, y1: 2.86 };
 const DESK_Y = 0.76;
 const DESK_Z = ROOM.backZ + 0.52;
 
@@ -621,12 +629,17 @@ export function buildRoom(): Built {
     // Low roughness so the neon and the window smear across it.
     // A dry matte floor throws none of the colour back.
     new THREE.MeshStandardMaterial({
-      color: 0x6d5440,
-      roughness: 0.24,
+      /* Darker, harder and far glossier. The city is the only
+         real light source in here at night, and a floor that
+         throws it back is most of what sells the room — the
+         reference is almost entirely floor reflection. */
+      color: 0x2b2533,
+      roughness: 0.12,
       map: woodMap,
       bumpMap: woodMap,
-      bumpScale: 0.4,
-      metalness: 0.22,
+      bumpScale: 0.18,
+      metalness: 0.38,
+      envMapIntensity: 1.7,
     }),
   );
   const deskMat = keep(
@@ -894,10 +907,12 @@ export function buildRoom(): Built {
   add(box(fw + 0.12, 0.07, 0.14), frameMat, cx, WIN.y1 + 0.02, ROOM.backZ);
   add(box(0.07, fh, 0.14), frameMat, WIN.x0 - 0.02, cy, ROOM.backZ);
   add(box(0.07, fh, 0.14), frameMat, WIN.x1 + 0.02, cy, ROOM.backZ);
-  for (const mx of [WIN.x0 + fw / 3, WIN.x0 + (2 * fw) / 3]) {
-    add(box(0.05, fh, 0.1), frameMat, mx, cy, ROOM.backZ);
+  /* Five tall panes and no mid-rail. A horizontal bar across the
+     middle is the thing that makes glazing read as a window cut
+     into a wall rather than as a glass wall. */
+  for (let i = 1; i < 5; i++) {
+    add(box(0.05, fh, 0.1), frameMat, WIN.x0 + (fw * i) / 5, cy, ROOM.backZ);
   }
-  add(box(fw, 0.05, 0.1), frameMat, cx, cy, ROOM.backZ);
   add(box(fw + 0.3, 0.06, 0.3), deskMat, cx, WIN.y0 - 0.05, ROOM.backZ + 0.11);
 
   /**
@@ -2720,7 +2735,7 @@ export function buildRoom(): Built {
           // The glow the city throws back into its own air.
           col += vec3(0.72, 0.26, 0.78) * smoothstep(0.78, 0.46, h) * 0.75;
 
-          vec3 haze = mix(ember, orchid, 0.55);
+          vec3 haze = mix(ember, orchid, 0.72) * 0.72;
 
           /* Six ranks. Far ranks are many, thin and pale; near ranks
              few, wide and almost black, with their windows resolved. */
@@ -2759,7 +2774,7 @@ export function buildRoom(): Built {
 
               float wh = hash21(wi + id * 17.0 + fi * 101.0);
               // Occupancy falls off with height, as it does at night.
-              float occ = 0.22 + 0.30 * smoothstep(top, base, h);
+              float occ = 0.15 + 0.26 * smoothstep(top, base, h);
               if (pane > 0.5 && wh < occ) {
                 float t = hash11(wh * 91.0);
                 vec3 lamp = t > 0.80 ? vec3(0.35, 0.92, 1.00)
@@ -2770,12 +2785,12 @@ export function buildRoom(): Built {
                 // A handful blink over on their own clock.
                 float live = hash11(wh * 50.0) > 0.94
                   ? step(0.5, fract(uTime * 0.25 + wh * 10.0)) : 1.0;
-                col += lamp * (0.95 - near * 0.25) * live;
+                col += lamp * (0.88 - near * 0.22) * live;
               }
 
               // Crown band on the taller towers.
-              if (h > top - 0.006 && rh > 0.55) {
-                col += mix(vec3(0.3, 0.9, 1.0), vec3(1.0, 0.3, 0.7), hash11(id * 5.0)) * 0.9;
+              if (h > top - 0.005 && rh > 0.86) {
+                col += mix(vec3(0.3, 0.9, 1.0), vec3(1.0, 0.3, 0.7), hash11(id * 5.0)) * 0.40;
               }
               // Aircraft warning light.
               if (hash11(id + fi * 7.0) > 0.72 && abs(h - top) < 0.004 && abs(fx - 0.5) < 0.06) {
@@ -2785,7 +2800,7 @@ export function buildRoom(): Built {
               /* Billboards. Big lit panels strapped to the near
                  towers, which is the thing that makes a skyline
                  feel like this city and not just a dense one. */
-              if (fi > 2.0 && hash11(id * 9.7 + fi * 3.0) > 0.62) {
+              if (fi > 1.5 && hash11(id * 9.7 + fi * 3.0) > 0.55) {
                 float by = base + 0.05 + hash11(id * 4.4) * (top - base) * 0.55;
                 float bh2 = 0.055 + hash11(id * 6.2) * 0.10;
                 if (h > by && h < by + bh2 && fx > gap + 0.08 && fx < 1.0 - gap - 0.08) {
@@ -2796,7 +2811,7 @@ export function buildRoom(): Built {
                   vec3 panel = mix(a, bcol, smoothstep(0.1, 0.9, ly + 0.2 * sin(lx * 6.0 + uTime * 0.4)));
                   // Scanlines, so it reads as a screen.
                   panel *= 0.68 + 0.32 * step(0.45, fract(ly * 26.0 - uTime * 0.3));
-                  col = panel * 1.65;
+                  col = panel * 1.9;
                 }
               }
             }
@@ -2816,11 +2831,11 @@ export function buildRoom(): Built {
             float lanesB = step(0.80, fract(uv.x * 150.0 + uTime * 0.42));
             float up = smoothstep(0.004, 0.0, abs(h - road + 0.003));
             float dn = smoothstep(0.004, 0.0, abs(h - road - 0.003));
-            col += vec3(1.0, 0.86, 0.62) * lanesA * up * 1.15;
-            col += vec3(1.0, 0.18, 0.26) * lanesB * dn * 0.95;
+            col += vec3(1.0, 0.86, 0.62) * lanesA * up * 0.55;
+            col += vec3(1.0, 0.18, 0.26) * lanesB * dn * 0.45;
           }
           // The road's own glow spilling onto the air under it.
-          col += vec3(1.0, 0.55, 0.35) * smoothstep(0.022, 0.0, deckd) * 0.16;
+          col += vec3(1.0, 0.42, 0.30) * smoothstep(0.016, 0.0, deckd) * 0.07;
 
           /* Signage: tall thin bars on the near rank, as before but
              taller and with a vertical run of characters suggested
@@ -3412,7 +3427,10 @@ export function buildRoom(): Built {
 
   // Soft fill across the glass. No shadows, but it is what stops
   // the window reading as a hole with a light behind it.
-  const windowFill = new THREE.RectAreaLight(0x8ab0ff, 2.4, fw, fh);
+  /* The city is the light in this room at night, so the window
+     fills it violet rather than the old daylight blue, and harder
+     now there is half a wall of glass to come through. */
+  const windowFill = new THREE.RectAreaLight(0xb07cff, 3.6, fw, fh);
   windowFill.position.set(cx, cy, ROOM.backZ + 0.05);
   windowFill.lookAt(cx, 1.2, 2);
   root.add(windowFill);

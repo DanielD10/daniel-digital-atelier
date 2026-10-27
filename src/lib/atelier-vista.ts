@@ -34,11 +34,18 @@ const BACK_Z = -2.6;
  *
  * Re-derive with scratchpad/cover.mjs if the shot list changes.
  */
+/* Sized off the aperture in atelier-build. These numbers ARE the
+   window: the constants are its width, height and centre, and the
+   per-metre terms are how much wider the view through it gets with
+   depth. The glazing grew to 5.1 x 1.91 centred on 0, 1.905, so
+   these grew with it — generously, since overspill hides behind
+   the wall and a plane that is too small shows daylight at the
+   edges of the frame. */
 const COVER = {
-  w: (d: number) => 3.6 + 4.72 * d,
-  h: (d: number) => 1.4 + 2.43 * d,
-  x: (d: number) => 0.1 + 0.113 * d,
-  y: (d: number) => 1.75 + 0.684 * d,
+  w: (d: number) => 5.2 + 7.0 * d,
+  h: (d: number) => 2.0 + 3.5 * d,
+  x: (d: number) => 0.0 + 0.12 * d,
+  y: (d: number) => 1.9 + 0.70 * d,
 };
 
 export type VistaLayer = {
