@@ -2673,72 +2673,194 @@ export function buildRoom(): Built {
          * from everywhere in the room.
          */
         if (s < 0.5) {
-          // Only above the skyline, and thinner near it.
-          float sky = smoothstep(0.52, 0.82, h);
-          col += starField(uv, 46.0, 0.30, 1.0, 3.0, uTime) * sky * uStars * 0.9;
-          col += starField(uv, 92.0, 0.22, 0.7, 61.0, uTime) * sky * uStars * 0.5;
+          /**
+           * The city, repainted.
+           *
+           * The old one drew three ranks of slabs with between two
+           * and four window columns each, which at any size bigger
+           * than a thumbnail is not a building — it is a handful of
+           * enormous beige rectangles, which is exactly what it
+           * looked like. Everything here is aimed at the opposite:
+           * the eye should find structure at every distance it
+           * looks, from a haze-washed ridge on the horizon down to
+           * individual windows on the tower filling the near pane.
+           *
+           * Depth does the heavy lifting. Six ranks, each one
+           * nearer, darker, wider and more detailed than the one
+           * behind, every rank mixed toward the sky by how far away
+           * it is. That single haze term is most of what turns a row
+           * of flat shapes into miles of city.
+           */
+
+          /* Dusk, graded hot at the horizon and violet overhead.
+             Kept as a mix over whatever the hour supplies, so the
+             time-of-day control still moves it. */
+          vec3 ember  = vec3(1.00, 0.42, 0.26);
+          vec3 orchid = vec3(0.62, 0.22, 0.66);
+          vec3 deep   = vec3(0.06, 0.04, 0.20);
+          vec3 dusk = mix(ember, orchid, smoothstep(0.49, 0.74, h));
+          dusk = mix(dusk, deep, smoothstep(0.82, 1.02, h));
+          col = mix(col, dusk, 0.90);
+
+          /* Cloud decks, lit from beneath the way they are when the
+             sun has just gone. Two octaves is enough at this size. */
+          float deck = fbm(vec2(uv.x * 3.0 + uTime * 0.008, h * 7.0));
+          deck = smoothstep(0.42, 0.88, deck) * smoothstep(0.50, 0.70, h) * smoothstep(0.98, 0.78, h);
+          col = mix(col, mix(vec3(1.0, 0.58, 0.34), vec3(0.40, 0.18, 0.52), smoothstep(0.54, 0.76, h)), deck * 0.6);
+
+          // Stars, only high up and only once the sky has gone dark.
+          float sky = smoothstep(0.62, 0.92, h);
+          col += starField(uv, 46.0, 0.30, 1.0, 3.0, uTime) * sky * uStars * 0.7;
+          col += starField(uv, 92.0, 0.22, 0.7, 61.0, uTime) * sky * uStars * 0.4;
 
           // Moon.
-          float moon = smoothstep(0.022, 0.0, length((uv - vec2(0.76, 0.72)) * vec2(PANE_A, 1.0)));
+          float moon = smoothstep(0.022, 0.0, length((uv - vec2(0.76, 0.78)) * vec2(PANE_A, 1.0)));
           col += vec3(0.86, 0.9, 1.0) * moon * 1.1 * uStars;
 
-          // Three ranks of towers, nearest last and darkest.
-          for (int i = 0; i < 3; i++) {
+          // The glow the city throws back into its own air.
+          col += vec3(0.72, 0.26, 0.78) * smoothstep(0.78, 0.46, h) * 0.75;
+
+          vec3 haze = mix(ember, orchid, 0.55);
+
+          /* Six ranks. Far ranks are many, thin and pale; near ranks
+             few, wide and almost black, with their windows resolved. */
+          for (int i = 0; i < 6; i++) {
             float fi = float(i);
-            // Far rank many and small, near rank few and wide.
-            float cols = 13.0 - fi * 4.0;
+            float near = fi / 5.0;
+            float cols = 34.0 - fi * 5.0;
             float gx = uv.x * cols;
             float id = floor(gx);
             float fx = fract(gx);
-            float top = 0.5 + (0.05 + fi * 0.09) * (0.3 + hash11(id + fi * 23.0) * 1.4);
-            if (fx > 0.08 && fx < 0.92 && h < top) {
-              vec3 slab = mix(vec3(0.13, 0.12, 0.22), vec3(0.03, 0.03, 0.07), fi / 2.0);
+
+            float rh = hash11(id + fi * 23.0);
+            float base = 0.47 + fi * 0.006;
+            float top = base + (0.035 + near * 0.16) * (0.25 + rh * 1.5);
+            // A few in every rank are allowed to be landmarks.
+            top += step(0.93, hash11(id * 3.1 + fi * 7.0)) * (0.06 + near * 0.12);
+
+            float gap = 0.06 + hash11(id * 1.7 + fi) * 0.05;
+            if (fx > gap && fx < 1.0 - gap && h < top) {
+              // Concrete, darker as it comes forward.
+              vec3 slab = mix(vec3(0.11, 0.09, 0.20), vec3(0.008, 0.006, 0.022), near);
+              // Vertical shading across the face gives it a corner.
+              slab *= 0.78 + 0.34 * smoothstep(gap, 1.0 - gap, fx);
               col = slab;
-              // Lit windows, on a grid, most of them out.
-              vec2 wcell = vec2(floor(fx * (2.0 + fi)), floor((top - h) * (62.0 - fi * 13.0)));
-              float wh = hash21(wcell + id * 17.0 + fi * 101.0);
-              if (wh > 0.68) {
-                vec3 warm = wh > 0.93 ? vec3(0.62, 0.86, 1.0) : vec3(1.0, 0.78, 0.45);
-                col += warm * (0.42 + 0.38 * step(0.7, hash11(floor(uTime * 0.4) + wh * 50.0))) * (0.62 - fi * 0.14);
+
+              /* Windows. A real grid with mullions — the single
+                 change that stops this reading as beige confetti.
+                 Finer on the far ranks so they stay as texture
+                 rather than becoming visible rectangles. */
+              float wc = 7.0 + fi * 3.2;
+              float wr = (118.0 - fi * 9.0);
+              vec2 wuv = vec2((fx - gap) / (1.0 - gap * 2.0) * wc, (top - h) * wr);
+              vec2 wi = floor(wuv);
+              vec2 wf = fract(wuv);
+              float pane = step(0.16, wf.x) * step(wf.x, 0.84) * step(0.20, wf.y) * step(wf.y, 0.80);
+
+              float wh = hash21(wi + id * 17.0 + fi * 101.0);
+              // Occupancy falls off with height, as it does at night.
+              float occ = 0.22 + 0.30 * smoothstep(top, base, h);
+              if (pane > 0.5 && wh < occ) {
+                float t = hash11(wh * 91.0);
+                vec3 lamp = t > 0.80 ? vec3(0.35, 0.92, 1.00)
+                          : t > 0.58 ? vec3(1.00, 0.34, 0.80)
+                          : t > 0.40 ? vec3(0.62, 0.48, 1.00)
+                          : t > 0.18 ? vec3(0.55, 0.82, 1.00)
+                                     : vec3(1.00, 0.78, 0.46);
+                // A handful blink over on their own clock.
+                float live = hash11(wh * 50.0) > 0.94
+                  ? step(0.5, fract(uTime * 0.25 + wh * 10.0)) : 1.0;
+                col += lamp * (0.95 - near * 0.25) * live;
               }
-              // Roof beacon on some of them.
-              if (hash11(id + fi * 7.0) > 0.72 && abs(h - top) < 0.004 && abs(fx - 0.5) < 0.08) {
+
+              // Crown band on the taller towers.
+              if (h > top - 0.006 && rh > 0.55) {
+                col += mix(vec3(0.3, 0.9, 1.0), vec3(1.0, 0.3, 0.7), hash11(id * 5.0)) * 0.9;
+              }
+              // Aircraft warning light.
+              if (hash11(id + fi * 7.0) > 0.72 && abs(h - top) < 0.004 && abs(fx - 0.5) < 0.06) {
                 col += vec3(1.0, 0.2, 0.2) * (0.4 + 0.6 * step(0.5, fract(uTime * 0.6)));
               }
+
+              /* Billboards. Big lit panels strapped to the near
+                 towers, which is the thing that makes a skyline
+                 feel like this city and not just a dense one. */
+              if (fi > 2.0 && hash11(id * 9.7 + fi * 3.0) > 0.62) {
+                float by = base + 0.05 + hash11(id * 4.4) * (top - base) * 0.55;
+                float bh2 = 0.055 + hash11(id * 6.2) * 0.10;
+                if (h > by && h < by + bh2 && fx > gap + 0.08 && fx < 1.0 - gap - 0.08) {
+                  float ly = (h - by) / bh2;
+                  float lx = (fx - gap - 0.08) / max(0.001, 1.0 - gap * 2.0 - 0.16);
+                  vec3 a = vec3(0.30, 0.65, 1.00);
+                  vec3 bcol = vec3(1.00, 0.20, 0.62);
+                  vec3 panel = mix(a, bcol, smoothstep(0.1, 0.9, ly + 0.2 * sin(lx * 6.0 + uTime * 0.4)));
+                  // Scanlines, so it reads as a screen.
+                  panel *= 0.68 + 0.32 * step(0.45, fract(ly * 26.0 - uTime * 0.3));
+                  col = panel * 1.65;
+                }
+              }
             }
+
+            // Haze. Everything behind is washed toward the sky.
+            col = mix(col, haze, (1.0 - near) * 0.52 * smoothstep(0.62, 0.42, h));
           }
 
-          // Signage: tall thin bars on the near rank.
-          for (int i = 0; i < 4; i++) {
+          /* The elevated road. One ribbon swinging across the middle
+             distance with headlights running one way and tail lights
+             the other — movement at the centre of a still picture. */
+          float road = 0.505 + 0.022 * sin(uv.x * 4.1 + 1.2) + 0.008 * sin(uv.x * 11.0);
+          float deckd = abs(h - road);
+          if (deckd < 0.007) {
+            col = mix(col, vec3(0.03, 0.02, 0.05), smoothstep(0.007, 0.002, deckd));
+            float lanesA = step(0.72, fract(uv.x * 190.0 - uTime * 0.55));
+            float lanesB = step(0.80, fract(uv.x * 150.0 + uTime * 0.42));
+            float up = smoothstep(0.004, 0.0, abs(h - road + 0.003));
+            float dn = smoothstep(0.004, 0.0, abs(h - road - 0.003));
+            col += vec3(1.0, 0.86, 0.62) * lanesA * up * 1.15;
+            col += vec3(1.0, 0.18, 0.26) * lanesB * dn * 0.95;
+          }
+          // The road's own glow spilling onto the air under it.
+          col += vec3(1.0, 0.55, 0.35) * smoothstep(0.022, 0.0, deckd) * 0.16;
+
+          /* Signage: tall thin bars on the near rank, as before but
+             taller and with a vertical run of characters suggested
+             by the banding. */
+          for (int i = 0; i < 5; i++) {
             float fi = float(i);
-            float sx = 0.12 + hash11(fi * 13.0) * 0.76;
-            float sy = 0.52 + hash11(fi * 29.0) * 0.1;
-            vec2 d = (uv - vec2(sx, sy)) / vec2(0.006, 0.05);
+            float sx = 0.08 + hash11(fi * 13.0) * 0.84;
+            float sy = 0.50 + hash11(fi * 29.0) * 0.12;
+            vec2 d = (uv - vec2(sx, sy)) / vec2(0.0075, 0.075);
             if (abs(d.x) < 1.0 && abs(d.y) < 1.0) {
               vec3 neon = fi < 1.0 ? vec3(1.0, 0.18, 0.52)
                         : fi < 2.0 ? vec3(0.29, 0.91, 1.0)
                         : fi < 3.0 ? vec3(0.70, 0.30, 1.0)
+                        : fi < 4.0 ? vec3(0.25, 1.00, 0.65)
                                    : vec3(1.0, 0.76, 0.28);
+              float glyph = step(0.30, fract(d.y * 3.2));
               float fail = hash11(fi * 3.0) > 0.7 ? step(0.5, fract(uTime * 7.0 + fi)) : 1.0;
-              col = mix(col, neon, 0.9 * fail);
+              col = mix(col, neon * (0.45 + 0.55 * glyph), 0.92 * fail);
             }
+            // The halo it throws, which is what sells it as neon.
+            col += vec3(0.9, 0.4, 0.8) * smoothstep(0.05, 0.0, length((uv - vec2(sx, sy)) / vec2(0.5, 1.0))) * 0.25;
           }
 
-          // Traffic: craft crossing above the roofline, each a hull
-          // and a light, wrapping round on its own clock.
-          for (int i = 0; i < 3; i++) {
+          // Traffic: craft crossing above the roofline.
+          for (int i = 0; i < 4; i++) {
             float fi = float(i);
-            float sp = 0.035 + fi * 0.02;
+            float sp = 0.035 + fi * 0.018;
             float cx2 = fract(uTime * sp + hash11(fi * 41.0));
-            float cy2 = 0.68 + fi * 0.055;
+            float cy2 = 0.70 + fi * 0.045;
             vec2 d = (uv - vec2(cx2, cy2)) / vec2(0.022, 0.0035);
             if (dot(d, d) < 1.0) col = vec3(0.1, 0.11, 0.2);
             float lamp = smoothstep(0.004, 0.0, length((uv - vec2(cx2 - 0.021, cy2)) * vec2(1.0, 2.2)));
             col += vec3(0.6, 0.92, 1.0) * lamp * 1.4;
+            // A thin streak trailing it.
+            float tr = smoothstep(0.03, 0.0, cx2 - uv.x) * step(uv.x, cx2) * smoothstep(0.0025, 0.0, abs(uv.y - cy2));
+            col += vec3(0.5, 0.8, 1.0) * tr * 0.5;
           }
 
           // The fold, still out there.
-          vec2 rp = (uv - vec2(0.3, 0.74)) / vec2(0.07, 0.075);
+          vec2 rp = (uv - vec2(0.3, 0.80)) / vec2(0.07, 0.075);
           float rr = length(rp);
           if (rr < 1.0) {
             float inv = 1.0 / max(rr, 0.1);
