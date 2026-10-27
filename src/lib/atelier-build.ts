@@ -388,7 +388,12 @@ const ROOM = { w: 6, h: 3, d: 5, backZ: -2.6, leftX: -3, rightX: 3 };
    way it does in a penthouse. The bottom stays at 0.95 so the
    sill is still a sill: the desk is 0.76 and the white cat sits
    up there. */
-const WIN = { x0: -2.55, x1: 2.55, y0: 0.95, y1: 2.86 };
+/* x0 stops at -2.05, not -2.55. The retro set is anchored at
+   x = leftX + 0.46 and the comment by it says it "slid back into
+   the window corner" — so that corner has to stay solid wall. Run
+   the glass any further left and the television is standing in
+   mid-air in front of the glazing, which is exactly what it did. */
+const WIN = { x0: -2.05, x1: 2.55, y0: 0.95, y1: 2.86 };
 const DESK_Y = 0.76;
 const DESK_Z = ROOM.backZ + 0.52;
 

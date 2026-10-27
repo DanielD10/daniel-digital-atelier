@@ -324,6 +324,9 @@ export default function AtelierTV({
   const [playing, setPlaying] = useState(true);
   const [canSeek, setCanSeek] = useState(false);
   const atRef = useRef(0);
+  /* Mirrors canSeek for the handshake interval, which must not be
+     re-created every time the flag changes. */
+  const seekRef = useRef(false);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => setWebview(inAppBrowser() || isTouch()), []);
@@ -340,6 +343,18 @@ export default function AtelierTV({
     const win = frameRef.current?.contentWindow;
     if (!win) return;
     try {
+      /* Re-register before every command. The player only reports
+         back once it has been told to listen, and that handshake
+         can be missed entirely — the frame may still have been
+         loading, or the set may have been left paused past the
+         window in which we were asking. Saying it again here costs
+         one postMessage and means any button press repairs a
+         handshake that never landed, instead of the transport
+         staying half dead for the rest of the sitting. */
+      win.postMessage(
+        JSON.stringify({ event: "listening", id: 1, channel: "widget" }),
+        "*",
+      );
       win.postMessage(JSON.stringify({ event: "command", func, args }), "*");
     } catch {
       /* the frame is cross-origin and may be mid-navigation */
@@ -383,6 +398,7 @@ export default function AtelierTV({
       const info = d?.info;
       if (info && typeof info.currentTime === "number") {
         atRef.current = info.currentTime;
+        seekRef.current = true;
         setCanSeek(true);
       }
       if (info && typeof info.playerState === "number") {
@@ -403,6 +419,7 @@ export default function AtelierTV({
   useEffect(() => {
     if (!tunedKind) return;
     setCanSeek(false);
+    seekRef.current = false;
     atRef.current = 0;
     let n = 0;
     const ping = () => {
@@ -419,7 +436,12 @@ export default function AtelierTV({
     ping();
     const id = window.setInterval(() => {
       ping();
-      if (++n > 12) window.clearInterval(id);
+      /* Stop when the player starts answering, not after nine
+         seconds. The old cap gave up whether or not the handshake
+         had landed, and on a phone over cellular it usually had
+         not — which left the seek buttons disabled permanently,
+         with nothing that could ever re-enable them. */
+      if (seekRef.current || ++n > 120) window.clearInterval(id);
     }, 700);
     return () => window.clearInterval(id);
   }, [tunedKind, tunedId]);

@@ -42,9 +42,9 @@ const BACK_Z = -2.6;
    the wall and a plane that is too small shows daylight at the
    edges of the frame. */
 const COVER = {
-  w: (d: number) => 5.2 + 7.0 * d,
+  w: (d: number) => 4.8 + 6.6 * d,
   h: (d: number) => 2.0 + 3.5 * d,
-  x: (d: number) => 0.0 + 0.12 * d,
+  x: (d: number) => 0.25 + 0.12 * d,
   y: (d: number) => 1.9 + 0.70 * d,
 };
 
