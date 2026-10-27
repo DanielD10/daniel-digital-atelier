@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { buildGamingChair } from "./atelier-chair";
 import { buildVistas, VISTA_SPECS, type VistaSet } from "./atelier-vista";
 import {
@@ -520,6 +521,51 @@ export function buildRoom(): Built {
   const targets: THREE.Object3D[] = [];
   const life: Life[] = [];
 
+  /**
+   * Fold a run of identical static props into one mesh.
+   *
+   * The room is drawn as 823 separate objects, which is 3,103 draw
+   * calls a frame once the two shadow passes have each walked it
+   * again. The triangles are not the problem — there are only 144k
+   * of them, which is nothing. The problem is purely how many times
+   * the GPU is asked to start drawing.
+   *
+   * This changes nothing you can see. Each mesh's own transform is
+   * baked into a copy of its geometry and the copies are welded into
+   * one buffer, so the result occupies the same space, with the same
+   * material and the same shadow flags — the same pixels, out of one
+   * call instead of fifty-two.
+   *
+   * Only ever hand this things that never move again after the room
+   * is built. Anything animated keeps its own transform and so keeps
+   * its own mesh.
+   */
+  const mergeStatic = (meshes: THREE.Mesh[]): THREE.Mesh | null => {
+    if (meshes.length < 2) return null;
+    const first = meshes[0];
+    const parts = meshes.map((m) => {
+      m.updateMatrix();
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrix);
+      return g;
+    });
+    const merged = mergeGeometries(parts, false);
+    for (const g of parts) g.dispose();
+    if (!merged) return null;
+
+    const out = new THREE.Mesh(merged, first.material);
+    out.castShadow = first.castShadow;
+    out.receiveShadow = first.receiveShadow;
+    /* Back into the same parent the originals hung from. Their
+       transforms were baked relative to it, so anywhere else and the
+       whole group lands in the wrong part of the room. */
+    const parent = first.parent ?? root;
+    for (const m of meshes) m.parent?.remove(m);
+    parent.add(out);
+    disposables.push(merged);
+    return out;
+  };
+
   const keep = <T extends { dispose: () => void }>(x: T): T => {
     disposables.push(x);
     return x;
@@ -972,12 +1018,16 @@ export function buildRoom(): Built {
   kb.rotation.y = 0.045;
   const keyMat = keep(new THREE.MeshStandardMaterial({ color: 0x3a3844, roughness: 0.8 }));
   const keyGeo = box(0.026, 0.006, 0.024);
+  // Fifty-two keys that never move: one mesh, one draw call.
+  const keys: THREE.Mesh[] = [];
   for (let rw = 0; rw < 4; rw++) {
     for (let k = 0; k < 13; k++) {
       const key = add(keyGeo, keyMat, -0.26 + k * 0.032, DESK_Y + 0.04, DESK_Z + 0.145 + rw * 0.03, false, false);
       key.rotation.y = 0.045;
+      keys.push(key);
     }
   }
+  mergeStatic(keys);
   const mouse = add(keep(new THREE.SphereGeometry(0.035, 20, 14)), plastic, 0.3, DESK_Y + 0.032, DESK_Z + 0.2);
   mouse.scale.set(1, 0.5, 1.5);
 
@@ -1658,6 +1708,7 @@ export function buildRoom(): Built {
     const rb = rand(911);
     // Four shapes, scaled — not forty-six geometries.
     const shapes = [0, 1, 2, 3].map(() => keep(new THREE.DodecahedronGeometry(1, 0)));
+    const lumps: THREE.Mesh[] = [];
     for (let i = 0; i < 46; i++) {
       const sz = 0.022 + rb() * 0.028;
       const lump = new THREE.Mesh(shapes[i & 3], mediaMat);
@@ -1669,7 +1720,10 @@ export function buildRoom(): Built {
       );
       lump.rotation.set(rb() * 3, rb() * 3, rb() * 3);
       hearth.add(lump);
+      lumps.push(lump);
     }
+    // The bed of media never shifts; the fire above it is a shader.
+    mergeStatic(lumps);
   }
 
   /* Coals. Same noise machinery as the flame, but squat and
