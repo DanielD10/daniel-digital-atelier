@@ -2715,7 +2715,7 @@ export function buildRoom(): Built {
           vec3 deep   = vec3(0.06, 0.04, 0.20);
           vec3 dusk = mix(ember, orchid, smoothstep(0.49, 0.74, h));
           dusk = mix(dusk, deep, smoothstep(0.82, 1.02, h));
-          col = mix(col, dusk, 0.90);
+          col = mix(col, dusk, 0.86);
 
           /* Cloud decks, lit from beneath the way they are when the
              sun has just gone. Two octaves is enough at this size. */
@@ -2733,16 +2733,16 @@ export function buildRoom(): Built {
           col += vec3(0.86, 0.9, 1.0) * moon * 1.1 * uStars;
 
           // The glow the city throws back into its own air.
-          col += vec3(0.72, 0.26, 0.78) * smoothstep(0.78, 0.46, h) * 0.75;
+          col += vec3(0.62, 0.20, 0.72) * smoothstep(0.74, 0.50, h) * 0.38;
 
-          vec3 haze = mix(ember, orchid, 0.72) * 0.72;
+          vec3 haze = mix(orchid, deep, 0.45) * 0.85;
 
           /* Six ranks. Far ranks are many, thin and pale; near ranks
              few, wide and almost black, with their windows resolved. */
           for (int i = 0; i < 6; i++) {
             float fi = float(i);
             float near = fi / 5.0;
-            float cols = 34.0 - fi * 5.0;
+            float cols = 72.0 - fi * 9.0;
             float gx = uv.x * cols;
             float id = floor(gx);
             float fx = fract(gx);
@@ -2756,7 +2756,7 @@ export function buildRoom(): Built {
             float gap = 0.06 + hash11(id * 1.7 + fi) * 0.05;
             if (fx > gap && fx < 1.0 - gap && h < top) {
               // Concrete, darker as it comes forward.
-              vec3 slab = mix(vec3(0.11, 0.09, 0.20), vec3(0.008, 0.006, 0.022), near);
+              vec3 slab = mix(vec3(0.055, 0.045, 0.105), vec3(0.004, 0.003, 0.012), near);
               // Vertical shading across the face gives it a corner.
               slab *= 0.78 + 0.34 * smoothstep(gap, 1.0 - gap, fx);
               col = slab;
@@ -2765,23 +2765,23 @@ export function buildRoom(): Built {
                  change that stops this reading as beige confetti.
                  Finer on the far ranks so they stay as texture
                  rather than becoming visible rectangles. */
-              float wc = 7.0 + fi * 3.2;
-              float wr = (118.0 - fi * 9.0);
+              float wc = 9.0 + fi * 3.6;
+              float wr = (168.0 - fi * 14.0);
               vec2 wuv = vec2((fx - gap) / (1.0 - gap * 2.0) * wc, (top - h) * wr);
               vec2 wi = floor(wuv);
               vec2 wf = fract(wuv);
-              float pane = step(0.16, wf.x) * step(wf.x, 0.84) * step(0.20, wf.y) * step(wf.y, 0.80);
+              float pane = step(0.26, wf.x) * step(wf.x, 0.80) * step(0.30, wf.y) * step(wf.y, 0.78);
 
               float wh = hash21(wi + id * 17.0 + fi * 101.0);
               // Occupancy falls off with height, as it does at night.
-              float occ = 0.15 + 0.26 * smoothstep(top, base, h);
+              float occ = 0.12 + 0.22 * smoothstep(top, base, h);
               if (pane > 0.5 && wh < occ) {
                 float t = hash11(wh * 91.0);
-                vec3 lamp = t > 0.80 ? vec3(0.35, 0.92, 1.00)
-                          : t > 0.58 ? vec3(1.00, 0.34, 0.80)
-                          : t > 0.40 ? vec3(0.62, 0.48, 1.00)
-                          : t > 0.18 ? vec3(0.55, 0.82, 1.00)
-                                     : vec3(1.00, 0.78, 0.46);
+                vec3 lamp = t > 0.80 ? vec3(0.10, 0.90, 1.00)
+                          : t > 0.58 ? vec3(1.00, 0.12, 0.62)
+                          : t > 0.40 ? vec3(0.48, 0.20, 1.00)
+                          : t > 0.18 ? vec3(0.22, 0.60, 1.00)
+                                     : vec3(1.00, 0.66, 0.20);
                 // A handful blink over on their own clock.
                 float live = hash11(wh * 50.0) > 0.94
                   ? step(0.5, fract(uTime * 0.25 + wh * 10.0)) : 1.0;
@@ -2811,13 +2811,17 @@ export function buildRoom(): Built {
                   vec3 panel = mix(a, bcol, smoothstep(0.1, 0.9, ly + 0.2 * sin(lx * 6.0 + uTime * 0.4)));
                   // Scanlines, so it reads as a screen.
                   panel *= 0.68 + 0.32 * step(0.45, fract(ly * 26.0 - uTime * 0.3));
-                  col = panel * 1.9;
+                  col = panel * 1.15;
                 }
               }
+              /* Haze, applied by the rank that owns the pixel.
+                 This used to sit outside the test and inside the
+                 loop, so every pixel was mixed toward a bright
+                 magenta six times over, once per rank, and the
+                 whole skyline came out pale lavender confetti
+                 instead of dark towers with lights on them. */
+              col = mix(col, haze, (1.0 - near) * 0.62);
             }
-
-            // Haze. Everything behind is washed toward the sky.
-            col = mix(col, haze, (1.0 - near) * 0.52 * smoothstep(0.62, 0.42, h));
           }
 
           /* The elevated road. One ribbon swinging across the middle
@@ -2844,7 +2848,7 @@ export function buildRoom(): Built {
             float fi = float(i);
             float sx = 0.08 + hash11(fi * 13.0) * 0.84;
             float sy = 0.50 + hash11(fi * 29.0) * 0.12;
-            vec2 d = (uv - vec2(sx, sy)) / vec2(0.0075, 0.075);
+            vec2 d = (uv - vec2(sx, sy)) / vec2(0.004, 0.075);
             if (abs(d.x) < 1.0 && abs(d.y) < 1.0) {
               vec3 neon = fi < 1.0 ? vec3(1.0, 0.18, 0.52)
                         : fi < 2.0 ? vec3(0.29, 0.91, 1.0)
