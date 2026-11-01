@@ -60,6 +60,20 @@ export default function NertiaRace() {
     return () => document.body.removeAttribute("data-racing");
   }, [phase]);
 
+  /* Put the stage on screen when the countdown starts.
+     Surge and Use live at the bottom of a stage close to 500px tall,
+     so on a phone the page loads with them below the fold: you tap
+     Start and the race begins somewhere underneath your thumb, with
+     no controls in sight. Only on the way in — scrolling somebody
+     back mid-race would be worse than the problem. */
+  useEffect(() => {
+    if (phase !== "countdown") return;
+    const el = stageRef.current;
+    if (!el) return;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+  }, [phase]);
+
   const start = useCallback(() => {
     raceRef.current = new Race();
     setHud(EMPTY);
