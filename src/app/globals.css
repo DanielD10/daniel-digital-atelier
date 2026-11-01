@@ -328,6 +328,19 @@ main { position: relative; z-index: 3; }
 .rail { position: fixed; z-index: 50; }
 .mast { position: fixed; z-index: 60; }
 
+/* While a race is running the masthead steps aside. It is fixed and
+   89px tall, which lands squarely over the race HUD once the stage is
+   scrolled up to play. Opacity rather than display, so it fades back
+   at the finish instead of snapping the layout. */
+body[data-racing] .mast {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-racing] .mast { transition: none; }
+}
+
 /* Interior sections need their own backdrop or the globe shows
    through the case studies. Kept slightly translucent so the stars
    stay faintly visible behind the content. */
@@ -5570,7 +5583,20 @@ main { position: relative; z-index: 3; }
 }
 @media (max-width: 640px) {
   .nxn-status { display: none; }
-  .rc-stage { aspect-ratio: 3 / 4; min-height: 0; }
+  /* Not min-height: 0. Every child of the stage is absolutely
+     positioned, so with nothing in flow its height comes from
+     aspect-ratio alone — and the stage is a grid item of .rc, which
+     stretches its items. Safari drops aspect-ratio on a stretched
+     grid item where Chromium honours it, so on iOS the whole race
+     collapsed to a sliver while the copy and standings beside it
+     rendered perfectly. A real floor means the stage has a size
+     whatever the browser does with aspect-ratio, and align-self
+     keeps the stretch from fighting it. */
+  .rc-stage {
+    aspect-ratio: 3 / 4;
+    min-height: min(74vh, 560px);
+    align-self: start;
+  }
   .rc-side { grid-template-columns: minmax(0, 1fr); }
   .rc-hud-tl { top: 40px; left: 12px; }
   .rc-place { font-size: 36px; }

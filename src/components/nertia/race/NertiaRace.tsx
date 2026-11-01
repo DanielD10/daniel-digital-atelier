@@ -47,6 +47,19 @@ export default function NertiaRace() {
     phaseRef.current = phase;
   }, [phase]);
 
+  /* Get the masthead out of the way while a race is on.
+     It is fixed at 89px tall, and the stage puts place, clock and
+     distance 42px from its own top — so the moment the stage is
+     scrolled up to play, the nav is sitting on top of the only three
+     numbers that matter. On a phone that reads as a broken demo
+     rather than as a nav. It comes back the instant the race ends,
+     and on unmount, so leaving mid-race cannot strand it hidden. */
+  useEffect(() => {
+    const racing = phase === "race" || phase === "countdown";
+    document.body.toggleAttribute("data-racing", racing);
+    return () => document.body.removeAttribute("data-racing");
+  }, [phase]);
+
   const start = useCallback(() => {
     raceRef.current = new Race();
     setHud(EMPTY);
