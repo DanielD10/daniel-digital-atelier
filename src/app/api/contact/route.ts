@@ -75,7 +75,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
+  /* RESEND_TOKEN first. RESEND_API_KEY is typed "sensitive" in Vercel,
+     which means its value can never be read back — not by the API, not
+     by the dashboard. A write to it reports success whether or not it
+     took, so a stale key in there is both invisible and unfixable from
+     outside. RESEND_TOKEN is an ordinary encrypted variable that can
+     be replaced and confirmed. The old name stays as a fallback so
+     nothing breaks if the new one is ever missing. */
+  const apiKey = process.env.RESEND_TOKEN ?? process.env.RESEND_API_KEY;
+  const keySource = process.env.RESEND_TOKEN ? "RESEND_TOKEN" : "RESEND_API_KEY";
   const to = process.env.CONTACT_TO_EMAIL ?? site.email;
   const from = process.env.CONTACT_FROM_EMAIL;
 
@@ -126,8 +134,18 @@ export async function POST(request: Request) {
     if (!response.ok) {
       const detail = (await response.json().catch(() => ({}))) as ResendError;
       const reason = detail.message ?? `resend ${response.status}`;
-      // Log the real reason; show the visitor something actionable.
-      console.error("[contact] resend rejected", response.status, reason, { id, stored });
+      /* Log the real reason, and enough about the credential to tell
+         a wrong key from a stale one without ever printing it: which
+         variable it came from, its first seven characters, and its
+         length. Two keys that differ will differ here. */
+      console.error("[contact] resend rejected", response.status, reason, {
+        id,
+        stored,
+        keySource,
+        keyPrefix: apiKey.slice(0, 7),
+        keyLength: apiKey.length,
+        from,
+      });
       await markDelivery(id, { delivered: false, error: reason });
 
       /* Stored means the enquiry is safe even though the email is
