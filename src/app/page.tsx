@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Masthead from "@/components/Masthead";
 import HeroBackdrop from "@/components/HeroBackdrop";
-import FeaturedWork from "@/components/FeaturedWork";
 import CaseTrack from "@/components/CaseTrack";
 import BottomRail from "@/components/BottomRail";
 import SiteMotion from "@/components/SiteMotion";
@@ -110,15 +109,6 @@ export default function Home() {
           </div>
           </div>
 
-          <div className="strip-wrap">
-            <div className="strip-head" data-anim="fade">
-              <span className="micro">Featured Work</span>
-              <span className="line-fill" />
-              <span className="micro">All Projects (04)</span>
-              <span className="dot" />
-            </div>
-            <FeaturedWork />
-          </div>
         </section>
 
         {/* ── Manifesto ───────────────────────────────────────────── */}

@@ -38,7 +38,6 @@ export default function SiteMotion() {
     gsap.set(".manifesto .line-inner", { yPercent: 110 });
     gsap.set("[data-anim='fade']", { opacity: 0, y: 16 });
     gsap.set("[data-reveal]", { opacity: 0, y: 28 });
-    gsap.set(".tile", { opacity: 0, yPercent: 22 });
     gsap.set(".rail > *", { opacity: 0, y: 10 });
     // CSS owns the translateZ/scale on .veil and .plate — those
     // establish the depth planes. GSAP must never write to those
@@ -73,7 +72,6 @@ export default function SiteMotion() {
       ".manifesto .line-inner",
       "[data-anim='fade']",
       "[data-reveal]",
-      ".tile",
       ".rail > *",
       ".veil",
       ".meridian",
@@ -126,7 +124,6 @@ export default function SiteMotion() {
         .to(".monogram", { opacity: 1, y: 0, duration: 1 }, 0.1)
         .to(".meridian", { scaleY: 1, duration: 1.6 }, 0.3)
         .to("[data-anim='fade']", { opacity: 1, y: 0, stagger: 0.07, duration: 1.1 }, 0.6)
-        .to(".tile", { opacity: 1, yPercent: 0, stagger: 0.08, duration: 1.2 }, 0.85)
         .to(".rail > *", { opacity: 1, y: 0, stagger: 0.05, duration: 0.9 }, 1.0);
 
       // ── 2. Hero drifts and dims as you leave it. ────────────────
