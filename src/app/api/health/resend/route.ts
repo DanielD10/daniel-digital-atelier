@@ -41,9 +41,25 @@ export async function GET() {
     from: process.env.CONTACT_FROM_EMAIL ?? null,
   };
 
+  /* Send, rather than read.
+     The first version of this asked /domains and got back "This API
+     key is restricted to only send emails" — which is the key working
+     exactly as scoped, and a useless question to have asked. The only
+     test that settles it is the one the contact form actually makes:
+     a real send, same from, same key. */
   try {
-    const response = await fetch("https://api.resend.com/domains", {
-      headers: { Authorization: `Bearer ${key}` },
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: `Portfolio <${process.env.CONTACT_FROM_EMAIL}>`,
+        to: [process.env.CONTACT_TO_EMAIL],
+        subject: "Contact form — delivery confirmed",
+        text: "If this arrived, the contact form works. Sent by the health probe using the same key, sender and endpoint the form uses. This route can now be deleted.",
+      }),
     });
     const body = await response.text();
 
@@ -52,10 +68,8 @@ export async function GET() {
       resendStatus: response.status,
       verdict:
         response.status === 200
-          ? "KEY WORKS — authentication is fine, the problem is in the send call"
-          : response.status === 401
-            ? "KEY REJECTED — Resend does not recognise this credential"
-            : `unexpected ${response.status}`,
+          ? "SENDS — the contact form works"
+          : `send refused (${response.status})`,
       // Truncated: enough to read the error, not enough to dump data.
       resendBody: body.slice(0, 300),
     });
