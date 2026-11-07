@@ -175,17 +175,14 @@ export default function EarthGlobe() {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 }, uAspect: { value: 1 }, uTravel: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uWarp: { value: 0 }, uTravel: { value: 0 } },
       vertexShader: `
         attribute float aSize;
         uniform float uWarp;
-        uniform float uAspect;
         uniform float uTravel;
         varying float vFade;
         varying float vSeed;
         varying float vWarp;
-        varying vec2  vDir;
-        varying float vStretch;
 
         void main() {
           /* The stars stream toward you on the GPU.
@@ -204,23 +201,25 @@ export default function EarthGlobe() {
           vSeed = aSize;
           vWarp = uWarp;
 
-          vec4 clip = projectionMatrix * mv;
+          /* Round at every speed. No streak.
+             An elongated star is a camera artifact — what a long
+             exposure does to a point of light — so the eye reads a
+             field of them as a photograph of speed rather than as
+             speed. Out of a window a star stays a star; it just
+             arrives faster and swells as it passes. That is where
+             the sense of motion comes from here: the travel rate,
+             the 1/d growth, and a little extra size under warp.
 
-          // Stars stream radially out from the vanishing point, so
-          // the streak lies along that radius. Aspect correction
-          // keeps the angle true on a wide monitor.
-          vec2 ndc = clip.xy / max(clip.w, 0.0001);
-          vec2 radial = ndc * vec2(uAspect, 1.0);
-          vDir = length(radial) > 0.0001 ? normalize(radial) : vec2(0.0, 1.0);
+             The old version stretched the sprite along the radius
+             out of the vanishing point, which is the textbook
+             approach and looked right in isolation. It failed at
+             the sprite boundary — see the fragment shader. */
+          float swell = 1.0 + uWarp * 0.35;
 
-          float near = 1.0 - smoothstep(0.0, 200.0, d);
-          vStretch = 1.0 + uWarp * (0.9 + near * 2.6);
-
-          // Square sprite, so it must grow by the full stretch or
-          // the streak clips at its own edge. Clamped because
-          // drivers cap point size and truncate silently past it.
-          gl_PointSize = min(aSize * (160.0 / max(d, 1.0)) * vStretch, 480.0);
-          gl_Position = clip;
+          // Clamped because drivers cap point size and truncate
+          // past it without telling you.
+          gl_PointSize = min(aSize * (160.0 / max(d, 1.0)) * swell, 300.0);
+          gl_Position = projectionMatrix * mv;
         }
       `,
       fragmentShader: `
@@ -228,20 +227,28 @@ export default function EarthGlobe() {
         varying float vFade;
         varying float vSeed;
         varying float vWarp;
-        varying vec2  vDir;
-        varying float vStretch;
 
         void main() {
-          // PointCoord is y-down; flip into the frame vDir uses.
-          vec2 p = vec2(gl_PointCoord.x - 0.5, 0.5 - gl_PointCoord.y);
+          // 0 at the centre, exactly 1 at the sprite edge.
+          float r = length(gl_PointCoord - 0.5) * 2.0;
+          if (r > 1.0) discard;
 
-          float along  = dot(p, vDir) / vStretch;
-          float across = p.x * vDir.y - p.y * vDir.x;
+          /* Two falloffs, and both reach zero precisely at r = 1.
+             That is the whole fix. The previous shader built an
+             ellipse that grew longer than the square sprite holding
+             it, so at speed the sprite edge sliced the soft falloff
+             flat and every star turned into a hard-edged bar —
+             confetti, not starlight. Nothing here can touch the
+             boundary with any brightness left.
 
-          float r = length(vec2(along, across));
-          if (r > 0.5) discard;
+             A tight core carries the light and a wide faint halo
+             keeps the edge from reading as a disc, which is what a
+             point source actually looks like. */
+          float edge = 1.0 - r;
+          float core = pow(edge, 6.0);
+          float halo = pow(edge, 2.0) * 0.28;
+          float shape = core + halo;
 
-          float core = smoothstep(0.5, 0.0, r);
           float tw = mix(0.75 + 0.25 * sin(uTime * 1.6 + vSeed * 31.0), 1.0, vWarp);
 
           // White. The cool/warm scatter is what stops a white
@@ -249,7 +256,7 @@ export default function EarthGlobe() {
           vec3 tint = mix(vec3(0.72, 0.80, 1.0), vec3(1.0, 0.93, 0.82), fract(vSeed * 7.3));
           tint = mix(tint, vec3(1.0), vWarp * 0.5);
 
-          gl_FragColor = vec4(tint, core * core * vFade * tw * (1.0 + vWarp * 0.9));
+          gl_FragColor = vec4(tint, shape * vFade * tw * (1.0 + vWarp * 0.55));
         }
       `,
     });
@@ -499,10 +506,12 @@ export default function EarthGlobe() {
     let warp = 0;
     let warpTarget = 0;
     const BASE_SPEED = 14;
-    // Slower than it was. At 460 the field read as a jump to
-    // lightspeed, which is a different effect to drifting forward
-    // through stars — this is the latter, and the streaks want to
-    // stay short enough that each one still reads as a star.
+    /* Slower than it was. At 460 the field read as a jump to
+       lightspeed, which is a different effect to drifting forward
+       through stars — this is the latter.
+       With the streaks gone, this number is the whole sense of
+       speed, so it is worth leaving alone unless the motion itself
+       is what feels wrong. */
     const WARP_SPEED = 165;
     const BASE_FOV = 38;
 
@@ -522,7 +531,6 @@ export default function EarthGlobe() {
       // right of the wordmark while the starfield stays centred.
       camera.setViewOffset(w, h, -w * 0.19, 0, w, h);
       camera.updateProjectionMatrix();
-      starMat.uniforms.uAspect.value = w / Math.max(h, 1);
     }
 
     const clock = new THREE.Timer();
