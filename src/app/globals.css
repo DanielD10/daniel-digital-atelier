@@ -603,8 +603,16 @@ body[data-racing] .mast {
 }
 
 /* ═══════════════ MANIFESTO ═══════════════ */
+/*
+  Asymmetric on purpose. The hero above is a full-height stage, so its
+  own bottom already hands over ~140px of empty planet before this
+  section even starts. A symmetric 20vh lead-in stacked on top of that
+  read as one long dead zone once the work strip that used to sit
+  between them was removed. The bottom keeps the generous value — the
+  run into the case track still needs the air.
+*/
 .manifesto {
-  padding: clamp(120px, 20vh, 220px) var(--gut);
+  padding: clamp(96px, 13vh, 150px) var(--gut) clamp(120px, 20vh, 220px);
   max-width: 1500px;
   margin: 0 auto;
 }
@@ -2270,6 +2278,11 @@ body[data-racing] .mast {
   .case-track::-webkit-scrollbar { display: none; }
   .case-panel { width: 86vw; height: 76svh; scroll-snap-align: start; }
   .case-intro { width: 86vw; height: auto; padding: 60px var(--gut); }
+
+  /* On a phone the hero's leftover planet and this lead-in are stacked
+     within one swipe of each other, so the desktop value turns the top
+     of the manifesto into half a screen of nothing. */
+  .manifesto { padding-top: clamp(64px, 9vh, 96px); }
 
   .rail { gap: 14px; }
   .rail-track, .rail-say { display: none; }

@@ -35,7 +35,27 @@ export default function SiteMotion() {
     }
 
     // ── Start states, then hand control from CSS to GSAP. ─────────
-    gsap.set(".manifesto .line-inner", { yPercent: 110 });
+    /*
+     * The `y: 0` is load-bearing, and its absence hid the manifesto
+     * headline on every device since the pre-hide was written.
+     *
+     * `html.js .manifesto .line-inner` pre-hides these lines with
+     * `translateY(110%)`. That class is still on the document here —
+     * it comes off below — so when GSAP first touches the element it
+     * reads the *computed* transform to seed its cache, and a computed
+     * transform is a pixel matrix. The percentage is already resolved,
+     * so GSAP records it as `y: 51px` rather than a percentage.
+     *
+     * Setting only yPercent then stacks on top of that: the start
+     * state was 220% down, not 110%. Worse, the scroll reveal animates
+     * yPercent back to 0 and leaves `y` untouched, so the lines came
+     * to rest exactly one line-height below their mask — still
+     * invisible, with the tween reporting that it had completed.
+     *
+     * Writing y explicitly discards the parsed pixel value. The other
+     * pre-hides are opacity-only, which has no equivalent residue.
+     */
+    gsap.set(".manifesto .line-inner", { y: 0, yPercent: 110 });
     gsap.set("[data-anim='fade']", { opacity: 0, y: 16 });
     gsap.set("[data-reveal]", { opacity: 0, y: 28 });
     gsap.set(".rail > *", { opacity: 0, y: 10 });
