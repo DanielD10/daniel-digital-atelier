@@ -639,7 +639,30 @@ function detectSegmentGaps(ctx: Ctx): Finding[] {
       if (!worst || worst.d < 0.25) continue;
 
       const gap = (worst.med - globalMedian) / spread;
-      if (Math.abs(gap) < 0.4) continue;
+
+      /*
+       * Gate on the relative difference, not on the pooled spread.
+       *
+       * Dividing by MAD over the whole column looks principled and
+       * quietly hides exactly the findings worth having: when a column
+       * also has a level shift over time, the pooled spread is inflated
+       * by that shift, so a segment genuinely paying 11 days slower
+       * scored 0.37 "robust units" and fell under the bar — while its
+       * KS test said p = 7e-23. The spread of the thing you are not
+       * asking about should not set the threshold for the thing you
+       * are.
+       *
+       * KS plus its p-value already establish that the distributions
+       * differ, and both are scale-free. What is left to ask is whether
+       * the difference is worth a line, which is a question about the
+       * headline's own number: a median 5% apart from everything else.
+       * The robust gap stays in the evidence as context.
+       */
+      const relative =
+        Math.abs(globalMedian) > 1e-9
+          ? Math.abs(worst.med - globalMedian) / Math.abs(globalMedian)
+          : Math.abs(gap) / 4;
+      if (relative < 0.05) continue;
 
       const refs: number[] = [];
       for (let r = 0; r < ctx.table.rows.length && refs.length < LIMITS.auditRowCap; r++) {
