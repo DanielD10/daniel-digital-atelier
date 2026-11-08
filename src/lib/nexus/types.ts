@@ -128,6 +128,13 @@ export interface Finding {
   series?: { labels: string[]; values: number[]; markerIndex?: number };
   /** Optional paired comparison for before/after and segment breakdowns. */
   breakdown?: Array<{ label: string; value: number; weight?: number }>;
+  /**
+   * Sampled point pairs for a relationship finding. An r value is a
+   * summary that hides its own shape — the same 0.6 can be a cloud, a
+   * curve, or a straight line with two leverage points dragging it — so
+   * the card shows the cloud and lets the reader disagree.
+   */
+  scatter?: { x: number[]; y: number[]; xLabel: string; yLabel: string };
 }
 
 export interface Analysis {
@@ -158,6 +165,12 @@ export const LIMITS = {
   maxBytes: 5 * 1024 * 1024,
   maxRows: 100_000,
   maxColumns: 80,
-  auditRowCap: 200,
+  /*
+   * Cited rows per finding. The panel never displays more than this, and
+   * every finding ships its refs inside the server-rendered payload, so
+   * a larger cap buys nothing but kilobytes on the wire. True magnitudes
+   * live in `coverage` and `affected`, which are counts rather than lists.
+   */
+  auditRowCap: 60,
   maxFindings: 24,
 } as const;

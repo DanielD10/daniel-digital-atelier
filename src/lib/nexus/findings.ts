@@ -303,7 +303,7 @@ function detectShifts(ctx: Ctx): Finding[] {
           before: round(cp.before),
           after: round(cp.after),
           change: round(cp.after - cp.before),
-          relativeChange: round(rel, 4),
+          relativeChangePct: round(rel * 100, 1),
           breakAt: series.labels[cp.index],
           sigmas: round(cp.magnitude, 2),
           periodsBefore: cp.index,
@@ -375,7 +375,7 @@ function detectTrends(ctx: Ctx): Finding[] {
         evidence: {
           start: round(first),
           end: round(last),
-          totalChange: round(total, 4),
+          totalChangePct: round(total * 100, 1),
           perPeriod: round(fit.slope),
           rSquared: round(fit.r2, 3),
           periods: series.values.length,
@@ -487,10 +487,10 @@ function detectParadoxes(ctx: Ctx): Finding[] {
         confidence: Math.min(1, 0.65 + share * 0.35),
         coverage: 1,
         evidence: {
-          overallChange: round(overallDelta, 4),
+          overallChangePct: round(overallDelta * 100, 1),
           segmentsAgainst: against.length,
           segmentsTotal: segments.length,
-          rowShareAgainst: round(share, 3),
+          rowShareAgainstPct: round(share * 100, 1),
           explanation: `The mix shifted toward ${catCol.name} levels that sit at a different ${numCol.name}, so the total moved without any segment doing so.`,
         },
         rowRefs: refs,
@@ -576,9 +576,9 @@ function detectMixShifts(ctx: Ctx): Finding[] {
       coverage: Math.max(biggest.from, biggest.to),
       evidence: {
         level: biggest.label,
-        shareBefore: round(biggest.from, 4),
-        shareAfter: round(biggest.to, 4),
-        pointChange: round(biggest.delta * 100, 1),
+        shareBeforePct: round(biggest.from * 100, 1),
+        shareAfterPct: round(biggest.to * 100, 1),
+        pointChangePct: round(biggest.delta * 100, 1),
         rowsBefore: nB,
         rowsAfter: nA,
       },
@@ -767,9 +767,9 @@ function detectRateGaps(ctx: Ctx): Finding[] {
         coverage,
         evidence: {
           segment: worst.label,
-          segmentRate: round(worst.rate, 4),
-          everyoneElse: round(worst.rest, 4),
-          pointGap: round(absGap * 100, 1),
+          segmentRatePct: round(worst.rate * 100, 1),
+          everyoneElsePct: round(worst.rest * 100, 1),
+          pointGapPct: round(absGap * 100, 1),
           rowsInSegment: worst.n,
           zScore: round(worst.z, 1),
           note: "Two-proportion z-test against the rest of the table, so segment size is already priced in.",
@@ -842,6 +842,7 @@ function detectRelationships(ctx: Ctx): Finding[] {
           note: "Association, not cause. Both may follow something absent from this table.",
         },
         rowRefs: refs,
+        scatter: sampleScatter(xs, ys, cols[i].name, cols[j].name),
       });
     }
   }
@@ -896,7 +897,7 @@ function detectOutliers(ctx: Ctx): Finding[] {
         fenceAbove: round(s.median + fence),
         fenceBelow: round(s.median - fence),
         mostExtreme: round(extreme),
-        shareOfTotal: round(pull, 4),
+        shareOfTotalPct: round(pull * 100, 1),
         count: s.outlierCount,
         note: "Fences are median ± 3·MAD, so the outliers aren't setting their own threshold.",
       },
@@ -934,7 +935,7 @@ function detectConcentration(ctx: Ctx): Finding[] {
       coverage: share,
       evidence: {
         distinct: c.distinct,
-        top3Share: round(share, 4),
+        top3SharePct: round(share * 100, 1),
         leaders: leaders.join(", "),
         balance: round(c.balance, 3),
         note: "The long tail here is thin enough that per-level averages outside the top few rest on very few rows.",
@@ -1017,6 +1018,27 @@ function segmentPhrase(col: ColumnProfile, against: number, total: number): stri
     return against === total ? `both sides of ${col.name}` : `one side of ${col.name}`;
   }
   return `${against === total ? "every" : "almost every"} ${col.name}`;
+}
+
+/**
+ * Thin a pair of columns down to a drawable cloud.
+ *
+ * Evenly strided rather than random: a stride keeps whatever ordering
+ * the table already has visible in the sample, and it is deterministic,
+ * so the same dataset draws the same picture every time.
+ */
+const SCATTER_POINTS = 260;
+
+function sampleScatter(xs: number[], ys: number[], xLabel: string, yLabel: string) {
+  const n = Math.min(xs.length, ys.length);
+  const stride = Math.max(1, Math.ceil(n / SCATTER_POINTS));
+  const x: number[] = [];
+  const y: number[] = [];
+  for (let i = 0; i < n; i += stride) {
+    x.push(round(xs[i], 4));
+    y.push(round(ys[i], 4));
+  }
+  return { x, y, xLabel, yLabel };
 }
 
 function quantileOf(values: Array<number | null>, q: number): number | null {

@@ -28,7 +28,7 @@ export const projects: Project[] = [
     slug: "nexus",
     name: "NEXUS",
     kind: "Data intelligence",
-    tags: ["Concept", "Data experience", "Engineering"],
+    tags: ["Live demo", "Statistics engine", "AI"],
     artClass: "art-nexus",
     summary:
       "A dashboard that reads like an instrument panel instead of a spreadsheet.",

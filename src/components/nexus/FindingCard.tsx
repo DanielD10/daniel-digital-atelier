@@ -1,0 +1,246 @@
+"use client";
+
+import { useState } from "react";
+import { Bars, Diverging, Impact, Scatter, Series } from "./Charts";
+import type { Finding } from "@/lib/nexus/types";
+
+/**
+ * One finding, with its workings available.
+ *
+ * The expandable evidence is the whole argument of this project. A
+ * dashboard that volunteers conclusions is only worth having if every
+ * conclusion can be opened — the arithmetic that produced it, and the
+ * actual rows it was computed from. "Show the work" is not a power-user
+ * affordance here, it is what makes being assertive defensible.
+ */
+
+const KIND_LABEL: Record<Finding["kind"], string> = {
+  shift: "Level shift",
+  trend: "Trend",
+  outlier: "Outliers",
+  relationship: "Relationship",
+  concentration: "Concentration",
+  paradox: "Paradox",
+  gap: "Coverage gap",
+  imbalance: "Imbalance",
+};
+
+/** How sure, in words. A percentage here would be false precision. */
+function confidenceWord(c: number): string {
+  if (c >= 0.85) return "Strong";
+  if (c >= 0.6) return "Clear";
+  if (c >= 0.4) return "Tentative";
+  return "Weak";
+}
+
+/**
+ * `overallChangePct` → "Overall change %".
+ *
+ * The engine stores shares already multiplied out, because an audit
+ * table reading "0.4909" next to a headline saying 49% makes a reader
+ * stop and do arithmetic to check the two agree. The suffix is the
+ * engine's signal that a figure is a percentage; this turns it into
+ * the symbol rather than the word.
+ */
+function labelOf(key: string): string {
+  const pct = key.endsWith("Pct");
+  const base = pct ? key.slice(0, -3) : key;
+  return (
+    base
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/^./, (s) => s.toUpperCase())
+      .toLowerCase()
+      .replace(/^./, (s) => s.toUpperCase()) + (pct ? " %" : "")
+  );
+}
+
+function formatValue(v: number | string): string {
+  if (typeof v === "number") {
+    return Number.isInteger(v) ? v.toLocaleString() : v.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  }
+  return v;
+}
+
+export interface AuditRows {
+  headers: string[];
+  rows: string[][];
+  total: number;
+}
+
+export default function FindingCard({
+  finding,
+  rank,
+  onAudit,
+}: {
+  finding: Finding;
+  rank: number;
+  onAudit: (f: Finding) => Promise<AuditRows>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<AuditRows | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  // Long prose in the evidence map is a note, not a measurement; it reads
+  // as a footnote rather than a row in the arithmetic table.
+  const entries = Object.entries(finding.evidence);
+  const notes = entries.filter(([, v]) => typeof v === "string" && v.length > 48);
+  const figures = entries.filter(([, v]) => !(typeof v === "string" && v.length > 48));
+
+  async function loadRows() {
+    if (rows || loading) return;
+    setLoading(true);
+    setFailed(false);
+    try {
+      setRows(await onAudit(finding));
+    } catch {
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const isDiverging =
+    finding.kind === "paradox" ||
+    (finding.kind === "imbalance" && finding.breakdown?.some((b) => b.value < 0));
+
+  return (
+    <article className={`nex-find nex-find--${finding.kind}`}>
+      <header className="nex-find-top">
+        <span className="nex-find-rank">{String(rank).padStart(2, "0")}</span>
+        <span className="nex-find-kind">{KIND_LABEL[finding.kind]}</span>
+        <span className="nex-find-spacer" />
+        <span className="nex-find-conf">{confidenceWord(finding.confidence)}</span>
+        <Impact value={finding.impact} />
+      </header>
+
+      <h3 className="nex-find-head">{finding.headline}</h3>
+
+      <p className="nex-find-cols">
+        {finding.columns.map((c) => (
+          <span key={c} className="nex-chip">{c}</span>
+        ))}
+      </p>
+
+      {finding.series && finding.series.values.length > 1 && (
+        <div className="nex-find-chart">
+          <Series
+            values={finding.series.values}
+            labels={finding.series.labels}
+            markerIndex={finding.series.markerIndex}
+            tone={finding.kind === "gap" ? "warn" : "signal"}
+          />
+          <div className="nex-find-axis">
+            <span>{finding.series.labels[0]}</span>
+            {finding.series.markerIndex !== undefined && (
+              <span className="nex-find-axis-mark">
+                {finding.series.labels[finding.series.markerIndex]}
+              </span>
+            )}
+            <span>{finding.series.labels[finding.series.labels.length - 1]}</span>
+          </div>
+        </div>
+      )}
+
+      {finding.scatter && (
+        <div className="nex-find-chart">
+          <Scatter
+            x={finding.scatter.x}
+            y={finding.scatter.y}
+            xLabel={finding.scatter.xLabel}
+            yLabel={finding.scatter.yLabel}
+          />
+        </div>
+      )}
+
+      {finding.breakdown && finding.breakdown.length > 0 && (
+        <div className="nex-find-chart">
+          {isDiverging ? (
+            <Diverging items={finding.breakdown} highlightFirst={finding.kind === "paradox"} />
+          ) : (
+            <Bars items={finding.breakdown} />
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="nex-find-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="nex-find-toggle-mark" aria-hidden="true">{open ? "−" : "+"}</span>
+        {open ? "Hide the work" : "Show the work"}
+      </button>
+
+      {open && (
+        <div className="nex-work">
+          <dl className="nex-work-grid">
+            {figures.map(([k, v]) => (
+              <div key={k} className="nex-work-cell">
+                <dt>{labelOf(k)}</dt>
+                <dd>{formatValue(v)}</dd>
+              </div>
+            ))}
+          </dl>
+
+          {notes.map(([k, v]) => (
+            <p key={k} className="nex-work-note">{v as string}</p>
+          ))}
+
+          <p className="nex-work-meta">
+            Covers {(finding.coverage * 100).toFixed(finding.coverage < 0.01 ? 2 : 0)}% of rows
+            {finding.rowRefs.length > 0 && ` · ${finding.rowRefs.length} cited`}
+          </p>
+
+          {finding.rowRefs.length > 0 && !rows && (
+            <button type="button" className="nex-find-rows-btn" onClick={loadRows} disabled={loading}>
+              {loading ? "Fetching rows…" : `Open the ${finding.rowRefs.length} rows behind this`}
+            </button>
+          )}
+          {failed && <p className="nex-work-note">Couldn&apos;t fetch those rows. Try again.</p>}
+
+          {rows && (
+            <div className="nex-rows">
+              <table>
+                <thead>
+                  <tr>
+                    {rows.headers.map((h) => (
+                      <th
+                        key={h}
+                        className={finding.columns.includes(h) ? "is-cited" : undefined}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.rows.map((r, i) => (
+                    <tr key={i}>
+                      {r.map((cell, j) => (
+                        <td
+                          key={j}
+                          className={
+                            finding.columns.includes(rows.headers[j]) ? "is-cited" : undefined
+                          }
+                        >
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.total > rows.rows.length && (
+                <p className="nex-work-note">
+                  Showing {rows.rows.length} of {rows.total.toLocaleString()}.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </article>
+  );
+}
