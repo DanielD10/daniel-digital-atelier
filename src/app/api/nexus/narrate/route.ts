@@ -41,28 +41,29 @@ export async function POST(req: Request) {
   if (!id) return NextResponse.json({ error: "No dataset id." }, { status: 400 });
 
   /*
-   * Metered, not gated.
+   * Metered only when a model is actually going to be called.
    *
-   * An earlier cut refused the brief outright until someone gave an
-   * email, which removed the page's headline capability from anyone
-   * unwilling to — a worse demo and a worse pitch. Everyone can run it
-   * now; a free browser just gets fewer per day. When the allowance is
-   * gone the response carries the pitch rather than a closed door.
+   * With no key configured the brief is written here, from findings
+   * already computed, at no cost to anybody — so charging a visitor's
+   * allowance for it would be billing them for work that was free.
+   * The allowance exists to bound an API bill, and where there is no
+   * API there is nothing to bound.
    */
-  const session = await getSession();
-  const quota = await spend(session, "narrate");
-
-  if (!quota.allowed) {
-    const identified = quota.tier !== "anonymous";
-    return NextResponse.json(
-      {
-        error: identified ? "quota" : "locked",
-        reason: identified
-          ? "You've used today's briefs. The allowance resets 24 hours after the first one."
-          : "That's the free allowance of briefs for this browser. Writing one costs a model call, so tell me who you are and it goes up — along with Ask.",
-      },
-      { status: identified ? 429 : 402 },
-    );
+  if (narrationConfigured()) {
+    const session = await getSession();
+    const quota = await spend(session, "narrate");
+    if (!quota.allowed) {
+      const identified = quota.tier !== "anonymous";
+      return NextResponse.json(
+        {
+          error: identified ? "quota" : "locked",
+          reason: identified
+            ? "You've used today's model-written briefs. The allowance resets 24 hours after the first one."
+            : "That's the free allowance of model-written briefs for this browser. Tell me who you are and it goes up.",
+        },
+        { status: identified ? 429 : 402 },
+      );
+    }
   }
 
   if (id === DEMO_ID) {
@@ -72,6 +73,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ...result, cached: false });
   }
 
+  const session = await getSession();
   const resolved = await resolveStored(id, session, false);
   if (!resolved) return NextResponse.json({ error: "Not found." }, { status: 404 });
 

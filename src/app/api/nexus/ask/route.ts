@@ -3,6 +3,7 @@ import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { DEMO_ID, resolveDemo, resolveStored } from "@/lib/nexus/resolve";
 import { getSession, spend } from "@/lib/nexus/store";
 import { PlanError, runPlan, validatePlan, type Plan } from "@/lib/nexus/query";
+import { interpret } from "@/lib/nexus/interpret";
 import { profileTable } from "@/lib/nexus/profile";
 
 export const runtime = "nodejs";
@@ -59,17 +60,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) {
-    return NextResponse.json(
-      {
-        error:
-          "Ask needs a model to turn your question into a query plan, and no API key is configured on this deployment. Everything else on this panel is computed locally and works without it.",
-      },
-      { status: 503 },
-    );
-  }
-
   let body: AskBody;
   try {
     body = await req.json();
@@ -83,22 +73,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Need a dataset and a question." }, { status: 400 });
   }
 
-  /* Metered the same way as the brief: everyone may ask, a free
-     browser just gets fewer questions before the pitch appears. */
   const session = await getSession();
-  const quota = await spend(session, "ask");
-  if (!quota.allowed) {
-    const identified = quota.tier !== "anonymous";
-    return NextResponse.json(
-      {
-        error: identified ? "quota" : "locked",
-        reason: identified
-          ? "You've used today's questions. The allowance resets 24 hours after the first one."
-          : "That's the free allowance of questions for this browser. Each one is a model call, so tell me who you are and it goes up.",
-      },
-      { status: identified ? 429 : 402 },
-    );
-  }
 
   let resolved;
   if (id === DEMO_ID) {
@@ -125,67 +100,121 @@ export async function POST(req: Request) {
     ...(c.temporal ? { from: c.temporal.min, to: c.temporal.max } : {}),
   }));
 
+  /*
+   * Read the question here first, with no model and no network call.
+   *
+   * The planner used to be a model call for every question: money per
+   * ask, and the client's column names leaving the building. The
+   * second is what matters commercially — "does our data go to a third
+   * party" decides deals in regulated industries, and the honest
+   * answer should be "no". The local reader handles the grammars
+   * people actually use; a model, if one is configured, picks up only
+   * what it cannot read.
+   */
   let plan: Plan;
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5-5",
-        max_tokens: 400,
-        system: PLANNER_SYSTEM,
-        messages: [
-          {
-            role: "user",
-            content:
-              `Today: ${new Date().toISOString().slice(0, 10)}\n` +
-              `Schema:\n${JSON.stringify(schema)}\n\n` +
-              `Question: ${question}`,
-          },
-        ],
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(25_000),
-    });
+  let reading: string | null = null;
+  let readBy: "local" | "model" = "local";
 
-    if (!res.ok) {
-      console.error("[nexus] planner rejected", res.status);
-      return NextResponse.json({ error: "The planner is unavailable right now." }, { status: 502 });
-    }
-
-    const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    const text = (json.content ?? [])
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join("")
-      .trim();
-
-    // Tolerate a fenced block, but nothing looser — anything else is a miss.
-    const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
-
-    if (parsed.op === "error") {
+  const local = interpret(question, profile.columns);
+  if (!("error" in local)) {
+    plan = local.plan;
+    reading = local.reading;
+  } else {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) {
       return NextResponse.json(
-        { error: typeof parsed.why === "string" ? parsed.why : "That one isn't answerable here." },
+        { error: local.error, examples: local.examples },
         { status: 422 },
       );
     }
-    plan = validatePlan(parsed);
-  } catch (err) {
-    if (err instanceof PlanError) {
-      return NextResponse.json({ error: err.message }, { status: 422 });
+    readBy = "model";
+
+    /*
+     * Metered only here. The local reader handles most questions for
+     * nothing, so charging a visitor's allowance for those would be
+     * billing them for work that cost nobody anything.
+     */
+    const quota = await spend(session, "ask");
+    if (!quota.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            quota.tier === "anonymous"
+              ? "I couldn't read that one directly, and the free allowance for the smarter reader is used up for today. Try rephrasing it with a column name in it."
+              : "I couldn't read that one directly, and today's allowance for the smarter reader is used up.",
+          examples: local.examples,
+        },
+        { status: 422 },
+      );
     }
-    console.error("[nexus] planner threw", err);
-    return NextResponse.json({ error: "Couldn't turn that into a query." }, { status: 502 });
+
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-5-5",
+          max_tokens: 400,
+          system: PLANNER_SYSTEM,
+          messages: [
+            {
+              role: "user",
+              content:
+                `Today: ${new Date().toISOString().slice(0, 10)}\n` +
+                `Schema:\n${JSON.stringify(schema)}\n\n` +
+                `Question: ${question}`,
+            },
+          ],
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(25_000),
+      });
+
+      if (!res.ok) {
+        return NextResponse.json(
+          { error: local.error, examples: local.examples },
+          { status: 422 },
+        );
+      }
+
+      const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+      const text = (json.content ?? [])
+        .filter((b) => b.type === "text")
+        .map((b) => b.text ?? "")
+        .join("")
+        .trim();
+      const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+
+      if (parsed.op === "error") {
+        return NextResponse.json(
+          {
+            error: typeof parsed.why === "string" ? parsed.why : local.error,
+            examples: local.examples,
+          },
+          { status: 422 },
+        );
+      }
+      plan = validatePlan(parsed);
+    } catch (err) {
+      if (err instanceof PlanError) {
+        return NextResponse.json({ error: err.message, examples: local.examples }, { status: 422 });
+      }
+      console.error("[nexus] planner threw", err);
+      return NextResponse.json(
+        { error: local.error, examples: local.examples },
+        { status: 422 },
+      );
+    }
   }
 
   try {
     const result = runPlan(plan, resolved.table, profile.columns, profile.dateValues);
-    return NextResponse.json({ plan, result });
+    return NextResponse.json({ plan, result, reading, readBy });
   } catch (err) {
     if (err instanceof PlanError) {
       return NextResponse.json({ error: err.message, plan }, { status: 422 });

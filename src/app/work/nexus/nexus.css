@@ -837,3 +837,16 @@
   color: var(--nex-dim);
   max-width: 64ch;
 }
+
+.nex-result-read {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--nex-dim);
+}
+.nex-hints { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.nex-hints button {
+  font: inherit; font-size: 12px; padding: 5px 10px; border-radius: 2px;
+  border: 1px solid var(--nex-line-2); background: none; color: var(--nex-dim); cursor: pointer;
+}
+.nex-hints button:hover { border-color: var(--nex-signal); color: var(--nex-signal); }
+.nex-error p { margin: 0; }

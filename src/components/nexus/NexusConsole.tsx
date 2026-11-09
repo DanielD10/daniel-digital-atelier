@@ -34,6 +34,7 @@ interface Ceiling {
 
 interface AskState {
   question: string;
+  reading: string | null;
   statement: string;
   columns: string[];
   rows: Array<Array<string | number>>;
@@ -60,6 +61,7 @@ export default function NexusConsole({
   const [question, setQuestion] = useState("");
   const [ask, setAsk] = useState<AskState | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
+  const [askHints, setAskHints] = useState<string[]>([]);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -250,11 +252,16 @@ export default function NexusConsole({
         const json = await res.json();
         if (!res.ok) {
           if (json.error === "locked") setLock(json.reason);
-          else setAskError(json.error === "quota" ? json.reason : json.error ?? "Couldn't answer that.");
+          else {
+            setAskError(json.error === "quota" ? json.reason : json.error ?? "Couldn't answer that.");
+            setAskHints(Array.isArray(json.examples) ? json.examples : []);
+          }
           return;
         }
+        setAskHints([]);
         setAsk({
           question: q,
+          reading: json.reading ?? null,
           statement: json.result.statement,
           columns: json.result.columns,
           rows: json.result.rows,
@@ -361,8 +368,8 @@ export default function NexusConsole({
             </div>
             <p className="nex-brief-foot">
               {brief.live
-                ? "Written by Claude from the findings below. Every figure in it was computed before the model saw anything — it phrases the arithmetic, it doesn't do it."
-                : "Assembled from the findings below. No model is configured on this deployment, so this is the engine's own wording."}
+                ? "Written by Claude from the findings below. Every figure was computed before the model saw anything — it phrases the arithmetic, it doesn't do it."
+                : "Written from the findings below, on this server. Every figure was computed from your file; nothing was sent anywhere."}
             </p>
           </>
         ) : (
@@ -398,11 +405,25 @@ export default function NexusConsole({
         </button>
       </form>
 
-      {askError && <p className="nex-error" role="alert">{askError}</p>}
+      {askError && (
+        <div className="nex-error" role="alert">
+          <p>{askError}</p>
+          {askHints.length > 0 && (
+            <ul className="nex-hints">
+              {askHints.map((h) => (
+                <li key={h}>
+                  <button type="button" onClick={() => setQuestion(h)}>{h}</button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {ask && (
         <section className="nex-result">
           <h3 className="nex-result-q">{ask.question}</h3>
+          {ask.reading && <p className="nex-result-read">Read as: {ask.reading}</p>}
           <p className="nex-result-stmt">{ask.statement}</p>
           {ask.chart && ask.chart.values.length > 1 && (
             <div className="nex-result-chart">
@@ -426,7 +447,8 @@ export default function NexusConsole({
             </table>
           </div>
           <p className="nex-result-foot">
-            Computed by the engine from a validated query plan. The model wrote the plan, not the numbers.
+            Worked out on this server from your file. If that isn&apos;t the question you meant, rephrase it
+            using a column name and it will read it again.
           </p>
         </section>
       )}

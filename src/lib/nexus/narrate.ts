@@ -1,3 +1,4 @@
+import { plainMeaning } from "./plain";
 import type { Analysis, Finding, QualityIssue } from "./types";
 
 /**
@@ -107,44 +108,61 @@ export async function narrate(analysis: Analysis): Promise<{ text: string; live:
 }
 
 /**
- * The fallback, assembled from the same findings.
+ * The brief with no model involved.
  *
- * Deliberately not a worse version of the model's output — it is a
- * different register. It stitches the engine's own headlines together
- * rather than trying to sound like prose, which is honest about where
- * it came from.
+ * Not a degraded version of the model's output — a different route to
+ * the same place. Every finding already carries a plain-English
+ * explanation of itself, written from its own numbers, so a readable
+ * brief is a matter of choosing which ones matter and putting them in
+ * order. That makes the whole panel work, properly, with no API key,
+ * no per-call cost, and nothing leaving the server.
  */
 function templated(analysis: Analysis): string {
-  const parts: string[] = [];
-  const high = analysis.quality.filter((q) => q.severity !== "low");
+  const paras: string[] = [];
+  const serious = analysis.quality.filter((q) => q.severity !== "low");
 
-  if (high.length > 0) {
-    parts.push(
-      `Before the numbers: ${joinList(high.slice(0, 3).map(lowerFirst))}. ` +
-        `That changes what the figures below mean, so it is worth clearing first.`,
+  if (serious.length > 0) {
+    paras.push(
+      `Start with the file itself: ${joinList(serious.slice(0, 3).map(lowerFirst))}. ` +
+        `Each of those changes what the numbers below mean, so they are worth clearing before you act on anything else.`,
     );
   }
 
-  const top = analysis.findings.slice(0, 3);
-  if (top.length > 0) {
-    parts.push(
-      `${top.map((f) => f.headline).join(". ")}. ` +
-        `Ranked by effect size against how much of the table each one covers.`,
+  const [first, ...rest] = analysis.findings;
+  if (first) {
+    const meaning = plainMeaning(first);
+    paras.push(
+      `The thing most worth your attention: ${lowerFirstStr(first.headline)}. ` +
+        (meaning || ""),
     );
   }
 
-  const rest = analysis.findings.length - top.length;
-  if (rest > 0) {
-    parts.push(
-      `${rest} further ${rest === 1 ? "finding is" : "findings are"} listed below, ` +
-        `each with the arithmetic and the rows behind it.`,
+  const next = rest.slice(0, 2);
+  if (next.length > 0) {
+    paras.push(
+      `After that${next.length > 1 ? ", two things" : ""}: ` +
+        `${next.map((f) => lowerFirstStr(f.headline)).join("; and ")}. ` +
+        (rest.length > next.length
+          ? `${rest.length - next.length} further ${
+              rest.length - next.length === 1 ? "finding is" : "findings are"
+            } below, each with the arithmetic and the rows behind it.`
+          : `Both are set out below with the arithmetic and the rows behind them.`),
     );
   }
 
-  if (parts.length === 0) {
-    return `${analysis.table.rows.toLocaleString()} rows across ${analysis.table.columns} columns. Nothing in them cleared the thresholds for a reportable pattern, which is itself worth knowing — the table is internally consistent and unremarkable.`;
+  if (paras.length === 0) {
+    return (
+      `${analysis.table.rows.toLocaleString()} rows across ${analysis.table.columns} columns, and nothing in them ` +
+      `cleared the bar for a reportable pattern. That is itself worth knowing: the file is internally consistent ` +
+      `and unremarkable, with no step changes, no segment behaving differently from the rest, and no data-quality ` +
+      `problems large enough to distort an average.`
+    );
   }
-  return parts.join("\n\n");
+  return paras.join("\n\n");
+}
+
+function lowerFirstStr(s: string): string {
+  return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
 function lowerFirst(q: QualityIssue): string {
