@@ -118,16 +118,19 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
 export function QualityStrip({
   issues,
   onInspect,
+  noun = "file",
 }: {
   issues: QualityIssue[];
   onInspect: (issue: QualityIssue) => void;
+  /** What to call the source in prose — a connected table is not a file. */
+  noun?: string;
 }) {
   if (issues.length === 0) {
     return (
       <section className="nex-qual">
         <h2 className="nex-rail-title">Integrity</h2>
         <p className="nex-qual-clean">
-          The file itself looks sound — no duplicate rows, no columns mixing
+          The {noun} itself looks sound — no duplicate rows, no columns mixing
           text with numbers, no large gaps. Findings below rest on solid ground.
         </p>
       </section>
@@ -138,7 +141,7 @@ export function QualityStrip({
     <section className="nex-qual">
       <h2 className="nex-rail-title">Integrity</h2>
       <p className="nex-rail-sub">
-        Problems with the file itself, found before any analysis ran. Each one
+        Problems with the {noun} itself, found before any analysis ran. Each one
         changes what the numbers mean, so clear these first. Click to see the rows.
       </p>
       <ul className="nex-issues">

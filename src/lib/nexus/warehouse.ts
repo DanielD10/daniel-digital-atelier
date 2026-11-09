@@ -24,6 +24,51 @@ import type { ColumnKind, ColumnProfile } from "./types";
  * extending a lot of trust and the code should earn it.
  */
 
+/**
+ * Refuse private and loopback addresses.
+ *
+ * A public endpoint that opens outbound connections to anything it is
+ * told to is a port scanner with extra steps: it would happily reach
+ * the cloud metadata service, anything else inside the VPC, or a
+ * colleague's laptop. Hostnames are not resolved here — DNS rebinding
+ * would defeat that anyway — so this blocks the literal forms, and the
+ * platform's own egress rules are the real boundary.
+ */
+export function hostIsPrivate(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h.endsWith(".internal") ||
+    h.endsWith(".local")
+  ) {
+    return true;
+  }
+  if (h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")) return true;
+  if (/^169\.254\./.test(h)) return true; // link-local, incl. cloud metadata
+  if (/^127\./.test(h)) return true;
+  if (/^10\./.test(h)) return true;
+  if (/^192\.168\./.test(h)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
+  if (/^0\./.test(h)) return true;
+  return false;
+}
+
+/** null when the host is usable; otherwise the reason, for the caller to return. */
+export function checkPublicHost(connectionString: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    return "That connection string couldn't be parsed.";
+  }
+  if (!url.hostname) return "That connection string has no host in it.";
+  if (hostIsPrivate(url.hostname)) {
+    return "That address is on a private network, which this can't reach. Use a host that's reachable from the internet, with your IP rules allowing it.";
+  }
+  return null;
+}
+
 /** No single query may run longer than this. A runaway scan is a bug. */
 const STATEMENT_TIMEOUT_MS = 25_000;
 const CONNECT_TIMEOUT_MS = 10_000;

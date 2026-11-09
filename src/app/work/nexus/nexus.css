@@ -1025,6 +1025,8 @@
   gap: 10px;
 }
 .nex-watch p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--nex-dim); }
+.nex-watch-note a { color: var(--nex-signal); text-decoration: underline; text-underline-offset: 2px; }
+.nex-watch-note a:hover { color: var(--nex-text); }
 .nex-watch strong { color: var(--nex-text); font-weight: 500; }
 .nex-watch input {
   font: inherit; font-size: 14px; padding: 10px 12px; width: 100%;

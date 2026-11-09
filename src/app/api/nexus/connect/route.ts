@@ -5,6 +5,7 @@ import {
   listTables,
   openConnection,
   profileTableSql,
+  checkPublicHost,
   sampleRowsSql,
   scrub,
   WarehouseError,
@@ -31,45 +32,6 @@ export const maxDuration = 60;
  * warehouse. Until then the honest answer to "where do you keep my
  * password" is "we don't".
  */
-
-/**
- * Refuse private and loopback addresses.
- *
- * A public endpoint that opens outbound connections to anything it is
- * told to is a port scanner with extra steps: it would happily reach
- * the cloud metadata service, anything else inside the VPC, or a
- * colleague's laptop. Hostnames are not resolved here — DNS rebinding
- * would defeat that anyway — so this blocks the literal forms, and the
- * platform's own egress rules are the real boundary.
- */
-function hostIsPrivate(host: string): boolean {
-  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) {
-    return true;
-  }
-  if (h === "::1" || h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")) return true;
-  if (/^169\.254\./.test(h)) return true; // link-local, incl. cloud metadata
-  if (/^127\./.test(h)) return true;
-  if (/^10\./.test(h)) return true;
-  if (/^192\.168\./.test(h)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true;
-  if (/^0\./.test(h)) return true;
-  return false;
-}
-
-function checkHost(connectionString: string): string | null {
-  let url: URL;
-  try {
-    url = new URL(connectionString);
-  } catch {
-    return "That connection string couldn't be parsed.";
-  }
-  if (!url.hostname) return "That connection string has no host in it.";
-  if (hostIsPrivate(url.hostname)) {
-    return "That address is on a private network, which this can't reach. Use a host that's reachable from the internet, with your IP rules allowing it.";
-  }
-  return null;
-}
 
 export async function POST(req: Request) {
   const limit = rateLimit(`nexus-connect:${clientKey(req.headers)}`, 6);
@@ -114,7 +76,7 @@ export async function POST(req: Request) {
   const conn = typeof body.connectionString === "string" ? body.connectionString.trim() : "";
   if (!conn) return NextResponse.json({ error: "No connection string." }, { status: 400 });
 
-  const hostProblem = checkHost(conn);
+  const hostProblem = checkPublicHost(conn);
   if (hostProblem) return NextResponse.json({ error: hostProblem }, { status: 400 });
 
   let client;

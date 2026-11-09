@@ -269,3 +269,17 @@ export const DUE_DILIGENCE = {
   body:
     "Everything here is computed from the file you gave it, and the file can be wrong — a mis-keyed figure, a missing month, a column that means something different from what its name suggests. Open the rows behind any finding before you act on it, and sense-check it against what you already know about your business. This is a second pair of eyes, not a replacement for yours.",
 } as const;
+
+/**
+ * The same warning, for a connected table.
+ *
+ * Telling someone their data "came from the file you gave it" when they
+ * pointed this at a production database is the kind of small wrongness
+ * that makes a reader stop trusting the rest of the page — and the rest
+ * of the page is asking them to trust it enough to act.
+ */
+export const DUE_DILIGENCE_TABLE = {
+  heading: DUE_DILIGENCE.heading,
+  body:
+    "Everything here was computed by your own database over every row in the table, and a table can be wrong — a mis-keyed figure, a missing month, a column that means something different from what its name suggests. Open the rows behind any finding before you act on it, and sense-check it against what you already know about your business. This is a second pair of eyes, not a replacement for yours.",
+} as const;

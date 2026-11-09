@@ -10,7 +10,7 @@ import { Beyond, UnlockPanel } from "./Unlock";
 import type { FindingChange, RunDiff } from "@/lib/nexus/diff";
 import { parseCsv } from "@/lib/nexus/csv";
 import type { Tier } from "@/lib/nexus/entitlements";
-import { DUE_DILIGENCE } from "@/lib/nexus/plain";
+import { DUE_DILIGENCE, DUE_DILIGENCE_TABLE } from "@/lib/nexus/plain";
 import { LIMITS, type Analysis, type Finding, type QualityIssue } from "@/lib/nexus/types";
 
 /**
@@ -420,6 +420,8 @@ export default function NexusConsole({
   );
 
   const a = data.analysis;
+  // A connected table did not come out of a file; say so.
+  const care = data.warehouse ? DUE_DILIGENCE_TABLE : DUE_DILIGENCE;
   const changeFor = new Map<string, FindingChange>(
     (diff?.changes ?? []).map((c) => [c.id, c]),
   );
@@ -462,6 +464,17 @@ export default function NexusConsole({
           <div><dt>columns</dt><dd>{a.table.columns}</dd></div>
           <div><dt>findings</dt><dd>{a.findings.length}</dd></div>
           {a.elapsedMs > 0 && <div><dt>scan</dt><dd>{a.elapsedMs}ms</dd></div>}
+          {/*
+            The split is the claim this path makes, so it is shown
+            rather than asserted: almost all the time is the database
+            aggregating, and almost none of it is this server.
+          */}
+          {a.pushdown && (
+            <div title="Time spent computing here versus in your database">
+              <dt>of which local</dt>
+              <dd>{a.pushdown.localMs}ms</dd>
+            </div>
+          )}
         </dl>
 
         <div className="nex-head-acts">
@@ -486,7 +499,7 @@ export default function NexusConsole({
             onClick={() => setConnOpen((v) => !v)}
             aria-expanded={connOpen}
           >
-            {connOpen ? "Cancel" : "Connect a database"}
+            {connOpen ? "Close" : "Connect a database"}
           </button>
           {data.id !== "demo" && (
             <button type="button" className="nex-btn nex-btn--ghost" onClick={() => void loadDemo()}>
@@ -732,13 +745,38 @@ export default function NexusConsole({
         </main>
 
         <aside className="nex-aside">
-          {data.id !== "demo" && <WatchForm dataset={data.name} />}
+          {/*
+            A scheduled digest needs to re-read the data on its own, and
+            for a connected table that would mean storing the
+            credentials — which this deliberately does not do. Offering
+            the subscription anyway would be selling a mail that could
+            never arrive, so the live-table case says plainly what it
+            would take instead.
+          */}
+          {data.warehouse ? (
+            <section className="nex-watch">
+              <h2 className="nex-rail-title">Keep an eye on this</h2>
+              <p className="nex-watch-note">
+                Scheduled digests need to re-run this query on their own, which means holding your
+                database credentials. This doesn&apos;t store them — the string you typed is gone
+                already. Standing access to a live table is something to set up deliberately, with
+                its own read-only user: <a href="/contact">get in touch</a> and it can be wired up
+                properly. Digests work today on files you upload.
+              </p>
+            </section>
+          ) : (
+            data.id !== "demo" && <WatchForm dataset={data.name} />
+          )}
 
           <section className="nex-care">
-            <h2 className="nex-rail-title">{DUE_DILIGENCE.heading}</h2>
-            <p>{DUE_DILIGENCE.body}</p>
+            <h2 className="nex-rail-title">{care.heading}</h2>
+            <p>{care.body}</p>
           </section>
-          <QualityStrip issues={a.quality} onInspect={(q) => void inspectIssue(q)} />
+          <QualityStrip
+            issues={a.quality}
+            onInspect={(q) => void inspectIssue(q)}
+            noun={data.warehouse ? "table" : "file"}
+          />
           {issueRows && (
             <div className="nex-issue-rows">
               <div className="nex-issue-rows-top">
