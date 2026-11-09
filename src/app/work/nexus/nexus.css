@@ -737,3 +737,103 @@
   .nex-lock-fields { grid-template-columns: 1fr; }
   .nex-lock-acts { flex-direction: column; }
 }
+
+/* ───────────── plain language ───────────── */
+
+/*
+  The reading layer. A finding nobody understands is worth less than no
+  finding, because it teaches the reader the tool isn't for them. The
+  statistics stay on the card for whoever wants to check the work —
+  these sit above them, in the order a person actually reads.
+*/
+
+.nex-find-plain {
+  margin: 0 0 14px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--nex-dim);
+  max-width: 72ch;
+  border-left: 1px solid var(--nex-line-2);
+  padding-left: 14px;
+}
+
+.nex-find-caption {
+  margin: -4px 0 14px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--nex-faint);
+  max-width: 70ch;
+}
+
+.nex-find-cols-lead {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nex-faint);
+  align-self: center;
+  margin-right: 2px;
+}
+
+.nex-work-gloss {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--nex-faint);
+}
+
+.nex-howto {
+  border: 1px solid var(--nex-line);
+  border-radius: var(--nex-r);
+  background: var(--nex-ink);
+  padding: 0 16px;
+  margin-bottom: 2px;
+}
+.nex-howto summary {
+  cursor: pointer;
+  padding: 13px 0;
+  font-size: 12.5px;
+  color: var(--nex-signal);
+  list-style: none;
+}
+.nex-howto summary::-webkit-details-marker { display: none; }
+.nex-howto summary::before {
+  content: "+ ";
+  font-family: var(--nex-mono);
+}
+.nex-howto[open] summary::before { content: "− "; }
+.nex-howto ol {
+  margin: 0 0 16px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.nex-howto li {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--nex-dim);
+}
+.nex-howto strong { color: var(--nex-text); font-weight: 500; }
+
+.nex-care {
+  border: 1px solid var(--nex-line);
+  border-left: 2px solid var(--nex-warn);
+  border-radius: var(--nex-r);
+  background: var(--nex-ink);
+  padding: 16px;
+}
+.nex-care p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--nex-dim);
+}
+.nex-care .nex-rail-title { color: var(--nex-warn); }
+
+.nex-brief-invite {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--nex-dim);
+  max-width: 64ch;
+}

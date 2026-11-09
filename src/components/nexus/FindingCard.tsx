@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 import { Bars, Diverging, Impact, Scatter, Series } from "./Charts";
+import {
+  chartCaption,
+  EVIDENCE_PLAIN,
+  humanize,
+  KIND_LABEL,
+  plainMeaning,
+} from "@/lib/nexus/plain";
 import type { Finding } from "@/lib/nexus/types";
 
 /**
@@ -14,16 +21,6 @@ import type { Finding } from "@/lib/nexus/types";
  * affordance here, it is what makes being assertive defensible.
  */
 
-const KIND_LABEL: Record<Finding["kind"], string> = {
-  shift: "Level shift",
-  trend: "Trend",
-  outlier: "Outliers",
-  relationship: "Relationship",
-  concentration: "Concentration",
-  paradox: "Paradox",
-  gap: "Coverage gap",
-  imbalance: "Imbalance",
-};
 
 /** How sure, in words. A percentage here would be false precision. */
 function confidenceWord(c: number): string {
@@ -100,6 +97,9 @@ export default function FindingCard({
     }
   }
 
+  const meaning = plainMeaning(finding);
+  const caption = chartCaption(finding);
+
   const isDiverging =
     finding.kind === "paradox" ||
     (finding.kind === "imbalance" && finding.breakdown?.some((b) => b.value < 0));
@@ -116,9 +116,12 @@ export default function FindingCard({
 
       <h3 className="nex-find-head">{finding.headline}</h3>
 
+      {meaning && <p className="nex-find-plain">{meaning}</p>}
+
       <p className="nex-find-cols">
+        <span className="nex-find-cols-lead">from</span>
         {finding.columns.map((c) => (
-          <span key={c} className="nex-chip">{c}</span>
+          <span key={c} className="nex-chip" title={c}>{humanize(c)}</span>
         ))}
       </p>
 
@@ -163,6 +166,8 @@ export default function FindingCard({
         </div>
       )}
 
+      {caption && <p className="nex-find-caption">{caption}</p>}
+
       <button
         type="button"
         className="nex-find-toggle"
@@ -180,6 +185,7 @@ export default function FindingCard({
               <div key={k} className="nex-work-cell">
                 <dt>{labelOf(k)}</dt>
                 <dd>{formatValue(v)}</dd>
+                {EVIDENCE_PLAIN[k] && <p className="nex-work-gloss">{EVIDENCE_PLAIN[k]}</p>}
               </div>
             ))}
           </dl>
@@ -189,7 +195,7 @@ export default function FindingCard({
           ))}
 
           <p className="nex-work-meta">
-            Covers {(finding.coverage * 100).toFixed(finding.coverage < 0.01 ? 2 : 0)}% of rows
+            Based on {(finding.coverage * 100).toFixed(finding.coverage < 0.01 ? 2 : 0)}% of your rows
             {finding.rowRefs.length > 0 && ` · ${finding.rowRefs.length} cited`}
           </p>
 

@@ -1,3 +1,4 @@
+import { humanize } from "./plain";
 import {
   balance,
   histogram,
@@ -32,6 +33,13 @@ import {
  * is worth.
  */
 const DISTINCT_CAP = 20_000;
+
+/** Column kinds as they read inside a sentence. */
+const KIND_WORD: Record<ColumnKind, string> = {
+  number: "numbers", integer: "whole numbers", currency: "money",
+  percent: "percentages", date: "dates", boolean: "yes/no",
+  category: "categories", identifier: "ID codes", text: "text", empty: "blanks",
+};
 
 const BLANK = new Set(["", "-", "—", "n/a", "na", "null", "nil", "none", "nan", "#n/a"]);
 const TRUTHY = new Set(["true", "yes", "y", "t", "1"]);
@@ -346,7 +354,7 @@ function collectColumnIssues(
       id: `missing:${profile.name}`,
       severity: profile.missing > 0.4 ? "high" : profile.missing > 0.15 ? "medium" : "low",
       column: profile.name,
-      title: `${pct(profile.missing)} of ${profile.name} is empty`,
+      title: `${pct(profile.missing)} of ${humanize(profile.name)} is empty`,
       detail:
         profile.missing > 0.4
           ? "Most rows have no value here. Any average over this column describes the minority that do."
@@ -373,7 +381,7 @@ function collectColumnIssues(
       column: profile.name,
       title: `${profile.coercionFailures.toLocaleString()} value${
         profile.coercionFailures === 1 ? "" : "s"
-      } in ${profile.name} don't parse as ${profile.kind}`,
+      } in ${humanize(profile.name)} don't look like ${KIND_WORD[profile.kind]}`,
       detail:
         "Mixed types in one column. These rows are skipped by every calculation below, silently, unless you look.",
       rowRefs: refs,
@@ -401,7 +409,7 @@ function collectColumnIssues(
         id: `variants:${profile.name}`,
         severity: "medium",
         column: profile.name,
-        title: `${profile.name} has the same level spelled more than one way`,
+        title: `${humanize(profile.name)} has the same value spelled more than one way`,
         detail: `${variants
           .slice(0, 6)
           .map((v) => `"${v}"`)
@@ -417,7 +425,7 @@ function collectColumnIssues(
       id: `constant:${profile.name}`,
       severity: "low",
       column: profile.name,
-      title: `${profile.name} never changes`,
+      title: `${humanize(profile.name)} never changes`,
       detail: "One value in every row. It can't explain variation in anything else.",
       rowRefs: [],
       affected: total,

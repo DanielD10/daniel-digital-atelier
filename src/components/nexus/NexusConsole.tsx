@@ -7,6 +7,7 @@ import { Bars, Series } from "./Charts";
 import { Beyond, UnlockPanel } from "./Unlock";
 import { parseCsv } from "@/lib/nexus/csv";
 import type { Tier } from "@/lib/nexus/entitlements";
+import { DUE_DILIGENCE } from "@/lib/nexus/plain";
 import { LIMITS, type Analysis, type Finding, type QualityIssue } from "@/lib/nexus/types";
 
 /**
@@ -365,9 +366,20 @@ export default function NexusConsole({
             </p>
           </>
         ) : (
-          <button type="button" className="nex-btn nex-btn--wide" onClick={() => void requestBrief()} disabled={busy !== null}>
-            Brief me on this
-          </button>
+          <>
+            <p className="nex-brief-invite">
+              Want this in a few sentences instead? The brief reads the findings
+              below and tells you what matters, in order.
+            </p>
+            <button
+              type="button"
+              className="nex-btn nex-btn--wide"
+              onClick={() => void requestBrief()}
+              disabled={busy !== null}
+            >
+              Summarise this for me
+            </button>
+          </>
         )}
       </section>
 
@@ -378,7 +390,7 @@ export default function NexusConsole({
           className="nex-ask-input"
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Which region has the worst return rate?"
+          placeholder="Ask in plain English — try: which region has the worst return rate?"
           autoComplete="off"
         />
         <button type="submit" className="nex-btn" disabled={busy !== null || !question.trim()}>
@@ -422,11 +434,34 @@ export default function NexusConsole({
       <div className="nex-body">
         <main className="nex-stack">
           <h2 className="nex-stack-title">
-            Signal
+            What stands out
             <span className="nex-stack-sub">
-              Ranked by effect size against how much of the table each one covers.
+              Most important first. Each card says what it found, what it means,
+              and lets you open the exact rows it came from.
             </span>
           </h2>
+
+          <details className="nex-howto">
+            <summary>New to this? How to read a card</summary>
+            <ol>
+              <li>
+                <strong>The headline</strong> is what was found, in one line. The
+                paragraph under it says what that means for you in plain terms.
+              </li>
+              <li>
+                <strong>The picture</strong> has a note under it telling you how to
+                read it. You never have to work that out yourself.
+              </li>
+              <li>
+                <strong>Strong, Clear or Tentative</strong> in the corner is how sure
+                the maths is. Tentative means treat it as a hint, not a fact.
+              </li>
+              <li>
+                <strong>Show the work</strong> opens the arithmetic and the actual
+                rows behind the claim, so you can check it rather than trust it.
+              </li>
+            </ol>
+          </details>
           {a.findings.length === 0 ? (
             <p className="nex-empty">
               Nothing cleared the reporting thresholds. For a table this size that usually means it is
@@ -440,6 +475,10 @@ export default function NexusConsole({
         </main>
 
         <aside className="nex-aside">
+          <section className="nex-care">
+            <h2 className="nex-rail-title">{DUE_DILIGENCE.heading}</h2>
+            <p>{DUE_DILIGENCE.body}</p>
+          </section>
           <QualityStrip issues={a.quality} onInspect={(q) => void inspectIssue(q)} />
           {issueRows && (
             <div className="nex-issue-rows">

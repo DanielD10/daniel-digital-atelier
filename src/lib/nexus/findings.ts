@@ -12,6 +12,7 @@ import {
   topShare,
 } from "./stats";
 import { decompose, explain, type Decomposition } from "./decompose";
+import { humanize } from "./plain";
 import type { ProfileResult } from "./profile";
 import { LIMITS, type ColumnProfile, type Finding, type Table } from "./types";
 
@@ -399,7 +400,7 @@ function detectShifts(ctx: Ctx): Finding[] {
       const lineFit = linearRss(series.values);
       if (stepFit > 0 && lineFit < stepFit * 0.85) continue;
 
-      const label = numCol ? numCol.name : "row volume";
+      const label = numCol ? humanize(numCol.name) : "row volume";
       const dir = cp.after > cp.before ? "rose" : "fell";
       const confidence = Math.min(1, cp.magnitude / 8);
       // Later breaks matter more — a step two years ago is history.
@@ -469,7 +470,7 @@ function detectTrends(ctx: Ctx): Finding[] {
       const total = (last - first) / Math.abs(first);
       if (Math.abs(total) < 0.12) continue;
 
-      const label = numCol ? numCol.name : "row volume";
+      const label = numCol ? humanize(numCol.name) : "row volume";
       // Hedge the wording to the fit. "Steadily" is a claim about scatter.
       const manner = fit.r2 >= 0.7 ? "steadily across" : "on balance over";
       out.push({
@@ -605,7 +606,7 @@ function detectParadoxes(ctx: Ctx): Finding[] {
       out.push({
         id: `paradox:${numCol.name}:${catCol.name}`,
         kind: "paradox",
-        headline: `${cap(numCol.name)} is ${overallDelta > 0 ? "up" : "down"} ${fmtPct(
+        headline: `${cap(humanize(numCol.name))} is ${overallDelta > 0 ? "up" : "down"} ${fmtPct(
           Math.abs(overallDelta),
         )} overall while ${segmentPhrase(catCol, against.length, segments.length)} moved the other way`,
         columns: [dateCol.name, numCol.name, catCol.name],
@@ -631,10 +632,10 @@ function detectParadoxes(ctx: Ctx): Finding[] {
               }
             : {}),
           explanation: drivers
-            ? explain(drivers, numCol.name, catCol.name)
+            ? explain(drivers, humanize(numCol.name), humanize(catCol.name))
             : `The mix shifted toward ${catCol.name} levels that sit at a different ${numCol.name}, so the total moved without any segment doing so.`,
           method:
-            "Exact decomposition: rate + mix + interaction sum to the total change with no residual.",
+            "The three effects above add up to the total change exactly, with nothing left over.",
         },
         rowRefs: refs,
         breakdown: [
@@ -849,7 +850,7 @@ function detectSegmentGaps(ctx: Ctx): Finding[] {
         kind: "relationship",
         headline: `${worst.label} runs ${fmtPct(
           Math.abs(worst.med - globalMedian) / Math.max(1e-9, Math.abs(globalMedian)),
-        )} ${worst.med > globalMedian ? "above" : "below"} everything else on ${numCol.name}`,
+        )} ${worst.med > globalMedian ? "above" : "below"} everything else on ${humanize(numCol.name)}`,
         columns: [catCol.name, numCol.name],
         impact: score({ effect: Math.min(1, worst.d / 0.5), coverage, confidence }),
         confidence,
@@ -952,7 +953,7 @@ function detectRateGaps(ctx: Ctx): Finding[] {
       out.push({
         id: `rate:${flag.name}:${catCol.name}`,
         kind: "imbalance",
-        headline: `${worst.label} is ${fmtPct(worst.rate)} ${flag.name}${
+        headline: `${worst.label} is ${fmtPct(worst.rate)} ${humanize(flag.name)}${
           times >= 1.5 ? ` — ${times.toFixed(1)}× the rest` : ""
         }`,
         columns: [catCol.name, flag.name],
@@ -1021,7 +1022,7 @@ function detectRelationships(ctx: Ctx): Finding[] {
       out.push({
         id: `rel:${cols[i].name}:${cols[j].name}`,
         kind: "relationship",
-        headline: `${cols[i].name} and ${cols[j].name} move ${
+        headline: `${humanize(cols[i].name)} and ${humanize(cols[j].name)} move ${
           r > 0 ? "together" : "in opposite directions"
         } (r = ${r.toFixed(2)})`,
         columns: [cols[i].name, cols[j].name],
@@ -1168,7 +1169,7 @@ function detectRatios(ctx: Ctx): Finding[] {
           kind: "relationship",
           headline: `${worst.label} runs ${fmtPct(Math.abs(gap))} ${
             gap > 0 ? "over" : "under"
-          } on ${num.name} against ${den.name}`,
+          } on ${humanize(num.name)} against ${humanize(den.name)}`,
           columns: [catCol.name, num.name, den.name],
           impact: score({
             effect: Math.min(1, Math.abs(gap) / 0.3),
@@ -1235,7 +1236,7 @@ function detectOutliers(ctx: Ctx): Finding[] {
       kind: "outlier",
       headline: `${s.outlierCount.toLocaleString()} extreme ${
         s.outlierCount === 1 ? "value" : "values"
-      } in ${col.name} carry ${fmtPct(pull)} of its total`,
+      } in ${humanize(col.name)} carry ${fmtPct(pull)} of its total`,
       columns: [col.name],
       impact: score({ effect: Math.min(1, pull / 0.3), coverage: Math.max(share, 0.01), confidence }),
       confidence,
@@ -1278,7 +1279,7 @@ function detectConcentration(ctx: Ctx): Finding[] {
     out.push({
       id: `conc:${col.name}`,
       kind: "concentration",
-      headline: `3 of ${c.distinct} ${col.name} values cover ${fmtPct(share)} of the table`,
+      headline: `3 of ${c.distinct} ${humanize(col.name)} values cover ${fmtPct(share)} of the table`,
       columns: [col.name],
       impact: score({ effect: Math.min(1, (share - 0.7) / 0.3), coverage: share, confidence: 0.9 }),
       confidence: 0.9,
@@ -1325,7 +1326,7 @@ function detectCalendarGaps(ctx: Ctx): Finding[] {
       id: `gap:${dateCol.name}`,
       kind: "gap",
       headline: `${totalMissing} ${grain}${totalMissing === 1 ? "" : "s"} in ${
-        dateCol.name
+        humanize(dateCol.name)
       } have no rows at all`,
       columns: [dateCol.name],
       /*
@@ -1365,9 +1366,9 @@ function detectCalendarGaps(ctx: Ctx): Finding[] {
  */
 function segmentPhrase(col: ColumnProfile, against: number, total: number): string {
   if (col.kind === "boolean") {
-    return against === total ? `both sides of ${col.name}` : `one side of ${col.name}`;
+    return against === total ? `both sides of ${humanize(col.name)}` : `one side of ${humanize(col.name)}`;
   }
-  return `${against === total ? "every" : "almost every"} ${col.name}`;
+  return `${against === total ? "every" : "almost every"} ${humanize(col.name)}`;
 }
 
 /**

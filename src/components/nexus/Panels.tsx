@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Histogram } from "./Charts";
+import { humanize, KIND_PLAIN } from "@/lib/nexus/plain";
 import type { ColumnProfile, QualityIssue } from "@/lib/nexus/types";
 
 /** Side panels: what the data is, and what's wrong with it. */
@@ -33,7 +34,8 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
     <section className="nex-rail">
       <h2 className="nex-rail-title">Schema</h2>
       <p className="nex-rail-sub">
-        Types inferred from the values, not the headers.
+        What each column holds, worked out from the values rather than the
+        heading. Open one to see its range and most common entries.
       </p>
       <ul className="nex-cols">
         {columns.map((c) => {
@@ -46,8 +48,13 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
                 aria-expanded={open}
                 onClick={() => setOpenCol(open ? null : c.name)}
               >
-                <span className={`nex-col-kind nex-col-kind--${c.kind}`}>{KIND_TAG[c.kind]}</span>
-                <span className="nex-col-name" title={c.name}>{c.name}</span>
+                <span
+                  className={`nex-col-kind nex-col-kind--${c.kind}`}
+                  title={`Read as ${KIND_PLAIN[c.kind]}`}
+                >
+                  {KIND_TAG[c.kind]}
+                </span>
+                <span className="nex-col-name" title={c.name}>{humanize(c.name)}</span>
                 {c.numeric && <Histogram buckets={c.numeric.histogram} />}
                 {c.missing > 0.001 && (
                   <span className="nex-col-missing" title={`${(c.missing * 100).toFixed(1)}% empty`}>
@@ -64,8 +71,8 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
                       <div><dt>median</dt><dd>{compact(c.numeric.median)}</dd></div>
                       <div><dt>mean</dt><dd>{compact(c.numeric.mean)}</dd></div>
                       <div><dt>max</dt><dd>{compact(c.numeric.max)}</dd></div>
-                      <div><dt>MAD</dt><dd>{compact(c.numeric.mad)}</dd></div>
-                      <div><dt>outliers</dt><dd>{c.numeric.outlierCount}</dd></div>
+                      <div><dt title="Typical distance from the middle value">spread</dt><dd>{compact(c.numeric.mad)}</dd></div>
+                      <div><dt title="Values far outside the usual range">extremes</dt><dd>{c.numeric.outlierCount}</dd></div>
                     </dl>
                   )}
                   {c.temporal && (
@@ -73,7 +80,7 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
                       <div><dt>from</dt><dd>{c.temporal.min}</dd></div>
                       <div><dt>to</dt><dd>{c.temporal.max}</dd></div>
                       <div><dt>span</dt><dd>{c.temporal.spanDays}d</dd></div>
-                      <div><dt>cadence</dt><dd>{c.temporal.cadenceDays}d</dd></div>
+                      <div><dt title="Typical gap between dates">every</dt><dd>{c.temporal.cadenceDays}d</dd></div>
                     </dl>
                   )}
                   {c.categorical && (
@@ -95,8 +102,8 @@ export function ColumnRail({ columns }: { columns: ColumnProfile[] }) {
                     <p className="nex-col-sample">{c.sample.slice(0, 3).join(" · ") || "—"}</p>
                   )}
                   <p className="nex-col-foot">
-                    {c.distinct.toLocaleString()} distinct
-                    {c.coercionFailures > 0 && ` · ${c.coercionFailures} unparseable`}
+                    Reads as {KIND_PLAIN[c.kind]} · {c.distinct.toLocaleString()} different values
+                    {c.coercionFailures > 0 && ` · ${c.coercionFailures} that don't fit`}
                   </p>
                 </div>
               )}
@@ -120,7 +127,8 @@ export function QualityStrip({
       <section className="nex-qual">
         <h2 className="nex-rail-title">Integrity</h2>
         <p className="nex-qual-clean">
-          Nothing structural to flag. No duplicates, no mixed types, no notable gaps.
+          The file itself looks sound — no duplicate rows, no columns mixing
+          text with numbers, no large gaps. Findings below rest on solid ground.
         </p>
       </section>
     );
@@ -130,7 +138,8 @@ export function QualityStrip({
     <section className="nex-qual">
       <h2 className="nex-rail-title">Integrity</h2>
       <p className="nex-rail-sub">
-        Found before any analysis ran. Each one changes what the numbers below mean.
+        Problems with the file itself, found before any analysis ran. Each one
+        changes what the numbers mean, so clear these first. Click to see the rows.
       </p>
       <ul className="nex-issues">
         {issues.map((q) => (
