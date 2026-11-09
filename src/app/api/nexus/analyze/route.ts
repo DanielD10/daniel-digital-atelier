@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { analyzeCsv, DataRejected } from "@/lib/nexus/analyze";
+import { xlsxToCsv, XlsxError } from "@/lib/nexus/xlsx";
 import { resolveDemo } from "@/lib/nexus/resolve";
 import { countDatasets, getAccess, getSession, saveDataset, storeConfigured } from "@/lib/nexus/store";
 import { BEYOND, entitlementsFor } from "@/lib/nexus/entitlements";
@@ -28,11 +29,45 @@ export async function POST(req: Request) {
     );
   }
 
+  /*
+   * Two intake shapes. JSON carries delimited text; anything else is
+   * the raw bytes of a workbook, sent as-is rather than base64 in a
+   * JSON field, which would inflate a 5MB upload by a third for no
+   * reason. The filename rides in a header.
+   */
+  const contentType = req.headers.get("content-type") ?? "";
   let body: { csv?: unknown; name?: unknown; demo?: unknown };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Expected JSON." }, { status: 400 });
+  let sheetUsed: string | null = null;
+  let sheetsAvailable: string[] = [];
+
+  if (contentType.includes("application/json")) {
+    try {
+      body = await req.json();
+    } catch {
+      return NextResponse.json({ error: "Expected JSON." }, { status: 400 });
+    }
+  } else {
+    const bytes = Buffer.from(await req.arrayBuffer());
+    if (bytes.length === 0) {
+      return NextResponse.json({ error: "Empty upload." }, { status: 400 });
+    }
+    const headerName = req.headers.get("x-nexus-filename") ?? "workbook.xlsx";
+    const wantSheet = req.headers.get("x-nexus-sheet") ?? undefined;
+    try {
+      const book = xlsxToCsv(bytes, wantSheet || undefined);
+      sheetUsed = book.sheet;
+      sheetsAvailable = book.sheets;
+      body = { csv: book.csv, name: decodeURIComponent(headerName) };
+    } catch (err) {
+      if (err instanceof XlsxError) {
+        return NextResponse.json({ error: err.message }, { status: 422 });
+      }
+      console.error("[nexus] xlsx threw", err);
+      return NextResponse.json(
+        { error: "Couldn't open that workbook." },
+        { status: 422 },
+      );
+    }
   }
 
   if (body.demo === true) {
@@ -132,6 +167,7 @@ export async function POST(req: Request) {
     analysis,
     stored: id !== null,
     tier: ent.tier,
+    ...(sheetUsed ? { sheet: sheetUsed, sheets: sheetsAvailable } : {}),
     atCeiling,
     ...(atCeiling
       ? {

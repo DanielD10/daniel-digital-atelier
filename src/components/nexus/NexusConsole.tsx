@@ -50,6 +50,7 @@ export default function NexusConsole({
   const [tier, setTier] = useState<Tier>(initialTier);
   const [lock, setLock] = useState<string | null>(null);
   const [ceiling, setCeiling] = useState<Ceiling | null>(null);
+  const [sheet, setSheet] = useState<{ used: string; all: string[] } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
@@ -67,6 +68,7 @@ export default function NexusConsole({
     setAskError(null);
     setBrief(null);
     setCeiling(null);
+    setSheet(null);
 
     /*
      * The file picker's accept list does nothing for drag-and-drop, so
@@ -75,16 +77,17 @@ export default function NexusConsole({
      * mojibake that parses into a single enormous column, and the panel
      * would answer "nothing found", which is true and unhelpful.
      */
-    if (/\.(xlsx|xls|numbers|ods|pdf|zip|docx?|pptx?|png|jpe?g|gif|webp|parquet)$/i.test(file.name)) {
+    if (/\.(xls|numbers|ods|pdf|docx?|pptx?|png|jpe?g|gif|webp|parquet)$/i.test(file.name)) {
       const ext = file.name.split(".").pop()!.toUpperCase();
       setError(
-        `${ext} isn't delimited text, so there's nothing here to parse.` +
-          (/^(xlsx|xls|numbers|ods)$/i.test(ext)
-            ? " Export the sheet as CSV and drop that instead."
-            : " NEXUS reads CSV and TSV."),
+        /^(xls|numbers|ods)$/i.test(ext)
+          ? `${ext} is an older or non-Excel spreadsheet format. Save it as .xlsx or .csv and drop that — both work here.`
+          : `${ext} isn't a table. NEXUS reads .xlsx, .csv and .tsv.`,
       );
       return;
     }
+
+    const isWorkbook = /\.xlsx$/i.test(file.name);
 
     if (file.size > LIMITS.maxBytes) {
       setError(
@@ -97,13 +100,24 @@ export default function NexusConsole({
 
     setBusy("Reading");
     try {
-      const text = await file.text();
-      setBusy("Interrogating");
-      const res = await fetch("/api/nexus/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ csv: text, name: file.name }),
-      });
+      // A workbook goes over as bytes; the server unzips it and pulls
+      // out the sheet that actually holds a table.
+      const text = isWorkbook ? "" : await file.text();
+      setBusy(isWorkbook ? "Opening the workbook" : "Interrogating");
+      const res = isWorkbook
+        ? await fetch("/api/nexus/analyze", {
+            method: "POST",
+            headers: {
+              "content-type": "application/octet-stream",
+              "x-nexus-filename": encodeURIComponent(file.name),
+            },
+            body: await file.arrayBuffer(),
+          })
+        : await fetch("/api/nexus/analyze", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ csv: text, name: file.name }),
+          });
       const json = await res.json();
       if (!res.ok) {
         setError(json.error ?? "That didn't parse.");
@@ -111,12 +125,15 @@ export default function NexusConsole({
         return;
       }
       if (json.atCeiling) setCeiling({ note: json.ceilingNote ?? "" });
+      setSheet(json.sheet ? { used: json.sheet, all: json.sheets ?? [] } : null);
       setData({
         id: json.id,
         name: json.name,
         analysis: json.analysis,
         stored: json.stored,
-        csv: json.stored ? undefined : text,
+        // A workbook's rows live only on the server, so local audit
+        // fallback applies to delimited text alone.
+        csv: json.stored || isWorkbook ? undefined : text,
       });
     } catch {
       setError("Couldn't read that file.");
@@ -274,6 +291,12 @@ export default function NexusConsole({
           <h2 className="nex-head-name">{data.name}</h2>
           {data.id === "demo" && <span className="nex-tag">sample</span>}
           {tier !== "anonymous" && <span className="nex-tag">{tier}</span>}
+          {sheet && (
+            <span className="nex-tag" title={sheet.all.join(" · ")}>
+              sheet: {sheet.used}
+              {sheet.all.length > 1 ? ` of ${sheet.all.length}` : ""}
+            </span>
+          )}
           {!data.stored && data.id !== "demo" && <span className="nex-tag nex-tag--warn">not saved</span>}
         </div>
 
@@ -288,7 +311,7 @@ export default function NexusConsole({
           <input
             ref={fileInput}
             type="file"
-            accept=".csv,.tsv,.txt,text/csv,text/plain"
+            accept=".csv,.tsv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="nex-file"
             onChange={(e) => {
               const f = e.target.files?.[0];

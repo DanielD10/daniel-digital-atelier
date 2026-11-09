@@ -132,6 +132,7 @@ export function detectFindings(table: Table, profile: ProfileResult): Finding[] 
     ...timed("segmentGaps", () => detectSegmentGaps(ctx)),
     ...timed("rateGaps", () => detectRateGaps(ctx)),
     ...timed("relationships", () => detectRelationships(ctx)),
+    ...timed("ratios", () => detectRatios(ctx)),
     ...timed("outliers", () => detectOutliers(ctx)),
     ...timed("concentration", () => detectConcentration(ctx)),
     ...timed("calendarGaps", () => detectCalendarGaps(ctx)),
@@ -159,7 +160,26 @@ function rank(findings: Finding[]): Finding[] {
    * itself teaches people to skim past the top of it.
    */
   const FLOOR = 0.05;
-  const sorted = findings.filter((f) => f.impact >= FLOOR).sort((a, b) => b.impact - a.impact);
+
+  /*
+   * A ratio finding supersedes the bare correlation between the same
+   * two columns. "Budget and actual move together, r = 0.97" is true,
+   * unavoidable, and tells nobody anything; "Electrical runs 17% over
+   * on actual against budget" is the same two columns saying something
+   * worth acting on. Keeping both wastes the top of the panel on the
+   * weaker one.
+   */
+  const supersededPairs = new Set<string>();
+  for (const f of findings) {
+    if (f.id.startsWith("ratio:") && f.columns.length === 3) {
+      supersededPairs.add([f.columns[1], f.columns[2]].sort().join("|"));
+    }
+  }
+
+  const sorted = findings
+    .filter((f) => f.impact >= FLOOR)
+    .filter((f) => !(f.id.startsWith("rel:") && supersededPairs.has([...f.columns].sort().join("|"))))
+    .sort((a, b) => b.impact - a.impact);
   const kept: Finding[] = [];
   const claimed = new Map<string, number>();
 
@@ -988,6 +1008,162 @@ function detectRelationships(ctx: Ctx): Finding[] {
         rowRefs: refs,
         scatter: sampleScatter(xs, ys, cols[i].name, cols[j].name),
       });
+    }
+  }
+  return out;
+}
+
+/**
+ * Ratios between paired columns, broken down by segment.
+ *
+ * The finding this exists for: a construction workbook has `budget`
+ * and `actual`, and the thing anyone cares about is the ratio between
+ * them. Every column-wise detector missed it — budgets vary so widely
+ * that one trade running 22% over leaves no mark on the median of
+ * `actual`, and the only signal the panel produced was that budget and
+ * actual correlate at 0.97, which is both true and worthless.
+ *
+ * A ratio is only worth forming when the two columns are plainly
+ * measuring the same quantity: strongly correlated, same sign, similar
+ * magnitude. Then the question is whether the ratio differs by
+ * segment, which is the overrun, the margin, the conversion rate — the
+ * number the business actually runs on, and almost never a column.
+ */
+function detectRatios(ctx: Ctx): Finding[] {
+  const out: Finding[] = [];
+  const cols = ctx.numericCols.slice(0, 10);
+  const total = ctx.table.rows.length;
+  if (total < 40) return out;
+
+  for (let i = 0; i < cols.length; i++) {
+    for (let j = 0; j < cols.length; j++) {
+      if (i === j) continue;
+      const num = cols[i];
+      const den = cols[j];
+      const a = ctx.profile.numericValues.get(num.index);
+      const b = ctx.profile.numericValues.get(den.index);
+      if (!a || !b || !num.numeric || !den.numeric) continue;
+
+      // Comparable scale and one-signed: necessary, nowhere near enough.
+      const scale = den.numeric.median === 0 ? Infinity : num.numeric.median / den.numeric.median;
+      if (!Number.isFinite(scale) || scale <= 0.2 || scale >= 5) continue;
+      if (den.numeric.min <= 0) continue;
+
+      const ratios = new Float64Array(total);
+      const sample: number[] = [];
+      const xs: number[] = [];
+      const ys: number[] = [];
+      let usable = 0;
+      for (let r = 0; r < total; r++) {
+        const x = a[r];
+        const y = b[r];
+        if (Number.isNaN(x) || Number.isNaN(y) || y === 0) {
+          ratios[r] = NaN;
+          continue;
+        }
+        ratios[r] = x / y;
+        usable++;
+        if (sample.length < CORRELATION_SAMPLE) {
+          sample.push(ratios[r]);
+          xs.push(x);
+          ys.push(y);
+        }
+      }
+      if (usable < 40) continue;
+
+      /*
+       * Two guards, both learned from a false positive.
+       *
+       * Matching magnitude alone had the engine dividing discount
+       * percent by unit price and announcing that one channel ran
+       * "109% over" — a ratio of two quantities that have nothing to
+       * do with each other, which happened to sit within a factor of
+       * five.
+       *
+       * Columns that genuinely measure the same thing move together,
+       * so require real correlation. And a meaningful ratio is stable:
+       * cost overrun clusters near 1, margin clusters near its margin.
+       * A nonsense ratio is scattered, so require the spread to be
+       * small relative to the centre.
+       */
+      if (Math.abs(pearson(xs, ys)) < 0.5) continue;
+      const centre = median(sample);
+      if (!Number.isFinite(centre) || centre === 0) continue;
+      if (mad(sample) / Math.abs(centre) > 0.5) continue;
+
+      for (const catCol of ctx.categoryCols.slice(0, 6)) {
+        if (!catCol.categorical || catCol.categorical.distinct < 2) continue;
+        if (catCol.categorical.distinct > 20) continue;
+
+        const { codes, levels } = levelIndex(ctx, catCol);
+        const buckets: number[][] = levels.map(() => []);
+        const all: number[] = [];
+        for (let r = 0; r < total; r++) {
+          const v = ratios[r];
+          if (Number.isNaN(v)) continue;
+          const c = codes[r];
+          if (c < 0) continue;
+          if (buckets[c].length < SEGMENT_SAMPLE) buckets[c].push(v);
+          if (all.length < SEGMENT_SAMPLE * 2) all.push(v);
+        }
+        const overall = median(all);
+        if (!Number.isFinite(overall) || overall === 0) continue;
+
+        let worst: { label: string; med: number; n: number; d: number } | null = null;
+        for (let c = 0; c < levels.length; c++) {
+          const vs = buckets[c];
+          if (vs.length < 15) continue;
+          const others: number[] = [];
+          for (let k = 0; k < levels.length; k++) if (k !== c) others.push(...buckets[k]);
+          if (others.length < 15) continue;
+          const d = ksStatistic(vs, others);
+          if (ksP(d, vs.length, others.length) > 0.001) continue;
+          if (!worst || d > worst.d) worst = { label: levels[c], med: median(vs), n: vs.length, d };
+        }
+        if (!worst) continue;
+
+        const gap = (worst.med - overall) / Math.abs(overall);
+        if (Math.abs(gap) < 0.06) continue;
+
+        const refs: number[] = [];
+        for (let r = 0; r < total && refs.length < LIMITS.auditRowCap; r++) {
+          if (codes[r] >= 0 && levels[codes[r]] === worst.label && !Number.isNaN(ratios[r])) {
+            refs.push(r);
+          }
+        }
+
+        const confidence = Math.min(1, worst.d / 0.5);
+        out.push({
+          id: `ratio:${num.name}/${den.name}:${catCol.name}`,
+          kind: "relationship",
+          headline: `${worst.label} runs ${fmtPct(Math.abs(gap))} ${
+            gap > 0 ? "over" : "under"
+          } on ${num.name} against ${den.name}`,
+          columns: [catCol.name, num.name, den.name],
+          impact: score({
+            effect: Math.min(1, Math.abs(gap) / 0.3),
+            coverage: worst.n / Math.max(1, all.length),
+            confidence,
+          }),
+          confidence,
+          coverage: worst.n / Math.max(1, all.length),
+          evidence: {
+            segment: worst.label,
+            segmentRatio: round(worst.med, 3),
+            overallRatio: round(overall, 3),
+            differencePct: round(gap * 100, 1),
+            rowsInSegment: worst.n,
+            ksStatistic: round(worst.d, 3),
+            note: `Computed per row as ${num.name} ÷ ${den.name}, then compared across ${catCol.name}. Neither column shows this on its own.`,
+          },
+          rowRefs: refs,
+          breakdown: levels
+            .map((label, c) => ({ label, value: round(median(buckets[c]), 3), weight: buckets[c].length }))
+            .filter((x) => x.weight >= 10 && Number.isFinite(x.value))
+            .sort((x, y) => y.value - x.value)
+            .slice(0, 8),
+        });
+      }
     }
   }
   return out;
