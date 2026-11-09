@@ -218,9 +218,22 @@ export default function FindingCard({
             {finding.rowRefs.length > 0 && ` · ${finding.rowRefs.length} cited`}
           </p>
 
-          {finding.rowRefs.length > 0 && !rows && (
+          {/*
+            Two ways rows get cited. An uploaded table cites exact row
+            indices and can say how many. A database table cites a
+            filter instead — there is no materialised table to index
+            into — so the button offers a sample rather than a count.
+            Either way the claim stays checkable, which is the point.
+          */}
+          {(finding.rowRefs.length > 0 || finding.sample) && !rows && (
             <button type="button" className="nex-find-rows-btn" onClick={loadRows} disabled={loading}>
-              {loading ? "Fetching rows…" : `Open the ${finding.rowRefs.length} rows behind this`}
+              {loading
+                ? "Fetching rows…"
+                : finding.rowRefs.length > 0
+                  ? `Open the ${finding.rowRefs.length} rows behind this`
+                  : finding.sample?.column
+                    ? `Show rows where ${humanize(finding.sample.column)} is ${finding.sample.value}`
+                    : "Show rows from this table"}
             </button>
           )}
           {failed && <p className="nex-work-note">Couldn&apos;t fetch those rows. Try again.</p>}

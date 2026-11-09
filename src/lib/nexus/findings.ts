@@ -140,7 +140,7 @@ export function detectFindings(table: Table, profile: ProfileResult): Finding[] 
     ...timed("calendarGaps", () => detectCalendarGaps(ctx)),
   ];
 
-  return rank(found);
+  return rankFindings(found);
 }
 
 /* ─────────────────────────── ranking ─────────────────────────── */
@@ -154,7 +154,7 @@ export function detectFindings(table: Table, profile: ProfileResult): Finding[] 
  * are of it, so a huge swing in 0.3% of rows loses to a moderate one
  * across half the table.
  */
-function rank(findings: Finding[]): Finding[] {
+export function rankFindings(findings: Finding[]): Finding[] {
   /*
    * Below this, a finding is technically true and practically noise —
    * seven mildly long shipping times out of six thousand rows. Printing
@@ -220,10 +220,46 @@ function score(parts: {
 interface Series {
   labels: string[];
   values: number[];
+  /**
+   * Per-bucket mean, carried only to cross-check the median.
+   *
+   * The median is the right bucket statistic (see buildSeriesUncached)
+   * but it is badly behaved on a mixture: when one column holds several
+   * populations — a cheap channel and a dear one — the median sits
+   * inside whichever population owns the middle row, so a change in
+   * their *proportions* walks the median from one cluster to the next
+   * and shows a step or a trend where no level moved at all. On the
+   * demo dataset that produced "unit price has moved up 117% steadily"
+   * directly underneath "unit price is up 49% overall while every
+   * channel moved the other way" — the panel contradicting itself about
+   * the same column. The mean moves smoothly through a mix shift, so
+   * when the two disagree sharply the median is the one lying.
+   */
+  means: number[];
   /** Row indices contributing to each bucket. */
   buckets: number[][];
   /** How `values` were reduced from the rows — reported in every finding's evidence. */
   statistic: "median" | "count";
+}
+
+/**
+ * True when a claim about `values` is an artefact of a shifting mixture
+ * rather than a change in level.
+ *
+ * `relative` is the claim's own effect size; the same quantity is
+ * recomputed on the bucket means and the claim is rejected if the
+ * median's version is more than 2.5× the mean's. Count series are
+ * exempt: a row count has no second moment to disagree with.
+ */
+function mixtureArtefact(
+  series: Series,
+  relative: number,
+  onMeans: (means: number[]) => number,
+): boolean {
+  if (series.statistic !== "median") return false;
+  const m = onMeans(series.means);
+  if (!Number.isFinite(m)) return false;
+  return relative > Math.max(0.15, m * 2.5);
 }
 
 /** Choose a bucket that yields enough points to reason about without noise. */
@@ -301,6 +337,7 @@ function buildSeriesUncached(
   return {
     labels,
     values: labels.map((l) => (nums ? median(groups.get(l)!.values) : groups.get(l)!.n)),
+    means: labels.map((l) => (nums ? mean(groups.get(l)!.values) : groups.get(l)!.n)),
     buckets: labels.map((l) => groups.get(l)!.rows),
     statistic: nums ? "median" : "count",
   };
@@ -400,6 +437,17 @@ function detectShifts(ctx: Ctx): Finding[] {
       const lineFit = linearRss(series.values);
       if (stepFit > 0 && lineFit < stepFit * 0.85) continue;
 
+      // Is this a level change, or the mixture moving under the median?
+      if (
+        mixtureArtefact(series, rel, (means) => {
+          const b = mean(means.slice(0, cp.index));
+          const a = mean(means.slice(cp.index));
+          return b === 0 ? NaN : Math.abs(a - b) / Math.abs(b);
+        })
+      ) {
+        continue;
+      }
+
       const label = numCol ? humanize(numCol.name) : "row volume";
       const dir = cp.after > cp.before ? "rose" : "fell";
       const confidence = Math.min(1, cp.magnitude / 8);
@@ -469,6 +517,18 @@ function detectTrends(ctx: Ctx): Finding[] {
       if (first === 0) continue;
       const total = (last - first) / Math.abs(first);
       if (Math.abs(total) < 0.12) continue;
+
+      // Is the column drifting, or is the mixture drifting under it?
+      if (
+        mixtureArtefact(series, Math.abs(total), (means) => {
+          const mf = linearFit(xs, means);
+          const a = mf.intercept;
+          const b = mf.intercept + mf.slope * (means.length - 1);
+          return a === 0 ? NaN : Math.abs((b - a) / Math.abs(a));
+        })
+      ) {
+        continue;
+      }
 
       const label = numCol ? humanize(numCol.name) : "row volume";
       // Hedge the wording to the fit. "Steadily" is a claim about scatter.
@@ -1366,7 +1426,7 @@ function detectCalendarGaps(ctx: Ctx): Finding[] {
  * front of a sentence: "true runs 22% below everything else". The
  * column has to come with it.
  */
-function levelPhrase(col: ColumnProfile, level: string): string {
+export function levelPhrase(col: ColumnProfile, level: string): string {
   if (col.kind !== "boolean") return level;
   const yes = /^(true|yes|y|t|1)$/i.test(level.trim());
   // `On time = true` rather than a sentence fragment: the headline

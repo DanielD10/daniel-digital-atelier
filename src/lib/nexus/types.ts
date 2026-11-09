@@ -124,6 +124,18 @@ export interface Finding {
   evidence: Record<string, number | string>;
   /** Indices into `Table.rows`. Capped at AUDIT_ROW_CAP. */
   rowRefs: number[];
+  /**
+   * Where the rows behind this finding live when they live in a
+   * database rather than in `Table.rows`.
+   *
+   * The warehouse path cannot cite row indices — nothing is
+   * materialised to index into — so it cites a filter the audit
+   * endpoint re-runs against the table instead. Present means the
+   * rows are fetchable; `column: null` means sample the table
+   * unfiltered. File findings leave it off entirely, so the shape is
+   * unchanged for them.
+   */
+  sample?: { column: string | null; value: string | null };
   /** Optional series for the finding's inline chart. */
   series?: { labels: string[]; values: number[]; markerIndex?: number };
   /** Optional paired comparison for before/after and segment breakdowns. */
@@ -144,6 +156,12 @@ export interface Analysis {
   findings: Finding[];
   /** Milliseconds the engine spent, surfaced in the UI as an honest cost. */
   elapsedMs: number;
+  /**
+   * Set when the analysis ran as SQL against a live table. The split
+   * between local and database time is the claim this path makes, so
+   * it is measured and shown rather than asserted.
+   */
+  pushdown?: { localMs: number; databaseMs: number; rowsScanned: number };
 }
 
 export interface DatasetRecord {
@@ -173,4 +191,18 @@ export const LIMITS = {
    */
   auditRowCap: 60,
   maxFindings: 24,
+  /*
+   * Below this many rows, no findings at all.
+   *
+   * Nine rows of a monotonic column produce "ID has moved up 800%
+   * steadily across the window" at an impact of 1.00, and the fit is
+   * real — a straight line through nine points genuinely has an r² of
+   * 1. The claim is still worthless, because the problem is not the
+   * quality of the fit but that nine rows cannot support a statement
+   * about a business. Someone trying the product with a snippet of
+   * their data is exactly who would see that first, so the engine says
+   * plainly that there is too little here instead of dressing up an
+   * arithmetic artefact as an insight.
+   */
+  minRowsForFindings: 30,
 } as const;

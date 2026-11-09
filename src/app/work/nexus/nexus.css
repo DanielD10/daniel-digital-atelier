@@ -925,6 +925,93 @@
   color: var(--nex-cool); padding: 3px 7px; border: 1px solid var(--nex-line-2); border-radius: 2px;
 }
 
+/* ───────────── live table connection ───────────── */
+
+.nex-tag--live { color: var(--nex-cool); border-color: rgba(88, 189, 234, 0.35); }
+
+.nex-conn {
+  margin: 14px 0 0;
+  padding: 18px 20px;
+  border: 1px solid var(--nex-line);
+  border-left: 2px solid var(--nex-cool);
+  border-radius: var(--nex-r);
+  background: var(--nex-ink);
+}
+.nex-conn-title {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nex-cool);
+  font-weight: 500;
+}
+.nex-conn-note {
+  margin: 0 0 10px;
+  max-width: 68ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--nex-dim);
+}
+.nex-conn-note strong { color: var(--nex-text); font-weight: 500; }
+
+.nex-conn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+.nex-conn-input {
+  flex: 1 1 340px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--nex-line-2);
+  border-radius: var(--nex-r);
+  background: var(--nex-void);
+  color: var(--nex-text);
+  font-family: var(--nex-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+.nex-conn-input::placeholder { color: var(--nex-faint); }
+.nex-conn-input:focus-visible {
+  outline: none;
+  border-color: var(--nex-signal);
+  box-shadow: 0 0 0 3px var(--nex-signal-dim);
+}
+
+.nex-conn-tables { margin-top: 16px; }
+.nex-conn-tables ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px;
+}
+.nex-conn-tables button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 1px solid var(--nex-line);
+  border-radius: var(--nex-r);
+  background: var(--nex-panel);
+  color: var(--nex-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+.nex-conn-tables button:hover:not(:disabled) {
+  border-color: var(--nex-signal);
+  background: var(--nex-raise);
+}
+.nex-conn-tables button:disabled { opacity: 0.5; cursor: default; }
+.nex-conn-tname { font-family: var(--nex-mono); font-size: 12.5px; }
+.nex-conn-trows { flex: none; font-size: 11px; color: var(--nex-faint); }
+
+@media (max-width: 640px) {
+  .nex-conn { padding: 14px 15px; }
+  .nex-conn-tables ul { grid-template-columns: 1fr; }
+}
+
 /* ───────────── digest subscription ───────────── */
 
 .nex-watch {

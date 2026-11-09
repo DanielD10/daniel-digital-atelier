@@ -29,6 +29,12 @@ interface Loaded {
   stored: boolean;
   /** Held only when the write to storage failed, so auditing still works locally. */
   csv?: string;
+  /**
+   * Set when the analysis ran against a live table rather than a file.
+   * The connection string is kept in component state for the length of
+   * the visit so audits can re-query, and is never written anywhere.
+   */
+  warehouse?: { conn: string; schema: string; table: string; rowCount: number };
 }
 
 interface Ceiling {
@@ -67,6 +73,13 @@ export default function NexusConsole({
   const [ask, setAsk] = useState<AskState | null>(null);
   const [askError, setAskError] = useState<string | null>(null);
   const [askHints, setAskHints] = useState<string[]>([]);
+
+  /* Live-table connection: form state only, never persisted. */
+  const [connOpen, setConnOpen] = useState(false);
+  const [connString, setConnString] = useState("");
+  const [connTables, setConnTables] = useState<
+    Array<{ schema: string; table: string; rows: number }> | null
+  >(null);
 
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -188,13 +201,121 @@ export default function NexusConsole({
   }, []);
 
   /**
+   * Point the engine at a live table.
+   *
+   * Two steps on purpose: introspect first so the table picker shows
+   * what this login can actually read, then analyse the one they pick.
+   * Typing a schema-qualified name from memory is how people end up
+   * staring at an error about a table that does exist, just not under
+   * the name they guessed.
+   */
+  const connect = useCallback(async () => {
+    const conn = connString.trim();
+    if (!conn) return;
+    setError(null);
+    setConnTables(null);
+    setBusy("Connecting");
+    try {
+      const res = await fetch("/api/nexus/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ connectionString: conn }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        if (json.error === "locked") setLock(json.reason);
+        else setError(json.error ?? "Couldn't connect.");
+        return;
+      }
+      if (!json.tables?.length) {
+        setError("Connected, but this login can't read any tables.");
+        return;
+      }
+      setConnTables(json.tables);
+    } catch {
+      setError("Couldn't reach that database.");
+    } finally {
+      setBusy(null);
+    }
+  }, [connString]);
+
+  const analyzeTable = useCallback(
+    async (t: { schema: string; table: string }) => {
+      const conn = connString.trim();
+      setError(null);
+      setAsk(null);
+      setBrief(null);
+      setCeiling(null);
+      setSheet(null);
+      setDiff(null);
+      setJoin(null);
+      setBusy(`Interrogating ${t.schema}.${t.table}`);
+      try {
+        const res = await fetch("/api/nexus/connect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ connectionString: conn, schema: t.schema, table: t.table }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          if (json.error === "locked") setLock(json.reason);
+          else setError(json.error ?? "That table didn't analyse.");
+          return;
+        }
+        setData({
+          id: json.id,
+          name: json.name,
+          analysis: json.analysis,
+          stored: false,
+          warehouse: {
+            conn,
+            schema: t.schema,
+            table: t.table,
+            rowCount: json.rowCount ?? json.analysis.table.rows,
+          },
+        });
+        setConnOpen(false);
+        setConnTables(null);
+      } catch {
+        setError("That query didn't come back.");
+      } finally {
+        setBusy(null);
+      }
+    },
+    [connString],
+  );
+
+  /**
    * Fetch the rows behind a claim. If storage was unavailable the file
    * never left the browser, so the same slice happens here instead —
    * the audit trail should not depend on the database being up.
    */
   const audit = useCallback(
-    async (rowRefs: number[], columns: string[]): Promise<AuditRows> => {
+    async (
+      rowRefs: number[],
+      columns: string[],
+      sample?: { column: string | null; value: string | null },
+    ): Promise<AuditRows> => {
       void columns;
+
+      // A live table cites a filter rather than row indices, so the
+      // rows come back from the database on demand.
+      if (data.warehouse) {
+        const res = await fetch("/api/nexus/connect", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            connectionString: data.warehouse.conn,
+            schema: data.warehouse.schema,
+            table: data.warehouse.table,
+            rows: sample?.column ? { column: sample.column, value: sample.value } : {},
+          }),
+        });
+        if (!res.ok) throw new Error("audit failed");
+        const json = await res.json();
+        return { headers: json.headers, rows: json.rows, total: json.rows.length };
+      }
+
       if (data.csv) {
         const parsed = parseCsv(data.csv);
         return {
@@ -215,7 +336,7 @@ export default function NexusConsole({
   );
 
   const auditFinding = useCallback(
-    (f: Finding) => audit(f.rowRefs, f.columns),
+    (f: Finding) => audit(f.rowRefs, f.columns, f.sample),
     [audit],
   );
 
@@ -330,7 +451,10 @@ export default function NexusConsole({
               {sheet.all.length > 1 ? ` of ${sheet.all.length}` : ""}
             </span>
           )}
-          {!data.stored && data.id !== "demo" && <span className="nex-tag nex-tag--warn">not saved</span>}
+          {data.warehouse && <span className="nex-tag nex-tag--live">live table</span>}
+          {!data.stored && data.id !== "demo" && !data.warehouse && (
+            <span className="nex-tag nex-tag--warn">not saved</span>
+          )}
         </div>
 
         <dl className="nex-head-stats">
@@ -356,6 +480,14 @@ export default function NexusConsole({
           <button type="button" className="nex-btn" onClick={() => fileInput.current?.click()}>
             Drop your own data
           </button>
+          <button
+            type="button"
+            className="nex-btn nex-btn--ghost"
+            onClick={() => setConnOpen((v) => !v)}
+            aria-expanded={connOpen}
+          >
+            {connOpen ? "Cancel" : "Connect a database"}
+          </button>
           {data.id !== "demo" && (
             <button type="button" className="nex-btn nex-btn--ghost" onClick={() => void loadDemo()}>
               Back to sample
@@ -363,6 +495,68 @@ export default function NexusConsole({
           )}
         </div>
       </header>
+
+      {connOpen && (
+        <section className="nex-conn">
+          <h3 className="nex-conn-title">Point it at a live table</h3>
+          <p className="nex-conn-note">
+            The file path tops out around a million rows, because the table has to fit in memory.
+            This path has no such ceiling: the detectors run as SQL, your database does the
+            aggregation, and only the results travel. A hundred-million-row table is a normal
+            afternoon.
+          </p>
+          <p className="nex-conn-note">
+            Use a <strong>read-only</strong> login. The session is forced read-only and given a
+            25-second statement timeout regardless, but a credential that cannot write is the real
+            protection. The string is used for this visit and never stored.
+          </p>
+          <div className="nex-conn-row">
+            <input
+              type="password"
+              className="nex-conn-input"
+              placeholder="postgresql://readonly:…@host:5432/dbname"
+              value={connString}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e) => setConnString(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void connect();
+              }}
+            />
+            <button
+              type="button"
+              className="nex-btn"
+              onClick={() => void connect()}
+              disabled={!connString.trim() || busy !== null}
+            >
+              Read the schema
+            </button>
+          </div>
+
+          {connTables && (
+            <div className="nex-conn-tables">
+              <p className="nex-conn-note">
+                {connTables.length} table{connTables.length === 1 ? "" : "s"} this login can read.
+                Pick one.
+              </p>
+              <ul>
+                {connTables.map((t) => (
+                  <li key={`${t.schema}.${t.table}`}>
+                    <button type="button" onClick={() => void analyzeTable(t)} disabled={busy !== null}>
+                      <span className="nex-conn-tname">
+                        {t.schema === "public" ? t.table : `${t.schema}.${t.table}`}
+                      </span>
+                      <span className="nex-conn-trows">
+                        {t.rows >= 0 ? `~${t.rows.toLocaleString()} rows` : ""}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       {busy && (
         <p className="nex-busy" role="status">

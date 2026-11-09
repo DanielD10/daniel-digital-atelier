@@ -86,7 +86,25 @@ export function analyzeCsv(
   };
 
   const profile = profileTable(table);
-  const findings = detectFindings(table, profile);
+  /*
+   * Too small to say anything about. See LIMITS.minRowsForFindings —
+   * the detectors would all fire and every claim would be an artefact
+   * of the sample size, so the engine reports the shape of the data and
+   * says why it has stopped there.
+   */
+  const tooSmall = table.rows.length < LIMITS.minRowsForFindings;
+  const findings = tooSmall ? [] : detectFindings(table, profile);
+  if (tooSmall) {
+    profile.quality.unshift({
+      id: "too-few-rows",
+      severity: "high",
+      column: undefined,
+      title: `Only ${table.rows.length} row${table.rows.length === 1 ? "" : "s"} — too few to draw conclusions from`,
+      detail: `Patterns need something to stand out from. Below ${LIMITS.minRowsForFindings} rows almost anything looks like a trend, so nothing is reported rather than reporting noise. The columns and their types are shown below; send more rows and the detectors run.`,
+      rowRefs: [],
+      affected: table.rows.length,
+    });
+  }
 
   return {
     table,
