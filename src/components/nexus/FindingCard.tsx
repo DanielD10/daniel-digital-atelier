@@ -9,6 +9,7 @@ import {
   KIND_LABEL,
   plainMeaning,
 } from "@/lib/nexus/plain";
+import { describeChange, type FindingChange } from "@/lib/nexus/diff";
 import type { Finding } from "@/lib/nexus/types";
 
 /**
@@ -64,14 +65,24 @@ export interface AuditRows {
   total: number;
 }
 
+const CHANGE_WORD: Record<FindingChange["kind"], string> = {
+  new: "New",
+  worse: "Worse",
+  better: "Eased",
+  steady: "Same",
+  resolved: "Gone",
+};
+
 export default function FindingCard({
   finding,
   rank,
   onAudit,
+  change,
 }: {
   finding: Finding;
   rank: number;
   onAudit: (f: Finding) => Promise<AuditRows>;
+  change?: FindingChange;
 }) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<AuditRows | null>(null);
@@ -109,6 +120,11 @@ export default function FindingCard({
       <header className="nex-find-top">
         <span className="nex-find-rank">{String(rank).padStart(2, "0")}</span>
         <span className="nex-find-kind">{KIND_LABEL[finding.kind]}</span>
+        {change && change.kind !== "steady" && (
+          <span className={`nex-change nex-change--${change.kind}`} title={describeChange(change)}>
+            {CHANGE_WORD[change.kind]}
+          </span>
+        )}
         <span className="nex-find-spacer" />
         <span className="nex-find-conf">{confidenceWord(finding.confidence)}</span>
         <Impact value={finding.impact} />
@@ -117,6 +133,9 @@ export default function FindingCard({
       <h3 className="nex-find-head">{finding.headline}</h3>
 
       {meaning && <p className="nex-find-plain">{meaning}</p>}
+      {change && change.kind !== "steady" && (
+        <p className="nex-find-since">{describeChange(change)}</p>
+      )}
 
       <p className="nex-find-cols">
         <span className="nex-find-cols-lead">from</span>

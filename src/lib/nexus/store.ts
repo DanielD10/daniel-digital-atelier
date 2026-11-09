@@ -244,6 +244,76 @@ export async function countDatasets(session: string): Promise<number> {
   }
 }
 
+/* ───────────────────── run history ───────────────────── */
+
+export interface PastRun {
+  findings: DatasetRecord["findings"];
+  quality: DatasetRecord["quality"];
+  rowCount: number;
+  createdAt: string;
+}
+
+/**
+ * The most recent earlier run of the same file, for this session.
+ *
+ * Matched on the filename, because re-uploading `jobcosts.xlsx` is
+ * what a person means by "the same report, later". Nothing fuzzier
+ * would be trustworthy enough to base a "this is new" claim on.
+ */
+export async function previousRun(
+  session: string,
+  datasetName: string,
+): Promise<PastRun | null> {
+  const c = creds();
+  if (!c) return null;
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/nexus_runs?select=findings,quality,row_count,created_at` +
+        `&dataset_name=eq.${encodeURIComponent(datasetName)}` +
+        `&order=created_at.desc&limit=1`,
+      { headers: headers(c.key, session), cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as Array<Record<string, unknown>>;
+    const r = rows[0];
+    if (!r) return null;
+    return {
+      findings: (r.findings ?? []) as PastRun["findings"],
+      quality: (r.quality ?? []) as PastRun["quality"],
+      rowCount: Number(r.row_count),
+      createdAt: String(r.created_at),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function recordRun(args: {
+  session: string;
+  datasetName: string;
+  analysis: Analysis;
+}): Promise<void> {
+  const c = creds();
+  if (!c) return;
+  try {
+    await fetch(`${c.url}/rest/v1/nexus_runs`, {
+      method: "POST",
+      headers: headers(c.key, args.session, { Prefer: "return=minimal" }),
+      body: JSON.stringify({
+        id: crypto.randomUUID(),
+        session_id: args.session,
+        dataset_name: args.datasetName,
+        row_count: args.analysis.table.rows,
+        findings: args.analysis.findings,
+        quality: args.analysis.quality,
+      }),
+      cache: "no-store",
+    });
+  } catch {
+    /* History is an enhancement; never fail an analysis over it. */
+  }
+}
+
 export interface StoredDataset extends DatasetRecord {
   csv: string;
 }

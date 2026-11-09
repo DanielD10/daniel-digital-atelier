@@ -3,7 +3,16 @@ import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { analyzeCsv, DataRejected } from "@/lib/nexus/analyze";
 import { xlsxToCsv, XlsxError } from "@/lib/nexus/xlsx";
 import { resolveDemo } from "@/lib/nexus/resolve";
-import { countDatasets, getAccess, getSession, saveDataset, storeConfigured } from "@/lib/nexus/store";
+import {
+  countDatasets,
+  getAccess,
+  getSession,
+  previousRun,
+  recordRun,
+  saveDataset,
+  storeConfigured,
+} from "@/lib/nexus/store";
+import { diffRuns, type RunDiff } from "@/lib/nexus/diff";
 import { BEYOND, entitlementsFor } from "@/lib/nexus/entitlements";
 
 export const runtime = "nodejs";
@@ -142,6 +151,19 @@ export async function POST(req: Request) {
     );
   }
 
+  /*
+   * Compare against the last time this file was looked at, before
+   * writing this run. Order matters: reading first means the diff is
+   * against the previous upload rather than against the one being
+   * made now.
+   */
+  let diff: RunDiff | null = null;
+  if (storeConfigured() && !body.demo) {
+    const prior = await previousRun(session, name);
+    if (prior) diff = diffRuns(prior, analysis);
+    void recordRun({ session, datasetName: name, analysis });
+  }
+
   let id: string | null = null;
   let atCeiling = false;
 
@@ -167,6 +189,7 @@ export async function POST(req: Request) {
     analysis,
     stored: id !== null,
     tier: ent.tier,
+    ...(diff ? { diff } : {}),
     ...(sheetUsed ? { sheet: sheetUsed, sheets: sheetsAvailable } : {}),
     atCeiling,
     ...(atCeiling

@@ -4,7 +4,9 @@ import { useCallback, useRef, useState } from "react";
 import FindingCard, { type AuditRows } from "./FindingCard";
 import { ColumnRail, QualityStrip } from "./Panels";
 import { Bars, Series } from "./Charts";
+import SinceLast from "./SinceLast";
 import { Beyond, UnlockPanel } from "./Unlock";
+import type { FindingChange, RunDiff } from "@/lib/nexus/diff";
 import { parseCsv } from "@/lib/nexus/csv";
 import type { Tier } from "@/lib/nexus/entitlements";
 import { DUE_DILIGENCE } from "@/lib/nexus/plain";
@@ -53,6 +55,7 @@ export default function NexusConsole({
   const [lock, setLock] = useState<string | null>(null);
   const [ceiling, setCeiling] = useState<Ceiling | null>(null);
   const [sheet, setSheet] = useState<{ used: string; all: string[] } | null>(null);
+  const [diff, setDiff] = useState<RunDiff | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
@@ -72,6 +75,7 @@ export default function NexusConsole({
     setBrief(null);
     setCeiling(null);
     setSheet(null);
+    setDiff(null);
 
     /*
      * The file picker's accept list does nothing for drag-and-drop, so
@@ -129,6 +133,7 @@ export default function NexusConsole({
       }
       if (json.atCeiling) setCeiling({ note: json.ceilingNote ?? "" });
       setSheet(json.sheet ? { used: json.sheet, all: json.sheets ?? [] } : null);
+      setDiff(json.diff ?? null);
       setData({
         id: json.id,
         name: json.name,
@@ -277,6 +282,9 @@ export default function NexusConsole({
   );
 
   const a = data.analysis;
+  const changeFor = new Map<string, FindingChange>(
+    (diff?.changes ?? []).map((c) => [c.id, c]),
+  );
 
   return (
     <div
@@ -345,6 +353,8 @@ export default function NexusConsole({
         </p>
       )}
       {error && <p className="nex-error" role="alert">{error}</p>}
+
+      {diff && <SinceLast diff={diff} />}
 
       {ceiling && <Beyond note={ceiling.note} />}
 
@@ -491,7 +501,13 @@ export default function NexusConsole({
             </p>
           ) : (
             a.findings.map((f, i) => (
-              <FindingCard key={f.id} finding={f} rank={i + 1} onAudit={auditFinding} />
+              <FindingCard
+                key={f.id}
+                finding={f}
+                rank={i + 1}
+                onAudit={auditFinding}
+                change={changeFor.get(f.id)}
+              />
             ))
           )}
         </main>
