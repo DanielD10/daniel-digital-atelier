@@ -11,6 +11,7 @@ import {
   spearman,
   topShare,
 } from "./stats";
+import { decompose, explain, type Decomposition } from "./decompose";
 import type { ProfileResult } from "./profile";
 import { LIMITS, type ColumnProfile, type Finding, type Table } from "./types";
 
@@ -585,6 +586,22 @@ function detectParadoxes(ctx: Ctx): Finding[] {
         if (!Number.isNaN(nums[r]) && !Number.isNaN(dates[r])) refs.push(r);
       }
 
+      /*
+       * Quantify it. Saying "the total moved the other way from every
+       * part" states the paradox; the decomposition says how much of
+       * the move was the mix shifting and how much was the parts
+       * themselves, which is the number someone can act on.
+       */
+      const { codes, levels } = levelIndex(ctx, catCol);
+      const drivers: Decomposition | null = decompose({
+        values: nums,
+        codes,
+        levels,
+        inBefore: (r) => !Number.isNaN(dates[r]) && dates[r] < cutoff,
+        inAfter: (r) => !Number.isNaN(dates[r]) && dates[r] >= cutoff,
+        rows: ctx.table.rows.length,
+      });
+
       out.push({
         id: `paradox:${numCol.name}:${catCol.name}`,
         kind: "paradox",
@@ -604,7 +621,20 @@ function detectParadoxes(ctx: Ctx): Finding[] {
           segmentsAgainst: against.length,
           segmentsTotal: segments.length,
           rowShareAgainstPct: round(share * 100, 1),
-          explanation: `The mix shifted toward ${catCol.name} levels that sit at a different ${numCol.name}, so the total moved without any segment doing so.`,
+          ...(drivers
+            ? {
+                mixEffectPct: round(drivers.mixPct, 0),
+                rateEffectPct: round(drivers.ratePct, 0),
+                interactionPct: round(drivers.interactionPct, 0),
+                biggestDriver: drivers.segments[0]?.label ?? "",
+                biggestDriverSharePct: round(drivers.segments[0]?.contributionPct ?? 0, 0),
+              }
+            : {}),
+          explanation: drivers
+            ? explain(drivers, numCol.name, catCol.name)
+            : `The mix shifted toward ${catCol.name} levels that sit at a different ${numCol.name}, so the total moved without any segment doing so.`,
+          method:
+            "Exact decomposition: rate + mix + interaction sum to the total change with no residual.",
         },
         rowRefs: refs,
         breakdown: [

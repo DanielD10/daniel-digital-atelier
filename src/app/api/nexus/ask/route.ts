@@ -29,6 +29,7 @@ Shapes:
 {"op":"series","dateColumn":DATE_COL,"metric":COL?,"stat":"median"|"count"|"sum","filter":[F]}
 {"op":"compare","metric":COL,"groupBy":COL,"stat":STAT?,"filter":[F]}
 {"op":"describe","column":COL}
+{"op":"drivers","metric":COL,"groupBy":COL,"dateColumn":DATE_COL?,"a":{...}?,"b":{...}?,"filter":[F]}
 {"op":"periods","dateColumn":DATE_COL,"metric":COL?,"stat":STAT?,"groupBy":COL?,"a":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"b":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"filter":[F]}
 
 F is {"column":COL,"op":"eq"|"neq"|"gt"|"lt"|"gte"|"lte"|"contains","value":STRING_OR_NUMBER}
@@ -38,6 +39,7 @@ Rules:
 - Prefer "median" over "mean" for money and durations; outliers move a mean.
 - "rate" is only for boolean columns. "how many X are Y" over a boolean is a rate.
 - "over time", "by month", "trend" → series.
+- "why did X change/drop/rise", "what's driving X", "what explains X" → drivers. Pick the segment column most likely to explain it; if unsure, the lowest-cardinality category.
 - "this month vs last", "Q1 vs Q2", "before and after X", "year over year" → periods. "a" is the EARLIER window, "b" the later one.
 - Resolve relative dates ("last 30 days", "this quarter", "since June") against TODAY, given below, and emit absolute YYYY-MM-DD. Never emit a relative phrase.
 - Filters on a date column use gt/gte/lt/lte with a YYYY-MM-DD value.

@@ -1,4 +1,5 @@
 import { parseNumber } from "./profile";
+import { decompose, explain } from "./decompose";
 import { median, quantile } from "./stats";
 import type { ColumnProfile, Table } from "./types";
 
@@ -42,6 +43,15 @@ export type Plan =
   | { op: "series"; metric?: string; dateColumn: string; stat: "median" | "count" | "sum"; filter?: Filter[] }
   | { op: "compare"; metric: string; groupBy: string; stat?: Stat; filter?: Filter[] }
   | { op: "describe"; column: string }
+  | {
+      op: "drivers";
+      metric: string;
+      groupBy: string;
+      dateColumn?: string;
+      a?: Window;
+      b?: Window;
+      filter?: Filter[];
+    }
   | {
       op: "periods";
       dateColumn: string;
@@ -336,6 +346,110 @@ export function runPlan(
       };
     }
 
+    case "drivers": {
+      /*
+       * "Why did it change." The engine answers it by arithmetic
+       * rather than by narration: the change is split exactly into
+       * what each segment's own values did, what the shifting balance
+       * between segments did, and the interaction between the two.
+       */
+      const metric = column(columns, plan.metric, "metric");
+      const group = column(columns, plan.groupBy, "group");
+      const dateCol = plan.dateColumn
+        ? column(columns, plan.dateColumn, "date")
+        : columns.find((c) => c.kind === "date");
+      if (!dateCol) throw new PlanError("No date column, so there are no two periods to compare.");
+
+      const typed = dateValues.get(dateCol.index);
+      if (!typed) throw new PlanError(`${dateCol.name} isn't a date column.`);
+
+      // Default to halves of the window, which is the question people
+      // mean when they do not name periods.
+      let aFrom = -Infinity, aTo: number, bFrom: number, bTo = Infinity;
+      if (plan.a?.to && plan.b?.from) {
+        aFrom = plan.a.from ? Date.parse(plan.a.from) : -Infinity;
+        aTo = Date.parse(plan.a.to) + 86_399_999;
+        bFrom = Date.parse(plan.b.from);
+        bTo = plan.b.to ? Date.parse(plan.b.to) + 86_399_999 : Infinity;
+      } else {
+        const ts: number[] = [];
+        for (let r = 0; r < table.rows.length; r++) {
+          if (!Number.isNaN(typed[r])) ts.push(typed[r]);
+        }
+        if (ts.length < 20) throw new PlanError("Not enough dated rows to split into periods.");
+        ts.sort((x, y) => x - y);
+        const mid = ts[Math.floor(ts.length / 2)];
+        aTo = mid - 1;
+        bFrom = mid;
+      }
+
+      const values = new Float64Array(table.rows.length);
+      const codes = new Int32Array(table.rows.length);
+      const index = new Map<string, number>();
+      const levels: string[] = [];
+      for (let r = 0; r < table.rows.length; r++) {
+        if (!where(r)) {
+          values[r] = NaN;
+          codes[r] = -1;
+          continue;
+        }
+        const n = parseNumber(table.rows[r][metric.index] ?? "");
+        values[r] = n ?? NaN;
+        const k = (table.rows[r][group.index] ?? "").trim();
+        if (!k) {
+          codes[r] = -1;
+          continue;
+        }
+        let c = index.get(k);
+        if (c === undefined) {
+          c = levels.length;
+          levels.push(k);
+          index.set(k, c);
+        }
+        codes[r] = c;
+      }
+
+      const d = decompose({
+        values,
+        codes,
+        levels,
+        inBefore: (r) => !Number.isNaN(typed[r]) && typed[r] >= aFrom && typed[r] <= aTo,
+        inAfter: (r) => !Number.isNaN(typed[r]) && typed[r] >= bFrom && typed[r] <= bTo,
+        rows: table.rows.length,
+      });
+      if (!d) throw new PlanError("Not enough rows in both periods to decompose the change.");
+
+      const refs: number[] = [];
+      for (let r = 0; r < table.rows.length && refs.length < 200; r++) {
+        if (!Number.isNaN(values[r]) && codes[r] >= 0) refs.push(r);
+      }
+
+      const rows: Array<Array<string | number>> = [
+        ["— total change", round(d.before), round(d.after), round(d.delta), 100],
+        ["— mix effect", "", "", round(d.mixEffect), Math.round(d.mixPct)],
+        ["— rate effect", "", "", round(d.rateEffect), Math.round(d.ratePct)],
+        ["— interaction", "", "", round(d.interactionEffect), Math.round(d.interactionPct)],
+        ...d.segments.map((sg) => [
+          sg.label,
+          round(sg.valueBefore),
+          round(sg.valueAfter),
+          round(sg.valueAfter - sg.valueBefore),
+          Math.round(sg.contributionPct),
+        ] as Array<string | number>),
+      ];
+
+      return {
+        statement: explain(d, metric.name, group.name),
+        columns: [group.name, "before", "after", "change", "share of move %"],
+        rows,
+        rowRefs: refs,
+        chart: {
+          labels: d.segments.slice(0, 10).map((sg) => sg.label),
+          values: d.segments.slice(0, 10).map((sg) => Math.round(sg.contributionPct)),
+        },
+      };
+    }
+
     case "periods": {
       /*
        * "This quarter versus last" is the single most common question
@@ -426,7 +540,7 @@ export function validatePlan(raw: unknown): Plan {
   const op = p.op;
   if (
     op === "aggregate" || op === "rate" || op === "series" ||
-    op === "compare" || op === "describe" || op === "periods"
+    op === "compare" || op === "describe" || op === "periods" || op === "drivers"
   ) {
     return p as unknown as Plan;
   }
