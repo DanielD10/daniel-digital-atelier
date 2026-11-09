@@ -25,11 +25,30 @@ import {
  * is unknowable alone and obvious in the company of 17/04/2025.
  */
 
+/**
+ * Stop tracking exact cardinality past this many levels. A column with
+ * more is an identifier or free text, never a category, and building a
+ * million-entry hash to establish that costs far more than the answer
+ * is worth.
+ */
+const DISTINCT_CAP = 20_000;
+
 const BLANK = new Set(["", "-", "—", "n/a", "na", "null", "nil", "none", "nan", "#n/a"]);
 const TRUTHY = new Set(["true", "yes", "y", "t", "1"]);
 const FALSEY = new Set(["false", "no", "n", "f", "0"]);
 
+/**
+ * Blank-value test, on the hot path for every cell in the table.
+ *
+ * The obvious one-liner lowercases and trims every value it is handed,
+ * which at a million rows across a dozen columns is twelve million
+ * throwaway strings. Every token in BLANK is six characters or fewer,
+ * so anything longer cannot be one and can be rejected before any
+ * allocation happens.
+ */
 export function isBlank(v: string): boolean {
+  if (v.length === 0) return true;
+  if (v.length > 6) return false;
   return BLANK.has(v.trim().toLowerCase());
 }
 
@@ -170,9 +189,17 @@ function inferKind(
 export interface ProfileResult {
   columns: ColumnProfile[];
   quality: QualityIssue[];
-  /** Typed views, kept beside the profile so detectors don't re-parse. */
-  numericValues: Map<number, Array<number | null>>;
-  dateValues: Map<number, Array<number | null>>;
+  /*
+   * Typed views, kept beside the profile so detectors don't re-parse.
+   *
+   * Float64Array with NaN standing in for null, rather than
+   * Array<number | null>. A boxed array of a million entries costs
+   * roughly fifty megabytes and pointer-chases on every read; the
+   * typed one is eight megabytes of contiguous memory. Callers must
+   * test with Number.isNaN rather than `=== null`.
+   */
+  numericValues: Map<number, Float64Array>;
+  dateValues: Map<number, Float64Array>;
   dateOrders: Map<number, DateOrder>;
 }
 
@@ -180,14 +207,25 @@ export function profileTable(table: Table): ProfileResult {
   const { headers, rows } = table;
   const columns: ColumnProfile[] = [];
   const quality: QualityIssue[] = [];
-  const numericValues = new Map<number, Array<number | null>>();
-  const dateValues = new Map<number, Array<number | null>>();
+  const numericValues = new Map<number, Float64Array>();
+  const dateValues = new Map<number, Float64Array>();
   const dateOrders = new Map<number, DateOrder>();
 
   for (let c = 0; c < headers.length; c++) {
     const present: string[] = [];
     const counts = new Map<string, number>();
     let missing = 0;
+    /*
+     * Stop counting distinct values once a column is obviously a key.
+     *
+     * An order_id column with a million unique values builds a
+     * million-entry hash of strings to learn one thing: that it is an
+     * identifier. Past the cap the exact count stops mattering — every
+     * decision downstream only asks whether cardinality is low enough
+     * for the column to be a category — so counting stops and the
+     * tally becomes a floor rather than an exact figure.
+     */
+    let overflowed = false;
 
     for (let r = 0; r < rows.length; r++) {
       const raw = rows[r][c] ?? "";
@@ -196,11 +234,18 @@ export function profileTable(table: Table): ProfileResult {
         continue;
       }
       const v = raw.trim();
-      present.push(v);
-      counts.set(v, (counts.get(v) ?? 0) + 1);
+      // Only the head is retained for inference and samples; the full
+      // column was never read past this point.
+      if (present.length < 4000) present.push(v);
+      if (!overflowed) {
+        const seen = counts.get(v);
+        if (seen !== undefined) counts.set(v, seen + 1);
+        else if (counts.size < DISTINCT_CAP) counts.set(v, 1);
+        else overflowed = true;
+      }
     }
 
-    const distinct = counts.size;
+    const distinct = overflowed ? rows.length - missing : counts.size;
     const { kind, dateOrder } = inferKind(present, distinct, rows.length);
     dateOrders.set(c, dateOrder);
 
@@ -215,11 +260,11 @@ export function profileTable(table: Table): ProfileResult {
     };
 
     if (kind === "number" || kind === "integer" || kind === "currency" || kind === "percent") {
-      const typed: Array<number | null> = new Array(rows.length);
+      const typed = new Float64Array(rows.length);
       const clean: number[] = [];
       for (let r = 0; r < rows.length; r++) {
         const n = parseNumber(rows[r][c] ?? "");
-        typed[r] = n;
+        typed[r] = n ?? NaN;
         if (n !== null) clean.push(n);
         else if (!isBlank(rows[r][c] ?? "")) profile.coercionFailures++;
       }
@@ -245,11 +290,11 @@ export function profileTable(table: Table): ProfileResult {
         };
       }
     } else if (kind === "date") {
-      const typed: Array<number | null> = new Array(rows.length);
+      const typed = new Float64Array(rows.length);
       const clean: number[] = [];
       for (let r = 0; r < rows.length; r++) {
         const t = parseDate(rows[r][c] ?? "", dateOrder);
-        typed[r] = t;
+        typed[r] = t ?? NaN;
         if (t !== null) clean.push(t);
         else if (!isBlank(rows[r][c] ?? "")) profile.coercionFailures++;
       }

@@ -162,8 +162,8 @@ export interface DatasetRecord {
 
 /** Hard ceilings. A portfolio page should not be a free compute endpoint. */
 export const LIMITS = {
-  maxBytes: 5 * 1024 * 1024,
-  maxRows: 100_000,
+  maxBytes: 60 * 1024 * 1024,
+  maxRows: 750_000,
   maxColumns: 80,
   /*
    * Cited rows per finding. The panel never displays more than this, and

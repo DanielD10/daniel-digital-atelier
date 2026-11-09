@@ -4,7 +4,9 @@ import { useCallback, useRef, useState } from "react";
 import FindingCard, { type AuditRows } from "./FindingCard";
 import { ColumnRail, QualityStrip } from "./Panels";
 import { Bars, Series } from "./Charts";
+import { Beyond, UnlockPanel } from "./Unlock";
 import { parseCsv } from "@/lib/nexus/csv";
+import type { Tier } from "@/lib/nexus/entitlements";
 import { LIMITS, type Analysis, type Finding, type QualityIssue } from "@/lib/nexus/types";
 
 /**
@@ -25,6 +27,10 @@ interface Loaded {
   csv?: string;
 }
 
+interface Ceiling {
+  note: string;
+}
+
 interface AskState {
   question: string;
   statement: string;
@@ -33,8 +39,17 @@ interface AskState {
   chart?: { labels: string[]; values: number[] };
 }
 
-export default function NexusConsole({ initial }: { initial: Loaded }) {
+export default function NexusConsole({
+  initial,
+  tier: initialTier,
+}: {
+  initial: Loaded;
+  tier: Tier;
+}) {
   const [data, setData] = useState<Loaded>(initial);
+  const [tier, setTier] = useState<Tier>(initialTier);
+  const [lock, setLock] = useState<string | null>(null);
+  const [ceiling, setCeiling] = useState<Ceiling | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
@@ -51,6 +66,25 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
     setAsk(null);
     setAskError(null);
     setBrief(null);
+    setCeiling(null);
+
+    /*
+     * The file picker's accept list does nothing for drag-and-drop, so
+     * the common mistake — dragging the .xlsx straight out of the
+     * folder — has to be caught here. Reading one as text produces
+     * mojibake that parses into a single enormous column, and the panel
+     * would answer "nothing found", which is true and unhelpful.
+     */
+    if (/\.(xlsx|xls|numbers|ods|pdf|zip|docx?|pptx?|png|jpe?g|gif|webp|parquet)$/i.test(file.name)) {
+      const ext = file.name.split(".").pop()!.toUpperCase();
+      setError(
+        `${ext} isn't delimited text, so there's nothing here to parse.` +
+          (/^(xlsx|xls|numbers|ods)$/i.test(ext)
+            ? " Export the sheet as CSV and drop that instead."
+            : " NEXUS reads CSV and TSV."),
+      );
+      return;
+    }
 
     if (file.size > LIMITS.maxBytes) {
       setError(
@@ -73,8 +107,10 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
       const json = await res.json();
       if (!res.ok) {
         setError(json.error ?? "That didn't parse.");
+        if (json.beyond) setCeiling({ note: "" });
         return;
       }
+      if (json.atCeiling) setCeiling({ note: json.ceilingNote ?? "" });
       setData({
         id: json.id,
         name: json.name,
@@ -163,8 +199,15 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
         body: JSON.stringify({ id: data.id }),
       });
       const json = await res.json();
-      if (res.ok) setBrief({ text: json.text, live: json.live });
-      else setError(json.error ?? "Couldn't write the brief.");
+      if (res.ok) {
+        setBrief({ text: json.text, live: json.live });
+      } else if (json.error === "locked") {
+        setLock(json.reason);
+      } else if (json.error === "quota") {
+        setError(json.reason);
+      } else {
+        setError(json.error ?? "Couldn't write the brief.");
+      }
     } catch {
       setError("Couldn't reach the brief service.");
     } finally {
@@ -188,7 +231,8 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
         });
         const json = await res.json();
         if (!res.ok) {
-          setAskError(json.error ?? "Couldn't answer that.");
+          if (json.error === "locked") setLock(json.reason);
+          else setAskError(json.error === "quota" ? json.reason : json.error ?? "Couldn't answer that.");
           return;
         }
         setAsk({
@@ -229,6 +273,7 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
           <span className="nex-head-dot" aria-hidden="true" />
           <h2 className="nex-head-name">{data.name}</h2>
           {data.id === "demo" && <span className="nex-tag">sample</span>}
+          {tier !== "anonymous" && <span className="nex-tag">{tier}</span>}
           {!data.stored && data.id !== "demo" && <span className="nex-tag nex-tag--warn">not saved</span>}
         </div>
 
@@ -270,8 +315,22 @@ export default function NexusConsole({ initial }: { initial: Loaded }) {
       )}
       {error && <p className="nex-error" role="alert">{error}</p>}
 
+      {ceiling && <Beyond note={ceiling.note} />}
+
       <section className="nex-brief">
-        {brief ? (
+        {lock ? (
+          <UnlockPanel
+            reason={
+              lock ??
+              "The brief and Ask are written by a model, which costs real money per call. Tell me who you are and both unlock for this browser."
+            }
+            datasetName={data.name}
+            onUnlocked={() => {
+              setTier("identified");
+              setLock(null);
+            }}
+          />
+        ) : brief ? (
           <>
             <div className="nex-brief-text">
               {brief.text.split("\n\n").map((p, i) => <p key={i}>{p}</p>)}

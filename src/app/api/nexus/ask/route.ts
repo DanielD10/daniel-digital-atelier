@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { DEMO_ID, resolveDemo, resolveStored } from "@/lib/nexus/resolve";
-import { peekSession } from "@/lib/nexus/store";
+import { getSession, spend } from "@/lib/nexus/store";
 import { PlanError, runPlan, validatePlan, type Plan } from "@/lib/nexus/query";
 import { profileTable } from "@/lib/nexus/profile";
 
@@ -77,12 +77,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Need a dataset and a question." }, { status: 400 });
   }
 
+  /* Metered the same way as the brief: everyone may ask, a free
+     browser just gets fewer questions before the pitch appears. */
+  const session = await getSession();
+  const quota = await spend(session, "ask");
+  if (!quota.allowed) {
+    const identified = quota.tier !== "anonymous";
+    return NextResponse.json(
+      {
+        error: identified ? "quota" : "locked",
+        reason: identified
+          ? "You've used today's questions. The allowance resets 24 hours after the first one."
+          : "That's the free allowance of questions for this browser. Each one is a model call, so tell me who you are and it goes up.",
+      },
+      { status: identified ? 429 : 402 },
+    );
+  }
+
   let resolved;
   if (id === DEMO_ID) {
     resolved = resolveDemo();
   } else {
-    const session = await peekSession();
-    if (!session) return NextResponse.json({ error: "No session." }, { status: 403 });
     resolved = await resolveStored(id, session, true);
   }
   if (!resolved || resolved.table.headers.length === 0) {

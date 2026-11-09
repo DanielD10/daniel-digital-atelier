@@ -130,7 +130,7 @@ export function runPlan(
   plan: Plan,
   table: Table,
   columns: ColumnProfile[],
-  dateValues: Map<number, Array<number | null>>,
+  dateValues: Map<number, Float64Array>,
 ): QueryResult {
   const filters = Array.isArray(plan.op === "describe" ? [] : plan.filter) ? (plan as { filter?: Filter[] }).filter ?? [] : [];
   const where = (r: number) => passes(table, columns, filters, r);
@@ -257,7 +257,7 @@ export function runPlan(
       for (let r = 0; r < table.rows.length; r++) {
         if (!where(r)) continue;
         const t = dates[r];
-        if (t === null) continue;
+        if (Number.isNaN(t)) continue;
         const d = new Date(t);
         const key =
           grain === "month"

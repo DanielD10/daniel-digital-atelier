@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import type { Tier } from "./entitlements";
 import type { Analysis, DatasetRecord } from "./types";
 
 /**
@@ -17,8 +18,8 @@ import type { Analysis, DatasetRecord } from "./types";
 
 const COOKIE = "nx_session";
 const TABLE = "nexus_datasets";
-/** Keeps one visitor from filling the free tier on their own. */
-const MAX_PER_SESSION = 8;
+/** Hard trim ceiling. Per-tier limits are enforced before the write. */
+const MAX_PER_SESSION = 100;
 
 type Creds = { url: string; key: string };
 
@@ -142,6 +143,107 @@ export async function listDatasets(session: string): Promise<DatasetRecord[]> {
   }
 }
 
+/* ───────────────────────── access ───────────────────────── */
+
+export interface Access {
+  tier: Tier;
+  email: string;
+  name: string;
+}
+
+/** Who this session is, if they've said. Null means anonymous. */
+export async function getAccess(session: string): Promise<Access | null> {
+  const c = creds();
+  if (!c) return null;
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/nexus_access?select=email,name,tier&limit=1`,
+      { headers: headers(c.key, session), cache: "no-store" },
+    );
+    if (!res.ok) return null;
+    const rows = (await res.json()) as Array<{ email: string; name: string; tier: string }>;
+    const r = rows[0];
+    return r ? { tier: (r.tier as Tier) ?? "identified", email: r.email, name: r.name } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function grantAccess(
+  session: string,
+  who: { email: string; name: string; note?: string },
+): Promise<boolean> {
+  const c = creds();
+  if (!c) return false;
+  try {
+    // Through a function, not a table write: anon holds no UPDATE on
+    // nexus_access, so promoting a session is something only the
+    // definer-rights path can do.
+    const res = await fetch(`${c.url}/rest/v1/rpc/nexus_identify`, {
+      method: "POST",
+      headers: headers(c.key, session),
+      body: JSON.stringify({
+        p_email: who.email,
+        p_name: who.name,
+        p_note: who.note ?? null,
+      }),
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Claim one unit of a metered allowance, atomically.
+ *
+ * The counter lives server-side and moves through a definer-rights
+ * function, because anon holds no UPDATE on the table — a session can
+ * neither reset its own usage nor write itself a better tier. Called
+ * before the expensive work, never after.
+ */
+export async function spend(
+  session: string,
+  kind: "narrate" | "ask",
+): Promise<{ allowed: boolean; remaining: number; tier: Tier }> {
+  const c = creds();
+  if (!c) return { allowed: false, remaining: 0, tier: "anonymous" };
+  try {
+    const res = await fetch(`${c.url}/rest/v1/rpc/nexus_spend`, {
+      method: "POST",
+      headers: headers(c.key, session),
+      body: JSON.stringify({ kind }),
+      cache: "no-store",
+    });
+    if (!res.ok) return { allowed: false, remaining: 0, tier: "anonymous" };
+    const rows = (await res.json()) as Array<{ allowed: boolean; remaining: number; tier: string }>;
+    const r = Array.isArray(rows) ? rows[0] : (rows as unknown as { allowed: boolean; remaining: number; tier: string });
+    return r
+      ? { allowed: r.allowed, remaining: r.remaining, tier: (r.tier as Tier) ?? "anonymous" }
+      : { allowed: false, remaining: 0, tier: "anonymous" };
+  } catch {
+    return { allowed: false, remaining: 0, tier: "anonymous" };
+  }
+}
+
+/** How many datasets this session is holding, for the upload ceiling. */
+export async function countDatasets(session: string): Promise<number> {
+  const c = creds();
+  if (!c) return 0;
+  try {
+    const res = await fetch(`${c.url}/rest/v1/${TABLE}?select=id`, {
+      headers: headers(c.key, session, { Prefer: "count=exact", Range: "0-0" }),
+      cache: "no-store",
+    });
+    const range = res.headers.get("content-range");
+    const total = range?.split("/")[1];
+    return total && total !== "*" ? Number(total) : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export interface StoredDataset extends DatasetRecord {
   csv: string;
 }
@@ -188,10 +290,12 @@ export async function attachNarrative(id: string, session: string, narrative: st
   const c = creds();
   if (!c) return;
   try {
-    await fetch(`${c.url}/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`, {
-      method: "PATCH",
+    // Same reason as grantAccess: direct UPDATE is denied to anon by a
+    // restrictive policy, so this is the one sanctioned write.
+    await fetch(`${c.url}/rest/v1/rpc/nexus_set_narrative`, {
+      method: "POST",
       headers: headers(c.key, session, { Prefer: "return=minimal" }),
-      body: JSON.stringify({ narrative }),
+      body: JSON.stringify({ p_id: id, p_text: narrative }),
       cache: "no-store",
     });
   } catch {
@@ -218,16 +322,24 @@ export async function deleteDataset(id: string, session: string): Promise<boolea
  * Reap expired rows and trim a session back to its ceiling.
  *
  * There is no cron on the free tier, so expiry is opportunistic: every
- * upload pays a little forward by clearing whatever has aged out. The
- * delete-expired policy is open to any session precisely so this works
- * — it can only ever match rows that are already past their lifetime.
+ * upload pays a little forward by clearing whatever has aged out.
+ *
+ * The expiry sweep goes through an RPC rather than a DELETE. A
+ * delete-expired RLS policy looks like the obvious way to do this and
+ * silently never fires: Postgres needs SELECT privilege on any column a
+ * DELETE's WHERE clause reads, and the SELECT policy scopes each
+ * session to its own rows, so the sweep saw nothing belonging to anyone
+ * else. Widening SELECT would have fixed the delete and let any visitor
+ * read every other visitor's uploaded CSV a week later. nexus_reap()
+ * runs with definer rights and can only ever touch rows past their
+ * lifetime.
  */
 async function reap(c: Creds, session: string) {
-  const nowIso = new Date().toISOString();
   try {
-    await fetch(`${c.url}/rest/v1/${TABLE}?expires_at=lt.${nowIso}`, {
-      method: "DELETE",
+    await fetch(`${c.url}/rest/v1/rpc/nexus_reap`, {
+      method: "POST",
       headers: headers(c.key, session, { Prefer: "return=minimal" }),
+      body: "{}",
       cache: "no-store",
     });
 

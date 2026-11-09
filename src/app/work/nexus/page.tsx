@@ -4,6 +4,7 @@ import Masthead from "@/components/Masthead";
 import NexusConsole from "@/components/nexus/NexusConsole";
 import { getProject } from "@/lib/projects";
 import { resolveDemo } from "@/lib/nexus/resolve";
+import { getAccess, peekSession } from "@/lib/nexus/store";
 import "./nexus.css";
 
 /**
@@ -32,8 +33,19 @@ export const metadata: Metadata = {
   },
 };
 
-export default function NexusPage() {
+/*
+ * Rendered per request, because the gate's state is per visitor:
+ * baking the unlocked panel into a cached page would show the wrong
+ * thing to everyone after the first person. Reading the session cookie
+ * below is what opts this route in — an explicit `force-dynamic` on top
+ * of that conflicts with prerendering and 500s every request. The demo
+ * analysis is cached in module scope, so the per-request cost is the
+ * cookie read and nothing else.
+ */
+export default async function NexusPage() {
   const demo = resolveDemo();
+  const session = await peekSession();
+  const access = session ? await getAccess(session) : null;
 
   return (
     <div className="nex">
@@ -97,6 +109,7 @@ export default function NexusPage() {
             analysis: demo.analysis,
             stored: false,
           }}
+          tier={access?.tier ?? "anonymous"}
         />
       </main>
     </div>

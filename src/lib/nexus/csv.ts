@@ -59,7 +59,7 @@ export interface ParseResult extends Table {
   truncated: boolean;
 }
 
-export function parseCsv(input: string): ParseResult {
+export function parseCsv(input: string, maxRows: number = LIMITS.maxRows): ParseResult {
   // Strip a BOM; Excel writes one and it corrupts the first header.
   const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
   const delimiter = sniffDelimiter(text.slice(0, 64 * 1024));
@@ -100,7 +100,7 @@ export function parseCsv(input: string): ParseResult {
       pushField();
     } else if (ch === "\n") {
       pushRecord();
-      if (records.length > LIMITS.maxRows + 1) {
+      if (records.length > maxRows + 1) {
         truncated = true;
         break;
       }
