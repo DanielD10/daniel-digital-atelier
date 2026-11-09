@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { analyzeCsv, DataRejected } from "@/lib/nexus/analyze";
 import { xlsxToCsv, XlsxError } from "@/lib/nexus/xlsx";
+import { describeJoin, findJoinKeys, joinTables } from "@/lib/nexus/join";
+import { parseCsv } from "@/lib/nexus/csv";
 import { resolveDemo } from "@/lib/nexus/resolve";
 import {
   countDatasets,
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
    * reason. The filename rides in a header.
    */
   const contentType = req.headers.get("content-type") ?? "";
-  let body: { csv?: unknown; name?: unknown; demo?: unknown };
+  let body: { csv?: unknown; name?: unknown; demo?: unknown; second?: unknown; secondName?: unknown };
   let sheetUsed: string | null = null;
   let sheetsAvailable: string[] = [];
 
@@ -132,14 +134,53 @@ export async function POST(req: Request) {
     );
   }
 
-  const name =
+  let name =
     typeof body.name === "string" && body.name.trim()
       ? body.name.trim().slice(0, 120)
       : "untitled.csv";
 
+  /*
+   * A second file is joined before anything is analysed.
+   *
+   * Every interesting question spans tables — jobs and suppliers,
+   * claims and payments — and the key is detected from the values
+   * rather than asked for, because `job_id` in one export is
+   * `JobNumber` in the next and nobody remembers which.
+   */
+  let csvText = body.csv;
+  let joinNote: string | null = null;
+  if (typeof body.second === "string" && body.second.trim()) {
+    const secondName =
+      typeof body.secondName === "string" && body.secondName.trim()
+        ? body.secondName.trim().slice(0, 120)
+        : "second file";
+    try {
+      const left = parseCsv(csvText);
+      const right = parseCsv(body.second);
+      const candidates = findJoinKeys(left, right);
+      if (candidates.length === 0) {
+        return NextResponse.json(
+          {
+            error: `Couldn't find a column linking ${name} to ${secondName}. They need a shared value — an ID, a code, a date — appearing in both.`,
+          },
+          { status: 422 },
+        );
+      }
+      const joined = joinTables(left, right, candidates[0]);
+      joinNote = describeJoin(joined, name, secondName);
+      csvText = [joined.table.headers, ...joined.table.rows]
+        .map((r) => r.map((c) => (/[",\n]/.test(c) ? `"${c.replace(/"/g, '""')}"` : c)).join(","))
+        .join("\n");
+      name = `${name} + ${secondName}`;
+    } catch (err) {
+      console.error("[nexus] join threw", err);
+      return NextResponse.json({ error: "Couldn't join those two files." }, { status: 422 });
+    }
+  }
+
   let analysis;
   try {
-    ({ analysis } = analyzeCsv(body.csv, { maxRows: ent.maxRows, maxBytes: ent.maxBytes }));
+    ({ analysis } = analyzeCsv(csvText, { maxRows: ent.maxRows, maxBytes: ent.maxBytes }));
   } catch (err) {
     if (err instanceof DataRejected) {
       return NextResponse.json({ error: err.detail }, { status: err.status });
@@ -179,7 +220,7 @@ export async function POST(req: Request) {
     if ((await countDatasets(session)) >= ent.maxDatasets) {
       atCeiling = true;
     } else {
-      id = await saveDataset({ session, name, csv: body.csv, analysis });
+      id = await saveDataset({ session, name, csv: csvText, analysis });
     }
   }
 
@@ -191,6 +232,7 @@ export async function POST(req: Request) {
     tier: ent.tier,
     ...(diff ? { diff } : {}),
     ...(sheetUsed ? { sheet: sheetUsed, sheets: sheetsAvailable } : {}),
+    ...(joinNote ? { join: joinNote } : {}),
     atCeiling,
     ...(atCeiling
       ? {

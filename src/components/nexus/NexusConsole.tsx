@@ -56,6 +56,7 @@ export default function NexusConsole({
   const [ceiling, setCeiling] = useState<Ceiling | null>(null);
   const [sheet, setSheet] = useState<{ used: string; all: string[] } | null>(null);
   const [diff, setDiff] = useState<RunDiff | null>(null);
+  const [join, setJoin] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
@@ -68,7 +69,9 @@ export default function NexusConsole({
 
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const ingest = useCallback(async (file: File) => {
+  const ingest = useCallback(async (files: File[]) => {
+    const file = files[0];
+    const partner = files[1] ?? null;
     setError(null);
     setAsk(null);
     setAskError(null);
@@ -76,6 +79,7 @@ export default function NexusConsole({
     setCeiling(null);
     setSheet(null);
     setDiff(null);
+    setJoin(null);
 
     /*
      * The file picker's accept list does nothing for drag-and-drop, so
@@ -95,6 +99,12 @@ export default function NexusConsole({
     }
 
     const isWorkbook = /\.xlsx$/i.test(file.name);
+    if (partner && isWorkbook) {
+      setError(
+        "Joining two files works with CSV and TSV for now. Save the workbook as CSV and drop both again.",
+      );
+      return;
+    }
 
     if (file.size > LIMITS.maxBytes) {
       setError(
@@ -111,6 +121,7 @@ export default function NexusConsole({
       // out the sheet that actually holds a table.
       const text = isWorkbook ? "" : await file.text();
       setBusy(isWorkbook ? "Opening the workbook" : "Interrogating");
+      if (partner) setBusy("Matching the two files");
       const res = isWorkbook
         ? await fetch("/api/nexus/analyze", {
             method: "POST",
@@ -123,7 +134,11 @@ export default function NexusConsole({
         : await fetch("/api/nexus/analyze", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ csv: text, name: file.name }),
+            body: JSON.stringify({
+              csv: text,
+              name: file.name,
+              ...(partner ? { second: await partner.text(), secondName: partner.name } : {}),
+            }),
           });
       const json = await res.json();
       if (!res.ok) {
@@ -134,6 +149,7 @@ export default function NexusConsole({
       if (json.atCeiling) setCeiling({ note: json.ceilingNote ?? "" });
       setSheet(json.sheet ? { used: json.sheet, all: json.sheets ?? [] } : null);
       setDiff(json.diff ?? null);
+      setJoin(json.join ?? null);
       setData({
         id: json.id,
         name: json.name,
@@ -297,8 +313,8 @@ export default function NexusConsole({
       onDrop={(e) => {
         e.preventDefault();
         setDrag(false);
-        const f = e.dataTransfer.files?.[0];
-        if (f) void ingest(f);
+        const fs = Array.from(e.dataTransfer.files ?? []).slice(0, 2);
+        if (fs.length) void ingest(fs);
       }}
     >
       <header className="nex-head">
@@ -329,9 +345,10 @@ export default function NexusConsole({
             type="file"
             accept=".csv,.tsv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="nex-file"
+            multiple
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void ingest(f);
+              const fs = Array.from(e.target.files ?? []).slice(0, 2);
+              if (fs.length) void ingest(fs);
               e.target.value = "";
             }}
           />
@@ -353,6 +370,13 @@ export default function NexusConsole({
         </p>
       )}
       {error && <p className="nex-error" role="alert">{error}</p>}
+
+      {join && (
+        <p className="nex-join" role="status">
+          <span className="nex-join-tag">Joined</span>
+          {join}
+        </p>
+      )}
 
       {diff && <SinceLast diff={diff} />}
 

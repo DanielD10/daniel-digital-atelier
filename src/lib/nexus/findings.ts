@@ -707,7 +707,7 @@ function detectMixShifts(ctx: Ctx): Finding[] {
     out.push({
       id: `mix:${catCol.name}`,
       kind: "imbalance",
-      headline: `${biggest.label} went from ${fmtPct(biggest.from)} to ${fmtPct(
+      headline: `${levelPhrase(catCol, biggest.label)} went from ${fmtPct(biggest.from)} to ${fmtPct(
         biggest.to,
       )} of all rows`,
       columns: [dateCol.name, catCol.name],
@@ -848,7 +848,7 @@ function detectSegmentGaps(ctx: Ctx): Finding[] {
       out.push({
         id: `segment:${catCol.name}:${numCol.name}`,
         kind: "relationship",
-        headline: `${worst.label} runs ${fmtPct(
+        headline: `${levelPhrase(catCol, worst.label)} runs ${fmtPct(
           Math.abs(worst.med - globalMedian) / Math.max(1e-9, Math.abs(globalMedian)),
         )} ${worst.med > globalMedian ? "above" : "below"} everything else on ${humanize(numCol.name)}`,
         columns: [catCol.name, numCol.name],
@@ -1167,7 +1167,7 @@ function detectRatios(ctx: Ctx): Finding[] {
         out.push({
           id: `ratio:${num.name}/${den.name}:${catCol.name}`,
           kind: "relationship",
-          headline: `${worst.label} runs ${fmtPct(Math.abs(gap))} ${
+          headline: `${levelPhrase(catCol, worst.label)} runs ${fmtPct(Math.abs(gap))} ${
             gap > 0 ? "over" : "under"
           } on ${humanize(num.name)} against ${humanize(den.name)}`,
           columns: [catCol.name, num.name, den.name],
@@ -1357,6 +1357,23 @@ function detectCalendarGaps(ctx: Ctx): Finding[] {
 }
 
 /* ───────────────────────── utilities ────────────────────────── */
+
+/**
+ * Name one level of a segment readably.
+ *
+ * A category's level speaks for itself — "Gulf Materials" is a name.
+ * A boolean's is "true", which on its own reads as nonsense at the
+ * front of a sentence: "true runs 22% below everything else". The
+ * column has to come with it.
+ */
+function levelPhrase(col: ColumnProfile, level: string): string {
+  if (col.kind !== "boolean") return level;
+  const yes = /^(true|yes|y|t|1)$/i.test(level.trim());
+  // `On time = true` rather than a sentence fragment: the headline
+  // template continues with a singular verb, and "Rows where on time
+  // is true runs 22% below" does not agree with itself.
+  return `${cap(humanize(col.name))} = ${yes ? "true" : "false"}`;
+}
 
 /**
  * Name a set of segments the way a person would say it out loud.
