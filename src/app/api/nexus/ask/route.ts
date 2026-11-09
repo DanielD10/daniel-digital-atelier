@@ -29,6 +29,7 @@ Shapes:
 {"op":"series","dateColumn":DATE_COL,"metric":COL?,"stat":"median"|"count"|"sum","filter":[F]}
 {"op":"compare","metric":COL,"groupBy":COL,"stat":STAT?,"filter":[F]}
 {"op":"describe","column":COL}
+{"op":"periods","dateColumn":DATE_COL,"metric":COL?,"stat":STAT?,"groupBy":COL?,"a":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"b":{"from":"YYYY-MM-DD","to":"YYYY-MM-DD"},"filter":[F]}
 
 F is {"column":COL,"op":"eq"|"neq"|"gt"|"lt"|"gte"|"lte"|"contains","value":STRING_OR_NUMBER}
 
@@ -37,6 +38,9 @@ Rules:
 - Prefer "median" over "mean" for money and durations; outliers move a mean.
 - "rate" is only for boolean columns. "how many X are Y" over a boolean is a rate.
 - "over time", "by month", "trend" → series.
+- "this month vs last", "Q1 vs Q2", "before and after X", "year over year" → periods. "a" is the EARLIER window, "b" the later one.
+- Resolve relative dates ("last 30 days", "this quarter", "since June") against TODAY, given below, and emit absolute YYYY-MM-DD. Never emit a relative phrase.
+- Filters on a date column use gt/gte/lt/lte with a YYYY-MM-DD value.
 - A question naming no column that exists → {"op":"error","why":"<one short sentence>"}.`;
 
 interface AskBody {
@@ -107,10 +111,16 @@ export async function POST(req: Request) {
   // Re-profile to recover the typed date map the executor needs.
   const profile = profileTable(resolved.table);
 
+  /*
+   * Date columns carry their span. Without it the planner resolves
+   * "last quarter" against today and silently returns an empty window
+   * for a file whose data stopped in March.
+   */
   const schema = profile.columns.map((c) => ({
     name: c.name,
     type: c.kind,
     ...(c.categorical ? { levels: c.categorical.top.slice(0, 8).map((t) => t.value) } : {}),
+    ...(c.temporal ? { from: c.temporal.min, to: c.temporal.max } : {}),
   }));
 
   let plan: Plan;
@@ -129,7 +139,10 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "user",
-            content: `Schema:\n${JSON.stringify(schema)}\n\nQuestion: ${question}`,
+            content:
+              `Today: ${new Date().toISOString().slice(0, 10)}\n` +
+              `Schema:\n${JSON.stringify(schema)}\n\n` +
+              `Question: ${question}`,
           },
         ],
       }),

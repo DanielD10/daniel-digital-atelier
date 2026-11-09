@@ -30,12 +30,28 @@ export interface Filter {
 
 export type Stat = "mean" | "median" | "sum" | "count" | "min" | "max" | "p90";
 
+/** A window over a date column, as ISO dates. */
+export interface Window {
+  from?: string;
+  to?: string;
+}
+
 export type Plan =
   | { op: "aggregate"; metric: string; stat: Stat; groupBy?: string; filter?: Filter[]; limit?: number }
   | { op: "rate"; flag: string; groupBy?: string; filter?: Filter[] }
   | { op: "series"; metric?: string; dateColumn: string; stat: "median" | "count" | "sum"; filter?: Filter[] }
   | { op: "compare"; metric: string; groupBy: string; stat?: Stat; filter?: Filter[] }
-  | { op: "describe"; column: string };
+  | { op: "describe"; column: string }
+  | {
+      op: "periods";
+      dateColumn: string;
+      metric?: string;
+      stat?: Stat;
+      groupBy?: string;
+      a: Window;
+      b: Window;
+      filter?: Filter[];
+    };
 
 export interface QueryResult {
   /** Human-readable statement of what was computed. Assembled here, never by a model. */
@@ -68,10 +84,39 @@ function column(columns: ColumnProfile[], name: unknown, what: string): ColumnPr
   );
 }
 
-function passes(table: Table, columns: ColumnProfile[], filters: Filter[], r: number): boolean {
+function passes(
+  table: Table,
+  columns: ColumnProfile[],
+  filters: Filter[],
+  r: number,
+  dateValues?: Map<number, Float64Array>,
+): boolean {
   for (const f of filters) {
     const col = column(columns, f.column, "filter");
     const raw = (table.rows[r][col.index] ?? "").trim();
+
+    /*
+     * Comparisons on a date column go through timestamps, not strings.
+     * "after 2025-06-01" as a string compare happens to work for ISO
+     * and silently fails for every other format the parser accepts,
+     * which is most of them.
+     */
+    if (col.kind === "date" && dateValues) {
+      const typed = dateValues.get(col.index);
+      const t = typed ? typed[r] : NaN;
+      const want = Date.parse(String(f.value));
+      if (Number.isNaN(t) || Number.isNaN(want)) return false;
+      switch (f.op) {
+        case "gt": if (!(t > want)) return false; continue;
+        case "gte": if (!(t >= want)) return false; continue;
+        case "lt": if (!(t < want)) return false; continue;
+        case "lte": if (!(t <= want)) return false; continue;
+        case "eq": if (new Date(t).toISOString().slice(0, 10) !== String(f.value).slice(0, 10)) return false; continue;
+        case "neq": if (new Date(t).toISOString().slice(0, 10) === String(f.value).slice(0, 10)) return false; continue;
+        default: break;
+      }
+    }
+
     const wantNum = typeof f.value === "number" ? f.value : parseNumber(String(f.value));
     const gotNum = parseNumber(raw);
 
@@ -133,7 +178,7 @@ export function runPlan(
   dateValues: Map<number, Float64Array>,
 ): QueryResult {
   const filters = Array.isArray(plan.op === "describe" ? [] : plan.filter) ? (plan as { filter?: Filter[] }).filter ?? [] : [];
-  const where = (r: number) => passes(table, columns, filters, r);
+  const where = (r: number) => passes(table, columns, filters, r, dateValues);
   const filterNote = filters.length
     ? ` where ${filters.map((f) => `${f.column} ${f.op} ${f.value}`).join(" and ")}`
     : "";
@@ -291,6 +336,75 @@ export function runPlan(
       };
     }
 
+    case "periods": {
+      /*
+       * "This quarter versus last" is the single most common question
+       * asked of any dashboard, and it was not expressible here at
+       * all — the closest the planner could get was two separate
+       * queries the reader had to subtract in their head.
+       */
+      const dateCol = column(columns, plan.dateColumn, "date");
+      const typed = dateValues.get(dateCol.index);
+      if (!typed) throw new PlanError(`${dateCol.name} isn't a date column.`);
+      const metric = plan.metric ? column(columns, plan.metric, "metric") : null;
+      const stat: Stat = plan.stat ?? (metric ? "median" : "count");
+      const group = plan.groupBy ? column(columns, plan.groupBy, "group") : null;
+
+      const bound = (w: Window) => ({
+        from: w.from ? Date.parse(w.from) : -Infinity,
+        to: w.to ? Date.parse(w.to) + 86_399_999 : Infinity,
+      });
+      const A = bound(plan.a);
+      const B = bound(plan.b);
+
+      const acc = new Map<string, { a: number[]; b: number[] }>();
+      const refs: number[] = [];
+      for (let r = 0; r < table.rows.length; r++) {
+        if (!where(r)) continue;
+        const t = typed[r];
+        if (Number.isNaN(t)) continue;
+        const inA = t >= A.from && t <= A.to;
+        const inB = t >= B.from && t <= B.to;
+        if (!inA && !inB) continue;
+
+        const key = group ? (table.rows[r][group.index] ?? "").trim() || "(blank)" : "all rows";
+        let bucket = acc.get(key);
+        if (!bucket) {
+          bucket = { a: [], b: [] };
+          acc.set(key, bucket);
+        }
+        const v = metric ? parseNumber(table.rows[r][metric.index] ?? "") : 1;
+        if (v === null) continue;
+        (inA ? bucket.a : bucket.b).push(v);
+        if (refs.length < 200) refs.push(r);
+      }
+      if (acc.size === 0) throw new PlanError("Neither period contains any rows.");
+
+      const rows = [...acc.entries()]
+        .map(([k, v]) => {
+          const av = reduce(v.a, stat);
+          const bv = reduce(v.b, stat);
+          const delta = av === 0 ? 0 : ((bv - av) / Math.abs(av)) * 100;
+          return [k, round(av), round(bv), Math.round(delta * 10) / 10] as Array<string | number>;
+        })
+        .sort((x, y) => Math.abs(Number(y[3])) - Math.abs(Number(x[3])))
+        .slice(0, 30);
+
+      const label = metric ? `${stat} of ${metric.name}` : "row count";
+      return {
+        statement:
+          `${label}, ${plan.a.from ?? "start"}–${plan.a.to ?? "end"} vs ` +
+          `${plan.b.from ?? "start"}–${plan.b.to ?? "end"}${filterNote}`,
+        columns: [group ? group.name : "scope", "period A", "period B", "change %"],
+        rows,
+        rowRefs: refs,
+        chart: {
+          labels: rows.map((r) => String(r[0])),
+          values: rows.map((r) => Number(r[3])),
+        },
+      };
+    }
+
     case "compare": {
       const col = column(columns, plan.metric, "metric");
       const group = column(columns, plan.groupBy, "group");
@@ -310,7 +424,10 @@ export function validatePlan(raw: unknown): Plan {
   if (!raw || typeof raw !== "object") throw new PlanError("The planner returned nothing usable.");
   const p = raw as Record<string, unknown>;
   const op = p.op;
-  if (op === "aggregate" || op === "rate" || op === "series" || op === "compare" || op === "describe") {
+  if (
+    op === "aggregate" || op === "rate" || op === "series" ||
+    op === "compare" || op === "describe" || op === "periods"
+  ) {
     return p as unknown as Plan;
   }
   throw new PlanError("That question doesn't map onto anything this panel can compute.");
