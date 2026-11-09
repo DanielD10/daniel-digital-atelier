@@ -924,3 +924,33 @@
   flex: none; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--nex-cool); padding: 3px 7px; border: 1px solid var(--nex-line-2); border-radius: 2px;
 }
+
+/* ───────────── digest subscription ───────────── */
+
+.nex-watch {
+  border: 1px solid var(--nex-line-2);
+  border-left: 2px solid var(--nex-signal);
+  border-radius: var(--nex-r);
+  background: var(--nex-ink);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nex-watch p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--nex-dim); }
+.nex-watch strong { color: var(--nex-text); font-weight: 500; }
+.nex-watch input {
+  font: inherit; font-size: 14px; padding: 10px 12px; width: 100%;
+  border-radius: 2px; border: 1px solid var(--nex-line);
+  background: var(--nex-void); color: var(--nex-text);
+}
+.nex-watch input:focus { outline: none; border-color: var(--nex-signal); }
+.nex-watch-cadence { display: flex; gap: 6px; }
+.nex-watch-cadence button {
+  flex: 1; font: inherit; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 8px; border-radius: 2px; cursor: pointer;
+  border: 1px solid var(--nex-line); background: none; color: var(--nex-faint);
+}
+.nex-watch-cadence button.is-on { border-color: var(--nex-signal); color: var(--nex-signal); }
+.nex-watch.is-done { border-left-color: var(--nex-cool); }
+.nex-watch .nex-btn--wide { padding: 11px; }

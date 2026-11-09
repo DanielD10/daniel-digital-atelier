@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/nexus/digest",
+      "schedule": "23 13 * * *"
+    }
+  ]
+}

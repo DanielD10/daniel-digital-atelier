@@ -314,6 +314,153 @@ export async function recordRun(args: {
   }
 }
 
+/* ───────────────────── digest watches ───────────────────── */
+
+export interface Watch {
+  id: string;
+  email: string;
+  dataset: string;
+  cadence: string;
+  nextDue: string;
+}
+
+export async function addWatch(args: {
+  email: string;
+  dataset: string;
+  cadence: "weekly" | "monthly";
+}): Promise<boolean> {
+  const c = creds();
+  if (!c) return false;
+  const session = await getSession();
+  // One watch per file: re-subscribing replaces rather than stacks, so
+  // nobody ends up getting the same digest three times.
+  await removeWatch(args.dataset);
+  const due = new Date();
+  due.setDate(due.getDate() + (args.cadence === "weekly" ? 7 : 30));
+  try {
+    const res = await fetch(`${c.url}/rest/v1/nexus_watches`, {
+      method: "POST",
+      headers: headers(c.key, session, { Prefer: "return=minimal" }),
+      body: JSON.stringify({
+        id: crypto.randomUUID(),
+        session_id: session,
+        email: args.email,
+        dataset_name: args.dataset,
+        cadence: args.cadence,
+        next_due_at: due.toISOString(),
+      }),
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function removeWatch(dataset: string): Promise<boolean> {
+  const c = creds();
+  const session = await peekSession();
+  if (!c || !session || !dataset) return false;
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/nexus_watches?dataset_name=eq.${encodeURIComponent(dataset)}`,
+      { method: "DELETE", headers: headers(c.key, session, { Prefer: "return=minimal" }), cache: "no-store" },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function listWatches(): Promise<Watch[]> {
+  const c = creds();
+  const session = await peekSession();
+  if (!c || !session) return [];
+  try {
+    const res = await fetch(
+      `${c.url}/rest/v1/nexus_watches?select=id,email,dataset_name,cadence,next_due_at&active=is.true`,
+      { headers: headers(c.key, session), cache: "no-store" },
+    );
+    if (!res.ok) return [];
+    const rows = (await res.json()) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: String(r.id),
+      email: String(r.email),
+      dataset: String(r.dataset_name),
+      cadence: String(r.cadence),
+      nextDue: String(r.next_due_at),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+/** Due digests, for the cron sender. Proven with the shared secret. */
+export async function dueDigests(secret: string): Promise<Array<{
+  watchId: string;
+  email: string;
+  datasetName: string;
+  cadence: string;
+  findings: DatasetRecord["findings"];
+  quality: DatasetRecord["quality"];
+  rowCount: number;
+  runAt: string | null;
+  lastSentAt: string | null;
+}>> {
+  const c = creds();
+  if (!c) return [];
+  try {
+    const res = await fetch(`${c.url}/rest/v1/rpc/nexus_due_digests`, {
+      method: "POST",
+      headers: {
+        apikey: c.key,
+        Authorization: `Bearer ${c.key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_secret: secret, p_limit: 50 }),
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.error("[nexus] due digests refused", res.status);
+      return [];
+    }
+    const rows = (await res.json()) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      watchId: String(r.watch_id),
+      email: String(r.email),
+      datasetName: String(r.dataset_name),
+      cadence: String(r.cadence),
+      findings: (r.findings ?? []) as DatasetRecord["findings"],
+      quality: (r.quality ?? []) as DatasetRecord["quality"],
+      rowCount: Number(r.row_count ?? 0),
+      runAt: (r.run_at as string | null) ?? null,
+      lastSentAt: (r.last_sent_at as string | null) ?? null,
+    }));
+  } catch (err) {
+    console.error("[nexus] due digests threw", err);
+    return [];
+  }
+}
+
+export async function markSent(secret: string, watchId: string): Promise<void> {
+  const c = creds();
+  if (!c) return;
+  try {
+    await fetch(`${c.url}/rest/v1/rpc/nexus_mark_sent`, {
+      method: "POST",
+      headers: {
+        apikey: c.key,
+        Authorization: `Bearer ${c.key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_secret: secret, p_watch: watchId }),
+      cache: "no-store",
+    });
+  } catch {
+    /* The next run will try again. */
+  }
+}
+
 export interface StoredDataset extends DatasetRecord {
   csv: string;
 }

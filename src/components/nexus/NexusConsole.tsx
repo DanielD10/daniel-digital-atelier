@@ -5,6 +5,7 @@ import FindingCard, { type AuditRows } from "./FindingCard";
 import { ColumnRail, QualityStrip } from "./Panels";
 import { Bars, Series } from "./Charts";
 import SinceLast from "./SinceLast";
+import WatchForm from "./WatchForm";
 import { Beyond, UnlockPanel } from "./Unlock";
 import type { FindingChange, RunDiff } from "@/lib/nexus/diff";
 import { parseCsv } from "@/lib/nexus/csv";
@@ -537,6 +538,8 @@ export default function NexusConsole({
         </main>
 
         <aside className="nex-aside">
+          {data.id !== "demo" && <WatchForm dataset={data.name} />}
+
           <section className="nex-care">
             <h2 className="nex-rail-title">{DUE_DILIGENCE.heading}</h2>
             <p>{DUE_DILIGENCE.body}</p>
