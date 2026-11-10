@@ -925,6 +925,128 @@
   color: var(--nex-cool); padding: 3px 7px; border: 1px solid var(--nex-line-2); border-radius: 2px;
 }
 
+/* ───────────── reading the chart, and taking it somewhere ───────────── */
+
+/*
+  Three labelled lines under the chart. A definition list because that
+  is what it is — a term and its explanation — and because the labels
+  then line up down the left, so the eye can go straight to "watch out"
+  without reading the other two.
+*/
+.nex-read {
+  margin: 10px 0 0;
+  display: grid;
+  gap: 7px;
+}
+.nex-read > div {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  gap: 12px;
+  align-items: baseline;
+}
+.nex-read dt {
+  margin: 0;
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--nex-faint);
+  white-space: nowrap;
+}
+.nex-read dd {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--nex-dim);
+}
+
+.nex-pitch {
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--nex-line);
+  border-left: 2px solid var(--nex-signal);
+  border-radius: var(--nex-r);
+  background: var(--nex-raise);
+}
+.nex-pitch-title {
+  margin: 0 0 9px;
+  font-size: 9.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--nex-signal);
+  font-weight: 500;
+}
+/* The sentence is set apart because it is meant to be read aloud. */
+.nex-pitch-say {
+  margin: 0 0 13px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--nex-text);
+  text-wrap: pretty;
+}
+.nex-pitch-lead {
+  margin: 0 0 6px;
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--nex-faint);
+}
+/*
+  The numbers have to be set explicitly: a global reset reaches these
+  with list-style:none, so the actions rendered as an indented block
+  with no numerals at all — and they are ordered on purpose, most
+  useful first. Block rather than grid, because a grid container
+  blockifies its children on some engines and takes the markers with
+  it.
+*/
+.nex-pitch-do {
+  margin: 0 0 13px;
+  padding-left: 1.35em;
+  list-style: decimal outside;
+}
+.nex-pitch-do li {
+  margin-bottom: 5px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--nex-dim);
+}
+.nex-pitch-do li:last-child { margin-bottom: 0; }
+.nex-pitch-do li::marker {
+  color: var(--nex-signal);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  The caution reads at the same weight as everything else here. Setting
+  it in the faint grey the rest of the small print uses measured 6.2:1,
+  the only text on the card below AAA — the one line whose whole job is
+  to stop someone overclaiming, rendered as the easiest thing to skip.
+*/
+.nex-pitch-sure {
+  margin: 0;
+  padding-top: 11px;
+  border-top: 1px solid var(--nex-line);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #b9cfc5;
+}
+.nex-pitch-sure span {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--nex-faint);
+}
+
+@media (max-width: 640px) {
+  /* Stack the term over its line; 76px of label beside 12px text is a
+     column of two-word wraps on a phone. */
+  .nex-read > div { grid-template-columns: 1fr; gap: 2px; }
+  .nex-pitch { padding: 13px 14px; }
+  .nex-pitch-say { font-size: 14px; }
+}
+
 /* ───────────── live table connection ───────────── */
 
 .nex-tag--live { color: var(--nex-cool); border-color: rgba(88, 189, 234, 0.35); }

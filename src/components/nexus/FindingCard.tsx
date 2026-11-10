@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { Bars, Diverging, Impact, Scatter, Series } from "./Charts";
 import {
+  briefing,
   chartCaption,
   EVIDENCE_PLAIN,
+  howToRead,
   humanize,
   KIND_LABEL,
   plainMeaning,
@@ -110,6 +112,8 @@ export default function FindingCard({
 
   const meaning = plainMeaning(finding);
   const caption = chartCaption(finding);
+  const guide = howToRead(finding);
+  const brief = briefing(finding);
 
   const isDiverging =
     finding.kind === "paradox" ||
@@ -185,7 +189,49 @@ export default function FindingCard({
         </div>
       )}
 
-      {caption && <p className="nex-find-caption">{caption}</p>}
+      {/* The old one-liner only stands in where there is no fuller guide;
+          side by side they said the same thing twice. */}
+      {caption && !guide && <p className="nex-find-caption">{caption}</p>}
+
+      {/*
+        How to read the chart, inline rather than behind a toggle.
+        Someone who already reads charts skips three short lines without
+        effort; someone who does not would never have opened a panel
+        labelled "how to read this", because opening it is admitting
+        they cannot. The cost of showing it is far lower than the cost
+        of hiding it from the person who needs it.
+      */}
+      {guide && (
+        <dl className="nex-read">
+          <div>
+            <dt>Looking at</dt>
+            <dd>{guide.looking}</dd>
+          </div>
+          <div>
+            <dt>Read it</dt>
+            <dd>{guide.read}</dd>
+          </div>
+          <div>
+            <dt>Watch out</dt>
+            <dd>{guide.mislead}</dd>
+          </div>
+        </dl>
+      )}
+
+      <section className="nex-pitch">
+        <h4 className="nex-pitch-title">Taking this to someone</h4>
+        <p className="nex-pitch-say">&ldquo;{brief.say}&rdquo;</p>
+        <p className="nex-pitch-lead">What to do next</p>
+        <ol className="nex-pitch-do">
+          {brief.doNext.map((d: string) => (
+            <li key={d}>{d}</li>
+          ))}
+        </ol>
+        <p className="nex-pitch-sure">
+          <span>How far this goes</span>
+          {brief.certainty}
+        </p>
+      </section>
 
       <button
         type="button"
