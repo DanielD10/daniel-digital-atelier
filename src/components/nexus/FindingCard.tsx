@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Bars, Diverging, Impact, Scatter, Series } from "./Charts";
 import {
   briefing,
@@ -75,6 +75,44 @@ const CHANGE_WORD: Record<FindingChange["kind"], string> = {
   resolved: "Gone",
 };
 
+/*
+ * One preference, shared by every card on the page.
+ *
+ * Collapsing the guide on one card and finding the next sixteen still
+ * open would be worse than not having the control. The choice is
+ * remembered, so someone who does not need the guidance turns it off
+ * once; it defaults to showing, because the person who needs it is the
+ * one least likely to go looking for a switch.
+ */
+const GUIDE_KEY = "nexus:chart-guide";
+const guideListeners = new Set<(v: boolean) => void>();
+
+function setGuideOpen(v: boolean) {
+  try {
+    localStorage.setItem(GUIDE_KEY, v ? "1" : "0");
+  } catch {
+    /* Private mode and blocked site data both throw; the page still works. */
+  }
+  for (const fn of guideListeners) fn(v);
+}
+
+function useGuideOpen(): [boolean, (v: boolean) => void] {
+  // Starts true so the server and the first client paint agree.
+  const [open, setLocal] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(GUIDE_KEY) === "0") setLocal(false);
+    } catch {
+      /* no stored preference available */
+    }
+    guideListeners.add(setLocal);
+    return () => {
+      guideListeners.delete(setLocal);
+    };
+  }, []);
+  return [open, setGuideOpen];
+}
+
 export default function FindingCard({
   finding,
   rank,
@@ -113,6 +151,7 @@ export default function FindingCard({
   const meaning = plainMeaning(finding);
   const caption = chartCaption(finding);
   const guide = howToRead(finding);
+  const [guideOpen, setGuide] = useGuideOpen();
   const brief = briefing(finding);
 
   const isDiverging =
@@ -202,20 +241,38 @@ export default function FindingCard({
         of hiding it from the person who needs it.
       */}
       {guide && (
-        <dl className="nex-read">
-          <div>
-            <dt>Looking at</dt>
-            <dd>{guide.looking}</dd>
-          </div>
-          <div>
-            <dt>Read it</dt>
-            <dd>{guide.read}</dd>
-          </div>
-          <div>
-            <dt>Watch out</dt>
-            <dd>{guide.mislead}</dd>
-          </div>
-        </dl>
+        <div className="nex-read">
+          {/*
+            What the marks on the page are stays visible and is itself
+            the control. Collapsing hides the advice, never the
+            orientation — a card whose chart is unexplained is the
+            problem this was built to fix, so that line does not go
+            behind a toggle at any setting.
+          */}
+          <button
+            type="button"
+            className="nex-read-head"
+            aria-expanded={guideOpen}
+            onClick={() => setGuide(!guideOpen)}
+          >
+            <span className="nex-read-mark" aria-hidden="true">{guideOpen ? "−" : "+"}</span>
+            <span className="nex-read-looking">{guide.looking}</span>
+            <span className="nex-read-more">{guideOpen ? "less" : "how to read it"}</span>
+          </button>
+
+          {guideOpen && (
+            <dl className="nex-read-body">
+              <div>
+                <dt>Read it</dt>
+                <dd>{guide.read}</dd>
+              </div>
+              <div>
+                <dt>Watch out</dt>
+                <dd>{guide.mislead}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
       )}
 
       <section className="nex-pitch">

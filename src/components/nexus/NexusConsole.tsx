@@ -223,7 +223,10 @@ export default function NexusConsole({
       });
       const json = await res.json();
       if (!res.ok) {
-        if (json.error === "locked") setLock(json.reason);
+        // A named visitor asking to connect a warehouse is the most
+        // qualified this page gets, so the refusal is the pitch.
+        if (json.error === "upgrade") setCeiling({ note: json.reason });
+        else if (json.error === "locked") setLock(json.reason);
         else setError(json.error ?? "Couldn't connect.");
         return;
       }
@@ -258,7 +261,8 @@ export default function NexusConsole({
         });
         const json = await res.json();
         if (!res.ok) {
-          if (json.error === "locked") setLock(json.reason);
+          if (json.error === "upgrade") setCeiling({ note: json.reason });
+          else if (json.error === "locked") setLock(json.reason);
           else setError(json.error ?? "That table didn't analyse.");
           return;
         }
@@ -500,6 +504,7 @@ export default function NexusConsole({
             aria-expanded={connOpen}
           >
             {connOpen ? "Close" : "Connect a database"}
+            {!connOpen && <span className="nex-btn-tag">Pro</span>}
           </button>
           {data.id !== "demo" && (
             <button type="button" className="nex-btn nex-btn--ghost" onClick={() => void loadDemo()}>
@@ -517,6 +522,13 @@ export default function NexusConsole({
             This path has no such ceiling: the detectors run as SQL, your database does the
             aggregation, and only the results travel. A hundred-million-row table is a normal
             afternoon.
+          </p>
+          {/* Said before the field, not after they have pasted a
+              credential and pressed the button. */}
+          <p className="nex-conn-note">
+            <strong>This one is paid.</strong> Uploads are free and stay free; running against a live
+            table is set up per client, with a read-only user and a quote. You can read the schema
+            below to see what it would find.
           </p>
           <p className="nex-conn-note">
             Use a <strong>read-only</strong> login. The session is forced read-only and given a

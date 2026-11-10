@@ -43,10 +43,18 @@ export async function POST(req: Request) {
   }
 
   /*
-   * Identification required, and this is the right feature to ask for
-   * it on. Someone connecting a live database is a serious prospect
-   * rather than a passer-by, and opening outbound connections on an
-   * anonymous visitor's say-so is not a thing to offer the open web.
+   * This is the paid tier, and it is the one feature where that is not
+   * arbitrary. Everything else here costs a round trip; this opens an
+   * outbound connection to someone else's database and runs a few
+   * dozen aggregate queries against it, under a 60-second budget. It
+   * is also the capability worth the most to the person using it,
+   * which is exactly the wrong thing to give away for an email
+   * address.
+   *
+   * An unnamed visitor is asked who they are. A named one who has not
+   * bought anything gets the pitch rather than a wall: they have just
+   * demonstrated they have a warehouse and want this pointed at it,
+   * which is the most qualified a lead on this page ever gets.
    */
   const session = await peekSession();
   const access = session ? await getAccess(session) : null;
@@ -56,6 +64,16 @@ export async function POST(req: Request) {
         error: "locked",
         reason:
           "Connecting a live database is for named users — it opens an outbound connection from this server, so I'd like to know who's asking. Tell me who you are and it unlocks.",
+      },
+      { status: 402 },
+    );
+  }
+  if (access.tier !== "pro") {
+    return NextResponse.json(
+      {
+        error: "upgrade",
+        reason:
+          "Uploads are free and always will be. Pointing the engine at a live table is the paid tier — it runs against your own database instead of a file, with no row ceiling, and it is set up per client with a read-only user. Tell me about your data and I'll quote it.",
       },
       { status: 402 },
     );
