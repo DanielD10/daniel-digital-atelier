@@ -591,10 +591,24 @@ body[data-racing] .mast {
     url("/images/projects/luxe-art.webp") 55% 45% / cover no-repeat,
     #080706;
 }
+/*
+  NEXUS's card carries NEXUS's palette.
+
+  These are the case study's own tokens, not an approximation of them:
+  --nex-raise, --nex-panel and --nex-void for the base, --nex-signal for
+  the glow. The card used to be a cool blue-grey, so clicking into a
+  deep-green instrument panel read as arriving somewhere else. The
+  values are duplicated rather than imported because nexus.css scopes
+  them under .nex, which the home page never mounts — if those tokens
+  change, change them here too.
+*/
 .art-nexus {
   background:
-    radial-gradient(55% 55% at 72% 45%, rgba(120, 165, 190, 0.34), transparent 66%),
-    linear-gradient(150deg, #0d1418 0%, #0a0d10 60%, #060708 100%);
+    /* The instrument glow, and a wider soft bloom under it so the
+       green reads as lit depth rather than one bright spot. */
+    radial-gradient(42% 42% at 70% 38%, rgba(56, 224, 155, 0.3), transparent 66%),
+    radial-gradient(80% 74% at 62% 46%, rgba(34, 156, 109, 0.26), transparent 74%),
+    linear-gradient(150deg, #11442f 0%, #0b2c20 54%, #04150e 100%);
 }
 .art-altura {
   background:
@@ -761,11 +775,45 @@ body[data-racing] .mast {
   will-change: transform;
 }
 
+/*
+  The scrim that makes the body text readable over the art.
+
+  Its colour is a variable because it was neutralising the one card
+  that is supposed to have a colour. The body is bottom-aligned, so the
+  scrim sits at 95% exactly where the name, kind, summary and link are
+  — measured, the NEXUS card rendered rgb(12,42,31) in its middle and
+  rgb(6,7,7) behind its text: the half of the panel the eye actually
+  lands on had no green left in it. A warm near-black scrim over a
+  green card is a card that reads grey.
+
+  Each panel can now tint its own scrim. The alphas do not change, so
+  text contrast is unchanged; only the hue of what the text sits on.
+*/
+.case-panel { --scrim: 5, 4, 4; }
+.case-panel.nexus { --scrim: 3, 16, 11; } /* --nex-void, the case study's own ground */
+
+/*
+  The small caps go with it. The warm grey these inherit is the site's
+  default, and on green it reads as a leftover from another card — and
+  tinting the scrim cost the faintest of them 0.4 of its contrast
+  ratio. --nex-dim is both on-palette and brighter, so this is the
+  NEXUS text colour and it puts the contrast back above where it was.
+*/
+.case-panel.nexus .case-tags,
+.case-panel.nexus .case-idx {
+  color: #8bb2a0; /* --nex-dim */
+}
+
 .case-panel::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(0deg, rgba(5, 4, 4, 0.95) 10%, rgba(5, 4, 4, 0.4) 55%, rgba(5, 4, 4, 0.1) 100%);
+  background: linear-gradient(
+    0deg,
+    rgba(var(--scrim), 0.95) 10%,
+    rgba(var(--scrim), 0.4) 55%,
+    rgba(var(--scrim), 0.1) 100%
+  );
 }
 
 .case-body { position: relative; z-index: 2; padding: clamp(32px, 5vw, 64px); max-width: 48ch; }
