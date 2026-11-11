@@ -100,7 +100,18 @@ export function parseCsv(input: string, maxRows: number = LIMITS.maxRows): Parse
       pushField();
     } else if (ch === "\n") {
       pushRecord();
+      /*
+       * One row past the cap is read deliberately: it is how we learn
+       * the file had more in it without scanning the rest. That row is
+       * then dropped, so maxRows means at most maxRows — it was being
+       * kept, which put every tier one row over its own ceiling.
+       *
+       * Reading the extra row is also what keeps `truncated` honest. A
+       * file holding exactly maxRows rows never reaches this branch,
+       * so it is never reported as cut short.
+       */
       if (records.length > maxRows + 1) {
+        records.pop();
         truncated = true;
         break;
       }

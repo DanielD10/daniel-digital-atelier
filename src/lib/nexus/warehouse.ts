@@ -100,7 +100,7 @@ export function scrub(text: string): string {
  * `"; drop table x; --`. Doubling internal quotes and wrapping is the
  * only correct way to put a name into SQL, and it costs nothing.
  */
-function ident(name: string): string {
+export function ident(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
 

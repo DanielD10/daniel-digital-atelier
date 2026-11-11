@@ -297,6 +297,37 @@ function bucketKey(t: number, grain: "day" | "week" | "month"): string {
  * were more orders", and those call for completely different responses.
  * Row volume is tracked separately as its own counting series.
  */
+/** The last millisecond covered by the bucket a key names. */
+function bucketEnd(key: string, grain: "day" | "week" | "month"): number {
+  if (grain === "month") {
+    const [y, m] = key.split("-").map(Number);
+    return Date.UTC(y, m, 1) - 1; // start of next month, minus a tick
+  }
+  const start = Date.parse(`${key}T00:00:00Z`);
+  return start + (grain === "week" ? 7 : 1) * 86400000 - 1;
+}
+
+function trimPartial(
+  labels: string[],
+  groups: Map<string, { lo: number; hi: number }>,
+  grain: "day" | "week" | "month",
+): string[] {
+  if (labels.length < 4) return labels;
+  let from = 0;
+  let to = labels.length;
+
+  const first = groups.get(labels[0]);
+  const firstStart =
+    grain === "month" ? Date.parse(`${labels[0]}-01T00:00:00Z`) : Date.parse(`${labels[0]}T00:00:00Z`);
+  if (first && first.lo > firstStart) from = 1;
+
+  const last = groups.get(labels[to - 1]);
+  if (last && last.hi < bucketEnd(labels[to - 1], grain)) to -= 1;
+
+  // Never trim away so much that there is nothing left to read.
+  return to - from < 4 ? labels : labels.slice(from, to);
+}
+
 function buildSeriesUncached(
   ctx: Ctx,
   dateCol: ColumnProfile,
@@ -309,7 +340,7 @@ function buildSeriesUncached(
   if (numCol && !nums) return null;
 
   const { grain } = chooseGrain(dateCol.temporal.spanDays);
-  const groups = new Map<string, { values: number[]; n: number; rows: number[] }>();
+  const groups = new Map<string, { values: number[]; n: number; rows: number[]; lo: number; hi: number }>();
 
   for (let r = 0; r < ctx.table.rows.length; r++) {
     if (rowFilter && !rowFilter(r)) continue;
@@ -326,13 +357,32 @@ function buildSeriesUncached(
     if (g) {
       if (nums) g.values.push(v);
       g.n++;
+      if (t < g.lo) g.lo = t;
+      if (t > g.hi) g.hi = t;
       if (g.rows.length < 64) g.rows.push(r);
     } else {
-      groups.set(key, { values: nums ? [v] : [], n: 1, rows: [r] });
+      groups.set(key, { values: nums ? [v] : [], n: 1, rows: [r], lo: t, hi: t });
     }
   }
 
-  const labels = [...groups.keys()].sort();
+  const all = [...groups.keys()].sort();
+  /*
+   * Drop a period the data does not fill at both ends.
+   *
+   * Real data almost never starts or stops on a week or month
+   * boundary, so the first and last buckets usually hold part of a
+   * period. Left in, one short week is enough to manufacture "row
+   * volume fell 20% and stayed there" out of perfectly uniform
+   * volume — it drags the mean of the last few buckets and the change
+   * point detector lands on it. The warehouse path had this guard and
+   * this one did not, which is how it stayed live here.
+   *
+   * The test is the calendar, not a ratio: a bucket is partial when
+   * the rows in it do not reach its edges. That is exact, where "is
+   * this bucket much smaller than its neighbours" is a guess that
+   * passes a five-of-seven-day week at 73% of normal.
+   */
+  const labels = trimPartial(all, groups, grain);
   if (labels.length < 6) return null;
   return {
     labels,
