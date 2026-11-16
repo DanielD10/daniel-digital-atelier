@@ -260,8 +260,14 @@ export default function FindingCard({
             <span className="nex-read-more">{guideOpen ? "less" : "how to read it"}</span>
           </button>
 
-          {guideOpen && (
-            <dl className="nex-read-body">
+          {/*
+            Rendered whether or not it is open, and hidden with CSS.
+            Conditional rendering kept it out of the DOM entirely, which
+            meant a printed report silently lost every chart
+            explanation — the pages most likely to be handed to someone
+            who was not in the room.
+          */}
+          <dl className={guideOpen ? "nex-read-body" : "nex-read-body nex-folded"}>
               <div>
                 <dt>Read it</dt>
                 <dd>{guide.read}</dd>
@@ -270,8 +276,7 @@ export default function FindingCard({
                 <dt>Watch out</dt>
                 <dd>{guide.mislead}</dd>
               </div>
-            </dl>
-          )}
+          </dl>
         </div>
       )}
 
@@ -300,8 +305,9 @@ export default function FindingCard({
         {open ? "Hide the work" : "Show the work"}
       </button>
 
-      {open && (
-        <div className="nex-work">
+      {/* Same reason: the evidence belongs in a printed report even
+          when the reader never expanded it on screen. */}
+      <div className={open ? "nex-work" : "nex-work nex-folded"}>
           <dl className="nex-work-grid">
             {figures.map(([k, v]) => (
               <div key={k} className="nex-work-cell">
@@ -380,8 +386,7 @@ export default function FindingCard({
               )}
             </div>
           )}
-        </div>
-      )}
+      </div>
     </article>
   );
 }

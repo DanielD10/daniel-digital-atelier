@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import FindingCard, { type AuditRows } from "./FindingCard";
+import { exportFilename, findingsCsv } from "@/lib/nexus/export";
 import { ColumnRail, QualityStrip } from "./Panels";
 import { Bars, Series } from "./Charts";
 import SinceLast from "./SinceLast";
@@ -209,6 +210,27 @@ export default function NexusConsole({
    * staring at an error about a table that does exist, just not under
    * the name they guessed.
    */
+  /*
+   * Hand the findings over.
+   *
+   * The CSV is built in the browser from the analysis already on the
+   * page — no round trip, nothing to go wrong server-side, and it
+   * works on a dataset that was never stored.
+   */
+  const downloadCsv = useCallback(() => {
+    const csv = findingsCsv(data.analysis, data.name);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = exportFilename(data.name, "csv");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoking immediately can cancel the download in some browsers.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }, [data.analysis, data.name]);
+
   const connect = useCallback(async () => {
     const conn = connString.trim();
     if (!conn) return;
@@ -463,6 +485,19 @@ export default function NexusConsole({
           )}
         </div>
 
+        {/*
+          Provenance, on paper only. A printout that leaves this page
+          gets forwarded, and a page of figures with no date and no
+          source is the kind of thing that turns up in a meeting six
+          months later being read as current.
+        */}
+        <p className="nex-printed">
+          {data.name} · {a.table.rows.toLocaleString()} rows ·{" "}
+          {data.warehouse ? "read from a live table" : "from an uploaded file"} · printed{" "}
+          {new Date().toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+          . Describes rows that already exist; not a forecast.
+        </p>
+
         <dl className="nex-head-stats">
           <div><dt>rows</dt><dd>{a.table.rows.toLocaleString()}</dd></div>
           <div><dt>columns</dt><dd>{a.table.columns}</dd></div>
@@ -496,6 +531,16 @@ export default function NexusConsole({
           />
           <button type="button" className="nex-btn" onClick={() => fileInput.current?.click()}>
             Drop your own data
+          </button>
+          <button type="button" className="nex-btn nex-btn--ghost" onClick={downloadCsv}>
+            Download findings
+          </button>
+          <button
+            type="button"
+            className="nex-btn nex-btn--ghost"
+            onClick={() => window.print()}
+          >
+            Print / PDF
           </button>
           <button
             type="button"

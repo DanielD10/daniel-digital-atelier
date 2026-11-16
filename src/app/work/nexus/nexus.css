@@ -1224,3 +1224,205 @@
 .nex-watch-cadence button.is-on { border-color: var(--nex-signal); color: var(--nex-signal); }
 .nex-watch.is-done { border-left-color: var(--nex-cool); }
 .nex-watch .nex-btn--wide { padding: 11px; }
+
+/* Screen never shows this; print always does. */
+.nex-printed { display: none; }
+
+/* ───────────── folded panels ───────────── */
+
+/*
+ * Collapsed, not absent. These panels used to be conditionally
+ * rendered, so anything folded was simply not in the document — and a
+ * printed report lost every chart explanation and every evidence
+ * table, which are exactly the parts a reader who was not in the room
+ * needs most. Hiding with CSS keeps them findable by Ctrl+F and lets
+ * the print rules below bring them back.
+ */
+.nex-folded { display: none; }
+
+/* ───────────── print ───────────── */
+
+/*
+ * The screen is a dark instrument panel. Paper is not.
+ *
+ * Printing the dark theme would burn a cartridge per copy and arrive
+ * grey and unreadable, so print gets a genuine document: black on
+ * white, the navigation and every control gone, each finding held
+ * together on one page, and the folded panels opened — because the
+ * person reading the printout cannot click anything.
+ */
+@media print {
+  @page {
+    margin: 16mm 14mm;
+  }
+
+  /*
+   * Everything that is interface rather than content. Verified by
+   * reading the rendered DOM rather than guessing: an earlier pass
+   * hid .site-nav and .nex-export, neither of which exists, so the
+   * masthead and the export buttons would have printed on every copy.
+   */
+  .mast,
+  .masthead,
+  .nav,
+  .rail,
+  .grain,
+  .skip,
+  .nex-conn,
+  .nex-watch,
+  .nex-unlock,
+  .nex-ask,
+  .nex-find-rows-btn,
+  .nex-find-toggle,
+  .nex-read-mark,
+  .nex-read-more,
+  .nex-beyond,
+  .nex-btn,
+  footer {
+    display: none !important;
+  }
+
+  .nex-printed {
+    display: block !important;
+    margin: 0 0 6mm;
+    padding-bottom: 3mm;
+    border-bottom: 1px solid #c2cac6;
+    font-size: 8.5pt;
+    color: #5d6b64 !important;
+  }
+
+  /* Folded on screen, open on paper. */
+  .nex-folded { display: block !important; }
+  dl.nex-folded { display: grid !important; }
+
+  :root,
+  .nex {
+    --nex-void: #ffffff;
+    --nex-ink: #ffffff;
+    --nex-panel: #ffffff;
+    --nex-raise: #f6f8f7;
+    --nex-line: #d4dad7;
+    --nex-line-2: #c2cac6;
+    --nex-text: #10140f;
+    --nex-dim: #2f3a34;
+    --nex-faint: #5d6b64;
+    --nex-signal: #1f7a55;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #10140f !important;
+  }
+  .nex,
+  .nex * {
+    background: transparent !important;
+    color: #10140f !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  /*
+   * ...except the marks that ARE the chart.
+   *
+   * The bars are spans coloured by background, so the blanket reset
+   * above erased every one of them and the first printed proof came
+   * out as a column of numbers with nothing beside it — the evidence
+   * silently deleted from the page meant to carry it. Verified by
+   * rendering the PDF and looking at it, which is the only way this
+   * class of bug ever shows up.
+   */
+  .nex-bars-fill,
+  .nex-hist-bar,
+  .nex-div-bar.is-pos {
+    background: #1f7a55 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .nex-div-bar.is-neg {
+    background: #a8402f !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .nex-bars-track,
+  .nex-div-track {
+    background: #e4e9e7 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .nex-div-axis {
+    background: #8e9a94 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .nex svg { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .nex { padding: 0 !important; }
+  /* The one thing that should not go black. */
+  .nex-find-kind,
+  .nex-find-conf { color: #1f7a55 !important; }
+
+  /* A finding is a unit. Splitting one across a page break puts the
+     caveat on a sheet the reader may never turn to. */
+  .nex-find {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border: 1px solid #c2cac6 !important;
+    border-radius: 4px;
+    margin: 0 0 6mm;
+    padding: 5mm;
+    /* Paper holds more than a screen at the same legibility, and a
+       finding that spills onto a second sheet separates the claim
+       from the caveat that qualifies it. */
+    font-size: 9.5pt;
+    line-height: 1.45;
+  }
+  .nex-find-head { font-size: 13pt !important; line-height: 1.3 !important; }
+  .nex-find-plain { font-size: 10pt !important; line-height: 1.45 !important; }
+  .nex-pitch-say { font-size: 10.5pt !important; line-height: 1.45 !important; }
+  .nex-read-looking,
+  .nex-read dd,
+  .nex-pitch-do li,
+  .nex-pitch-sure { font-size: 9pt !important; line-height: 1.45 !important; }
+  .nex-pitch { padding: 4mm !important; margin-top: 4mm !important; }
+  .nex-pitch-do { margin-bottom: 3mm !important; }
+  .nex-pitch,
+  .nex-read,
+  .nex-work {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .nex-pitch {
+    border: 1px solid #c2cac6 !important;
+    border-left: 3px solid #1f7a55 !important;
+  }
+  .nex-pitch-title,
+  .nex-pitch-sure span,
+  .nex-pitch-lead,
+  .nex-read dt,
+  .nex-find-kind {
+    color: #1f7a55 !important;
+  }
+  .nex-pitch-do li::marker { color: #1f7a55 !important; }
+
+  /* Charts are SVG and print fine, but the fills come from the dark
+     palette and need a value that survives on white. */
+  .nex-find svg [fill="var(--nex-signal)"],
+  .nex-find svg [stroke="var(--nex-signal)"] {
+    fill: #1f7a55 !important;
+    stroke: #1f7a55 !important;
+  }
+
+  /* Links are useless on paper unless the address is on the page. */
+  .nex a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9pt;
+    color: #5d6b64 !important;
+  }
+
+  .nex-care,
+  .nex-diligence {
+    break-inside: avoid;
+    border: 1px solid #c2cac6 !important;
+    padding: 5mm;
+  }
+}
