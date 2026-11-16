@@ -39,45 +39,37 @@ const STATIONS: Station[] = [
 ];
 
 /**
- * Films for the big screen.
+ * Films for the big screen. Christmas.
  *
- * Two dials, not one list with a starting position.
+ * One dial, not two. The split existed for exactly one reason:
+ * The Outsiders is a YouTube Movies catalogue title and that
+ * licence does not reach an embedded player on mobile web, so a
+ * phone needed its own list. Nothing here is a catalogue title,
+ * so both devices get the same four and the special-casing is
+ * gone with it.
  *
- * A desktop gets The Outsiders and nothing else. It is the film
- * that was asked for, it plays there, and with a single entry
- * there is no skip button to wander off it and no queue handed
- * to the player either — it cannot end up showing anything
- * else.
+ * On how these were picked. The famous Christmas specials are
+ * licensed — Santa Claus Is Comin' to Town sits on Prime,
+ * Frosty on AMC+ and YouTube Premium — so a free upload of one
+ * is somebody's copy and it goes down, usually in December,
+ * which is the only month this dial matters. The three below
+ * are public domain, which is why they have been up for years
+ * and will still be up next year.
  *
- * A phone gets the rest, because The Outsiders is a YouTube
- * Movies catalogue title and that licence does not reach an
- * embedded player on mobile web. Nothing on this side changes
- * that, so rather than opening on an error card a phone opens
- * on the Halloween trailer and can skip through the others.
- *
- * Every id was checked against
- *   https://www.youtube.com/oembed?url=<watch url>&format=json
- * before being added. A 401 or 404 means it will not embed
- * anywhere; an author of "YouTube Movies", or anything ending
- * "- Topic", means it will not play on a phone.
+ * The first entry is the exception, and it is deliberate: it is
+ * the one Daniel picked and played on his own phone, which is a
+ * better test than any check from here. If it is pulled, the
+ * player now walks past it on its own.
  */
 export const FILMS: Station[] = [
-  // Checked: author "YouTube Movies" — hence desktop only.
-  { name: "The Outsiders", id: "iOQisO0KAzM", where: "desktop" },
+  // Daniel's own link, confirmed playing on a phone.
+  // Rankin/Bass, so the upload is unofficial and may not last.
+  { name: "Rudolph and Frosty's Christmas in July", id: "gYJLCX087mw" },
 
-  // Checked: author "CineLife", a distributor.
-  { name: "Halloween (1978) — trailer", id: "FXKnfIF9w5o", where: "mobile" },
-  // Checked: author "Warner Bros. Entertainment" — the rights
-  // holder's own upload, which is as safe as an embed gets.
-  { name: "Nightmare on Elm Street — 4K trailer", id: "CBcVZcornjI", where: "mobile" },
-  // Checked: author "Park Circus".
-  { name: "Labyrinth — 4K trailer", id: "8bJy0GF2RZ0", where: "mobile" },
-  // Full features, public domain, all checked.
-  { name: "Carnival of Souls", id: "jW_DftBegZs", where: "mobile" },
-  { name: "House on Haunted Hill", id: "IBFRRZ6TsPk", where: "mobile" },
-  { name: "A Star Is Born", id: "4h2s1elEYMQ", where: "mobile" },
-  { name: "Of Human Bondage", id: "hQQDMVOsR74", where: "mobile" },
-  { name: "The Outlaw", id: "tGNCxaHzkXg", where: "mobile" },
+  // Public domain, and the reason the dial still works in a year.
+  { name: "Santa Claus Conquers the Martians (1964)", id: "6Wm0PHrR3Vc" },
+  { name: "Santa Claus vs. the Devil (1959)", id: "OtXYYLEbYMw" },
+  { name: "Rudolph the Red-Nosed Reindeer (1948)", id: "lN0g5lLPsU4" },
 ];
 
 type Tuned = { kind: "video" | "list"; id: string } | null;
@@ -319,6 +311,15 @@ export default function AtelierTV({
      reports one, "ok" once it reports anything else. */
   const [signal, setSignal] = useState<null | "error" | "ok">(null);
   const [webview, setWebview] = useState(false);
+  /* How many entries auto-skip has walked past without one
+     playing. Bounded by the list length so a dial where every
+     entry is dead stops and shows the card instead of
+     spinning. Reset the moment anything reports OK. */
+  const deadRef = useRef(0);
+  /* A film the visitor chose themselves is never skipped past:
+     if they pasted a link, being moved off it silently is worse
+     than being told it will not play. */
+  const pinnedRef = useRef(false);
   /* What the player has told us about itself. YouTube's state
      codes: 1 is playing, 2 is paused. */
   const [playing, setPlaying] = useState(true);
@@ -388,7 +389,10 @@ export default function AtelierTV({
       const ev = d?.event;
       if (ev === "onError") setSignal("error");
       else if (ev === "onReady" || ev === "onStateChange" || ev === "infoDelivery") {
-        setSignal((prev) => (prev === "error" ? prev : "ok"));
+        setSignal((prev) => {
+          if (prev !== "error") deadRef.current = 0;
+          return prev === "error" ? prev : "ok";
+        });
       }
       /* Position and state arrive on `infoDelivery`, which the
          player only sends once it has been asked to listen —
@@ -484,8 +488,41 @@ export default function AtelierTV({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /*
+   * A dead entry skips itself.
+   *
+   * Popular Christmas films live on YouTube as uploads that are
+   * not always the rights holder's, and those get pulled —
+   * reliably, and usually in December, which is the only month
+   * this dial matters. Before this, a pulled video left a grey
+   * card on the portfolio until someone noticed. Now the player
+   * walks to the next entry on its own, and only stops to say
+   * something when the whole dial is dead or when the visitor
+   * picked the link themselves.
+   */
+  useEffect(() => {
+    if (signal !== "error") return;
+    if (pinnedRef.current) return;
+    if (dialList.length < 2) return;
+    if (deadRef.current >= dialList.length - 1) return;
+
+    const t = window.setTimeout(() => {
+      deadRef.current += 1;
+      setSignal(null);
+      setTuned((cur) => {
+        const here =
+          cur && cur.kind === "video" ? dialList.findIndex((x) => x.id === cur.id) : -1;
+        const next = dialList[(Math.max(0, here) + 1) % dialList.length];
+        return { kind: "video", id: next.id };
+      });
+    }, 1200);
+    return () => window.clearTimeout(t);
+  }, [signal, dialList]);
+
   const step = (dir: 1 | -1) => {
     if (!dialList.length) return;
+    pinnedRef.current = false;
+    deadRef.current = 0;
     const here = tuned && tuned.kind === "video" ? dialList.findIndex((x) => x.id === tuned.id) : -1;
     const next = dialList[(Math.max(0, here) + dir + dialList.length) % dialList.length];
     const t: Tuned = { kind: "video", id: next.id };
@@ -516,6 +553,7 @@ export default function AtelierTV({
       return;
     }
     setBad(false);
+    pinnedRef.current = true;
     setTuned(next);
     try {
       window.localStorage.setItem(
@@ -599,8 +637,9 @@ export default function AtelierTV({
         {signal === "error" ? (
           <div className="tv-fail">
             <p>
-              This one will not play in an embed. Films from YouTube&rsquo;s
-              Movies shelf only play on YouTube itself.
+              {deadRef.current >= Math.max(1, dialList.length - 1)
+                ? "Every film on this dial is refusing to play here. They go up and come down on YouTube all season; try one directly."
+                : "This one will not play in an embed \u2014 either it has been taken down, or it is a Movies-shelf title that only plays on YouTube itself."}
             </p>
             <a href={out} target="_blank" rel="noopener noreferrer">
               Watch it on YouTube
