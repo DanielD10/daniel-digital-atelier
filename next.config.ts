@@ -29,6 +29,15 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
 
+  /**
+   * Set by `next upgrade --agent=security` when moving 16.4.3 → 16.4.6
+   * for a published advisory. It records that this app takes security
+   * updates through the agent upgrade path.
+   */
+  experimental: {
+    agentUpgrade: "security",
+  },
+
   images: {
     formats: ["image/avif", "image/webp"],
   },
