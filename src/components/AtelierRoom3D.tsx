@@ -258,8 +258,14 @@ const SHOTS: Shot[] = [
     /* On a laptop this shot is about the desk, so it holds the
        desk. The portrait framing has to carry the television on
        the opposite wall as well, which is a much bigger circle. */
-    fit: 1.9,
-    narrowFit: 1.78,
+    /* 1.9 frames a 3.8m circle in a 6m room, which is most of
+       the room — so this came out as a second overview and the
+       desk, the thing it is named after, sat small and distant in
+       the middle of it. The aim was always right; only the radius
+       was wrong. This holds the desk, the monitor and the sill
+       above it, and nothing else. */
+    fit: 1.18,
+    narrowFit: 1.12,
   },
   {
     name: "The window",
@@ -272,7 +278,17 @@ const SHOTS: Shot[] = [
     fit: 1.95,
     narrowFit: 1.72,
   },
-  { name: "The corner", pos: [-5.2, 3.8, 3.2], aim: [-1.2, 1.1, -1.7], fit: 2.95 },
+  /* The fireplace-and-set corner, close enough to be about that
+     corner. At 2.95 it framed a 5.9m circle — the entire room —
+     so it was indistinguishable from the overview sitting two
+     places before it, and the thing it names was a detail in it. */
+  {
+    name: "The corner",
+    pos: [-0.35, 2.25, 1.55],
+    aim: [-2.35, 1.25, -1.15],
+    fit: 1.62,
+    narrowFit: 1.48,
+  },
   /* Two close-ups.
    *
    * Everything in this room is modelled at a level of detail
@@ -323,7 +339,11 @@ const SHOTS: Shot[] = [
     /* Nothing playing: stand back far enough to take in the
        fireplace under the screen as well. It closes back in the
        moment a film starts. */
-    restFit: 1.95,
+    /* At 1.95 the screen it is pointed at became a dark panel
+       sliding off the left edge, with the fireplace taking the
+       frame instead. Close enough now that the set reads as the
+       subject even with nothing playing on it. */
+    restFit: 1.66,
   },
   {
     name: "The sill",
@@ -455,6 +475,25 @@ export default function AtelierRoom3D() {
   const [shot, setShot] = useState(0);
   const [view, setView] = useState(0);
   const [library, setLibrary] = useState(false);
+
+  /*
+   * Tell the page when the visitor has started looking around.
+   *
+   * The heading sits over the top-left of the frame, which is fine
+   * on the opening overview — that corner is ceiling void. It is
+   * not fine anywhere else: the big screen, the fireplace and the
+   * retro set are all on the left wall, so every shot that is
+   * actually about one of them puts its subject underneath the
+   * words. It is an arrival label, not furniture, so it goes once
+   * you have arrived.
+   */
+  useEffect(() => {
+    const engaged = shot !== 0 || awake;
+    const root = document.documentElement;
+    if (engaged) root.setAttribute("data-room-engaged", "");
+    else root.removeAttribute("data-room-engaged");
+    return () => root.removeAttribute("data-room-engaged");
+  }, [shot, awake]);
   /* The set's controls are drawn by the room, because buttons
      inside the 3D picture cannot be pressed. */
   const [tvApi, setTvApi] = useState<TVApi | null>(null);

@@ -2417,9 +2417,24 @@ body[data-racing] .mast {
 .room3d-screen .os { transform: none !important; width: 100%; height: 100%; }
 
 .room3d-tv { background: #05070a; }
+/*
+  The tube is 4:3 and the films are 16:9, so a player told to fill
+  100% of the host letterboxed itself: black bands top and bottom
+  inside an already small screen, which is what made the picture look
+  like it did not fit the set. A television does not letterbox — it
+  fills the glass. So the frame is sized to cover the tube and the
+  overflow is clipped by .room3d-screen, which already hides it.
+
+  133.333% is 16:9 expressed against a 4:3 box ((16/9) ÷ (4/3)), and
+  the negative left margin is half the excess, so the crop comes off
+  both sides evenly rather than sliding the picture left.
+*/
 .room3d-tv iframe {
   display: block;
-  width: 100%;
+  position: absolute;
+  top: 0;
+  left: -16.6667%;
+  width: 133.3333%;
   height: 100%;
   border: 0;
 }
@@ -3033,6 +3048,30 @@ body[data-racing] .mast {
 }
 /* The one thing in here anybody needs to click. */
 .lab-intro .back { pointer-events: auto; }
+
+/*
+  Once the visitor moves off the opening view, the heading steps
+  aside. Everything worth framing in this room — the screen, the
+  fireplace, the retro set — is on the left wall, which is exactly
+  where these words sit, so leaving them up means every close shot
+  is half-covered by its own page title. The Home link stays, since
+  that is the way out.
+*/
+.lab-intro h1,
+.lab-intro .lede {
+  transition: opacity 620ms ease, transform 620ms ease;
+}
+:root[data-room-engaged] .lab-intro h1,
+:root[data-room-engaged] .lab-intro .lede {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lab-intro h1,
+  .lab-intro .lede { transition: opacity 180ms linear; }
+  :root[data-room-engaged] .lab-intro h1,
+  :root[data-room-engaged] .lab-intro .lede { transform: none; }
+}
 
 .lab-intro h1 {
   /* The page's heading scale lives under `.page`, which this one
