@@ -339,11 +339,30 @@ function rugTexture(): THREE.Texture {
  * colour map and the emissive map so the lit cells glow into the
  * bloom pass while the concrete stays dark.
  */
+/**
+ * A tower facade.
+ *
+ * The old one was a 10x16 grid of identical eight-pixel squares on
+ * flat purple: every window the same size, the same hard edge and
+ * the same colour, with nothing between them. At a distance that
+ * grid aliases into confetti, and close up it reads as a texture
+ * swatch rather than a building, which is most of why the view out
+ * of the window looked cheap.
+ *
+ * What a curtain-wall tower actually has, and what this draws now:
+ * vertical mullions and darker spandrel bands between floors, which
+ * give the facade an architectural rhythm instead of a scatter;
+ * panes that differ from each other — some bright, some dimmed by a
+ * blind, some with the light deeper inside the floorplate; a bloom
+ * on the lit ones, because glass at night spreads light rather than
+ * stopping at the frame; and a vertical gradient, since the lower
+ * floors of a tower sit in the shadow of everything around them.
+ */
 function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissive: THREE.Texture } {
-  const COLS = 10;
-  const ROWS = 16;
-  const CW = 16;
-  const CH = 16;
+  const COLS = 14;
+  const ROWS = 26;
+  const CW = 22;
+  const CH = 18;
   const w = COLS * CW;
   const h = ROWS * CH;
 
@@ -351,26 +370,83 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
   const glow = canvas(w, h);
   const r = rand(seed);
 
-  base.g.fillStyle = "#0d0a18";
+  // Concrete, darker toward the street.
+  const shell = base.g.createLinearGradient(0, 0, 0, h);
+  shell.addColorStop(0, "#1a1530");
+  shell.addColorStop(0.62, "#120e22");
+  shell.addColorStop(1, "#0a0714");
+  base.g.fillStyle = shell;
   base.g.fillRect(0, 0, w, h);
   glow.g.fillStyle = "#000000";
   glow.g.fillRect(0, 0, w, h);
 
+  // Spandrel bands: the floor plates read as horizontal structure.
   for (let y = 0; y < ROWS; y++) {
+    base.g.fillStyle = "rgba(6,5,13,0.85)";
+    base.g.fillRect(0, y * CH + CH - 4, w, 4);
+  }
+  // Mullions: the vertical ribs between bays.
+  for (let x = 0; x < COLS; x++) {
+    base.g.fillStyle = "rgba(8,7,16,0.7)";
+    base.g.fillRect(x * CW, 0, 3, h);
+  }
+
+  const PW = CW - 6;
+  const PH = CH - 7;
+
+  for (let y = 0; y < ROWS; y++) {
+    // Height in the tower, 0 at street.
+    const up = 1 - y / ROWS;
     for (let x = 0; x < COLS; x++) {
-      const px = x * CW + 4;
-      const py = y * CH + 4;
-      if (r() < lit) {
-        const cold = r() < 0.22;
-        const col = cold ? "#cfe4ff" : `rgb(255,${190 + r() * 50},${110 + r() * 70})`;
+      const px = x * CW + 3;
+      const py = y * CH + 2;
+
+      // Unlit glass still catches a little sky.
+      const skyRefl = 0.05 + up * 0.14;
+      base.g.fillStyle = `rgba(${Math.round(42 + up * 34)},${Math.round(46 + up * 40)},${Math.round(78 + up * 52)},${skyRefl + 0.22})`;
+      base.g.fillRect(px, py, PW, PH);
+
+      if (r() >= lit) continue;
+
+      /* Lit panes vary. A floor of identical bright rectangles is
+         the other half of why this read as a pattern rather than
+         as offices with people in them. */
+      const cold = r() < 0.18;
+      const warmth = 190 + r() * 55;
+      const col = cold
+        ? `rgb(${200 + r() * 30},${220 + r() * 25},255)`
+        : `rgb(255,${warmth},${100 + r() * 80})`;
+
+      const roll = r();
+      if (roll < 0.22) {
+        // Blind pulled part way down.
+        const drop = Math.round(PH * (0.3 + r() * 0.45));
         base.g.fillStyle = col;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillRect(px, py + drop, PW, PH - drop);
         glow.g.fillStyle = col;
-        glow.g.fillRect(px, py, CW - 8, CH - 8);
+        glow.g.fillRect(px, py + drop, PW, PH - drop);
+      } else if (roll < 0.34) {
+        // Light deeper in the floorplate: the pane glows faintly.
+        base.g.globalAlpha = 0.42;
+        base.g.fillStyle = col;
+        base.g.fillRect(px, py, PW, PH);
+        base.g.globalAlpha = 1;
+        glow.g.globalAlpha = 0.38;
+        glow.g.fillStyle = col;
+        glow.g.fillRect(px, py, PW, PH);
+        glow.g.globalAlpha = 1;
       } else {
-        base.g.fillStyle = `rgba(40,36,64,${0.25 + r() * 0.3})`;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillStyle = col;
+        base.g.fillRect(px, py, PW, PH);
+        glow.g.fillStyle = col;
+        glow.g.fillRect(px, py, PW, PH);
       }
+
+      // Bloom. Glass spreads light; it does not stop at the frame.
+      glow.g.globalAlpha = 0.3;
+      glow.g.fillStyle = col;
+      glow.g.fillRect(px - 2, py - 2, PW + 4, PH + 4);
+      glow.g.globalAlpha = 1;
     }
   }
 
@@ -919,6 +995,47 @@ export function buildRoom(): Built {
     add(box(0.05, fh, 0.1), frameMat, WIN.x0 + (fw * i) / 5, cy, ROOM.backZ);
   }
   add(box(fw + 0.3, 0.06, 0.3), deskMat, cx, WIN.y0 - 0.05, ROOM.backZ + 0.11);
+
+  /**
+   * Glass.
+   *
+   * There was none: the aperture was an opening, so the city sat
+   * in it like a poster in a frame. At night a window is mostly a
+   * mirror — the room is lit and the outside is not — and that
+   * reflection is the single thing that tells you there is a pane
+   * there at all. The scene already carries an environment map of
+   * the room's own lights, so the glass has something true to
+   * catch rather than something invented.
+   *
+   * Kept very faint on purpose. Enough to pick up the fire, the
+   * lamps and the screens at a glancing angle; not enough to fog
+   * the view, which is the whole reason the window is there.
+   */
+  const glassMat = keep(
+    new THREE.MeshPhysicalMaterial({
+      /* Near-white, not tinted. A dark colour here multiplies
+         everything seen through it, which pulled the whole city
+         and half the room down with it — the pane is meant to
+         add a reflection, not a filter. */
+      color: 0xdfe8f5,
+      roughness: 0.05,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.045,
+      envMapIntensity: 2.4,
+      // A sheen that grows toward grazing angles, which is how
+      // glass actually behaves — face on you see through it, from
+      // the side it turns to mirror.
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      side: THREE.FrontSide,
+      depthWrite: false,
+    }),
+  );
+  const glass = new THREE.Mesh(keep(new THREE.PlaneGeometry(fw, fh)), glassMat);
+  glass.position.set(cx, cy, ROOM.backZ + 0.055);
+  glass.renderOrder = 2;
+  root.add(glass);
 
   /**
    * The void behind the room.
