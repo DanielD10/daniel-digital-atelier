@@ -339,11 +339,30 @@ function rugTexture(): THREE.Texture {
  * colour map and the emissive map so the lit cells glow into the
  * bloom pass while the concrete stays dark.
  */
+/**
+ * A tower facade.
+ *
+ * The old one was a 10x16 grid of identical eight-pixel squares on
+ * flat purple: every window the same size, the same hard edge and
+ * the same colour, with nothing between them. At a distance that
+ * grid aliases into confetti, and close up it reads as a texture
+ * swatch rather than a building, which is most of why the view out
+ * of the window looked cheap.
+ *
+ * What a curtain-wall tower actually has, and what this draws now:
+ * vertical mullions and darker spandrel bands between floors, which
+ * give the facade an architectural rhythm instead of a scatter;
+ * panes that differ from each other — some bright, some dimmed by a
+ * blind, some with the light deeper inside the floorplate; a bloom
+ * on the lit ones, because glass at night spreads light rather than
+ * stopping at the frame; and a vertical gradient, since the lower
+ * floors of a tower sit in the shadow of everything around them.
+ */
 function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissive: THREE.Texture } {
-  const COLS = 10;
-  const ROWS = 16;
-  const CW = 16;
-  const CH = 16;
+  const COLS = 14;
+  const ROWS = 26;
+  const CW = 22;
+  const CH = 18;
   const w = COLS * CW;
   const h = ROWS * CH;
 
@@ -351,26 +370,83 @@ function facadeTexture(seed: number, lit: number): { map: THREE.Texture; emissiv
   const glow = canvas(w, h);
   const r = rand(seed);
 
-  base.g.fillStyle = "#0d0a18";
+  // Concrete, darker toward the street.
+  const shell = base.g.createLinearGradient(0, 0, 0, h);
+  shell.addColorStop(0, "#1a1530");
+  shell.addColorStop(0.62, "#120e22");
+  shell.addColorStop(1, "#0a0714");
+  base.g.fillStyle = shell;
   base.g.fillRect(0, 0, w, h);
   glow.g.fillStyle = "#000000";
   glow.g.fillRect(0, 0, w, h);
 
+  // Spandrel bands: the floor plates read as horizontal structure.
   for (let y = 0; y < ROWS; y++) {
+    base.g.fillStyle = "rgba(6,5,13,0.85)";
+    base.g.fillRect(0, y * CH + CH - 4, w, 4);
+  }
+  // Mullions: the vertical ribs between bays.
+  for (let x = 0; x < COLS; x++) {
+    base.g.fillStyle = "rgba(8,7,16,0.7)";
+    base.g.fillRect(x * CW, 0, 3, h);
+  }
+
+  const PW = CW - 6;
+  const PH = CH - 7;
+
+  for (let y = 0; y < ROWS; y++) {
+    // Height in the tower, 0 at street.
+    const up = 1 - y / ROWS;
     for (let x = 0; x < COLS; x++) {
-      const px = x * CW + 4;
-      const py = y * CH + 4;
-      if (r() < lit) {
-        const cold = r() < 0.22;
-        const col = cold ? "#cfe4ff" : `rgb(255,${190 + r() * 50},${110 + r() * 70})`;
+      const px = x * CW + 3;
+      const py = y * CH + 2;
+
+      // Unlit glass still catches a little sky.
+      const skyRefl = 0.05 + up * 0.14;
+      base.g.fillStyle = `rgba(${Math.round(42 + up * 34)},${Math.round(46 + up * 40)},${Math.round(78 + up * 52)},${skyRefl + 0.22})`;
+      base.g.fillRect(px, py, PW, PH);
+
+      if (r() >= lit) continue;
+
+      /* Lit panes vary. A floor of identical bright rectangles is
+         the other half of why this read as a pattern rather than
+         as offices with people in them. */
+      const cold = r() < 0.18;
+      const warmth = 190 + r() * 55;
+      const col = cold
+        ? `rgb(${200 + r() * 30},${220 + r() * 25},255)`
+        : `rgb(255,${warmth},${100 + r() * 80})`;
+
+      const roll = r();
+      if (roll < 0.22) {
+        // Blind pulled part way down.
+        const drop = Math.round(PH * (0.3 + r() * 0.45));
         base.g.fillStyle = col;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillRect(px, py + drop, PW, PH - drop);
         glow.g.fillStyle = col;
-        glow.g.fillRect(px, py, CW - 8, CH - 8);
+        glow.g.fillRect(px, py + drop, PW, PH - drop);
+      } else if (roll < 0.34) {
+        // Light deeper in the floorplate: the pane glows faintly.
+        base.g.globalAlpha = 0.42;
+        base.g.fillStyle = col;
+        base.g.fillRect(px, py, PW, PH);
+        base.g.globalAlpha = 1;
+        glow.g.globalAlpha = 0.38;
+        glow.g.fillStyle = col;
+        glow.g.fillRect(px, py, PW, PH);
+        glow.g.globalAlpha = 1;
       } else {
-        base.g.fillStyle = `rgba(40,36,64,${0.25 + r() * 0.3})`;
-        base.g.fillRect(px, py, CW - 8, CH - 8);
+        base.g.fillStyle = col;
+        base.g.fillRect(px, py, PW, PH);
+        glow.g.fillStyle = col;
+        glow.g.fillRect(px, py, PW, PH);
       }
+
+      // Bloom. Glass spreads light; it does not stop at the frame.
+      glow.g.globalAlpha = 0.3;
+      glow.g.fillStyle = col;
+      glow.g.fillRect(px - 2, py - 2, PW + 4, PH + 4);
+      glow.g.globalAlpha = 1;
     }
   }
 
@@ -921,6 +997,47 @@ export function buildRoom(): Built {
   add(box(fw + 0.3, 0.06, 0.3), deskMat, cx, WIN.y0 - 0.05, ROOM.backZ + 0.11);
 
   /**
+   * Glass.
+   *
+   * There was none: the aperture was an opening, so the city sat
+   * in it like a poster in a frame. At night a window is mostly a
+   * mirror — the room is lit and the outside is not — and that
+   * reflection is the single thing that tells you there is a pane
+   * there at all. The scene already carries an environment map of
+   * the room's own lights, so the glass has something true to
+   * catch rather than something invented.
+   *
+   * Kept very faint on purpose. Enough to pick up the fire, the
+   * lamps and the screens at a glancing angle; not enough to fog
+   * the view, which is the whole reason the window is there.
+   */
+  const glassMat = keep(
+    new THREE.MeshPhysicalMaterial({
+      /* Near-white, not tinted. A dark colour here multiplies
+         everything seen through it, which pulled the whole city
+         and half the room down with it — the pane is meant to
+         add a reflection, not a filter. */
+      color: 0xdfe8f5,
+      roughness: 0.05,
+      metalness: 0.0,
+      transparent: true,
+      opacity: 0.045,
+      envMapIntensity: 2.4,
+      // A sheen that grows toward grazing angles, which is how
+      // glass actually behaves — face on you see through it, from
+      // the side it turns to mirror.
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.04,
+      side: THREE.FrontSide,
+      depthWrite: false,
+    }),
+  );
+  const glass = new THREE.Mesh(keep(new THREE.PlaneGeometry(fw, fh)), glassMat);
+  glass.position.set(cx, cy, ROOM.backZ + 0.055);
+  glass.renderOrder = 2;
+  root.add(glass);
+
+  /**
    * The void behind the room.
    *
    * Making the wall itself enormous did hide the sky, but a wall
@@ -1403,18 +1520,32 @@ export function buildRoom(): Built {
   bracket.add(armBar);
   root.add(bracket);
 
+  /*
+   * The glass sits behind the frame, not flush with it.
+   *
+   * The dark plane used to be exactly TV_W x TV_H — the same
+   * rectangle as the opening — so it met the cabinet edge to edge
+   * with no overlap at all, and the set read as a picture stuck on
+   * the front of a box rather than a tube recessed inside one. A
+   * real cabinet laps over the picture on every side. Pulling the
+   * plane in by the inset and dropping it back behind the fascia
+   * gives the frame something to sit proud of, and gives the
+   * screen somewhere to be.
+   */
+  const GLASS_INSET = 0.018;
+
   const tvOff = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(TV_W, TV_H)),
+    keep(new THREE.PlaneGeometry(TV_W - GLASS_INSET * 2, TV_H - GLASS_INSET * 2)),
     keep(new THREE.MeshStandardMaterial({ color: 0x0b0d10, roughness: 0.1, metalness: 0.85 })),
   );
-  tvOff.position.set(0, 0, 0.072);
+  tvOff.position.set(0, 0, 0.064);
   tvSet.add(tvOff);
 
   const tvGlow = new THREE.Mesh(
-    keep(new THREE.PlaneGeometry(TV_W, TV_H)),
+    keep(new THREE.PlaneGeometry(TV_W - GLASS_INSET * 2, TV_H - GLASS_INSET * 2)),
     keep(new THREE.MeshBasicMaterial({ color: 0x89c8ff, transparent: true, opacity: 0 })),
   );
-  tvGlow.position.set(0, 0, 0.068);
+  tvGlow.position.set(0, 0, 0.062);
   tvSet.add(tvGlow);
 
   root.add(tvSet);
@@ -1433,7 +1564,8 @@ export function buildRoom(): Built {
   }
 
   // Where the CSS3D picture goes, in world space.
-  const tvScreenPos = new THREE.Vector3(0, 0, 0.076).applyAxisAngle(new THREE.Vector3(0, 1, 0), TV_YAW).add(TV_ANCHOR);
+  // Sits a hair in front of the dark glass, inside the same recess.
+  const tvScreenPos = new THREE.Vector3(0, 0, 0.068).applyAxisAngle(new THREE.Vector3(0, 1, 0), TV_YAW).add(TV_ANCHOR);
 
   /* ══ The flat screen ═════════════════════════════════════
      A modern panel on the long wall, facing the sofa — the
@@ -2541,6 +2673,10 @@ export function buildRoom(): Built {
       uScene: { value: 0 },
       uZoom: { value: 7.0 },
       uMode: { value: 0 },
+      /* Where the sun is. Everything about the sky follows from
+         this one vector, which is the point of computing it. */
+      uSunDir: { value: new THREE.Vector3(0.35, -0.12, -0.93).normalize() },
+      uSunI: { value: 22.0 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -2553,6 +2689,7 @@ export function buildRoom(): Built {
     `,
     fragmentShader: `
       uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot;
+      uniform vec3 uSunDir; uniform float uSunI;
       uniform float uStars; uniform float uTime;
       uniform float uScene; uniform float uZoom; uniform float uMode;
       varying vec3 vDir;
@@ -2636,7 +2773,115 @@ export function buildRoom(): Built {
         return base + amp * (fbm(vec2(x * 2.2 + seed * 11.0, seed)) - 0.5);
       }
 
-      void main() {
+      /* ── Sky, from physics rather than from a palette ──────────
+ *
+ * This was three hand-picked colours blended by height, which is
+ * why it never looked like sky: a real one is not a gradient, it
+ * is the sum of sunlight bouncing off the air on its way to you,
+ * and every feature worth having falls out of that. Blue overhead
+ * and red at sunset are the same effect at different path
+ * lengths; the pale band at the horizon, the glow around the sun
+ * and the way colour drains as it sets are not separate tricks
+ * that have to be authored one by one.
+ *
+ * Two scatterers, which is what the games do:
+ *
+ *   RAYLEIGH — off air molecules, far stronger at short
+ *   wavelengths (the 5.8/13.5/33.1 below are per-metre
+ *   coefficients for red, green, blue). Blue is scattered out of
+ *   the beam about six times as hard as red. Overhead the path is
+ *   short, so you see that scattered blue; at sunset the path is
+ *   hundreds of kilometres, the blue has been scattered away
+ *   before it reaches you, and what is left is red.
+ *
+ *   MIE — off aerosol and dust, near enough wavelength
+ *   independent, and thrown sharply forward. This is the white
+ *   haze near the horizon and the bloom around the sun.
+ *
+ * The integral has no closed form, so it is marched: step along
+ * the view ray, and at each step march a second ray toward the
+ * sun to find how much light survives to that point. Twelve
+ * samples by four is coarse for film and ample behind a window.
+ */
+const float PI_S = 3.14159265;
+const float R_GROUND = 6371000.0;
+const float R_SKY    = 6471000.0;
+const vec3  BETA_R   = vec3(5.8e-6, 13.5e-6, 33.1e-6);
+const float BETA_M   = 21e-6;
+const float H_RAY    = 8000.0;
+const float H_MIE    = 1200.0;
+const float MIE_G    = 0.76;
+
+/* Distance from a point to the top of the atmosphere along dir.
+   Negative when the ray never reaches it. */
+float skyHit(vec3 o, vec3 d) {
+  float b = dot(o, d);
+  float c = dot(o, o) - R_SKY * R_SKY;
+  float disc = b * b - c;
+  if (disc < 0.0) return -1.0;
+  return -b + sqrt(disc);
+}
+
+vec3 atmosphere(vec3 dir, vec3 sunDir, float intensity) {
+  vec3 origin = vec3(0.0, R_GROUND + 2.0, 0.0);
+  float far = skyHit(origin, dir);
+  if (far <= 0.0) return vec3(0.0);
+
+  float seg = far / 12.0;
+  float march = 0.0;
+  vec3 sumR = vec3(0.0);
+  vec3 sumM = vec3(0.0);
+  float odR = 0.0;
+  float odM = 0.0;
+
+  for (int i = 0; i < 12; i++) {
+    vec3 sp = origin + dir * (march + seg * 0.5);
+    float alt = length(sp) - R_GROUND;
+    float hr = exp(-alt / H_RAY) * seg;
+    float hm = exp(-alt / H_MIE) * seg;
+    odR += hr;
+    odM += hm;
+
+    /* Second march, toward the sun, for how much light actually
+       arrives here. No break: a loop that exits early is not
+       reliably compilable on older GLSL, so a ray that dips into
+       the planet is zeroed with a multiplier instead. */
+    float lfar = skyHit(sp, sunDir);
+    float lseg = max(lfar, 0.0) / 4.0;
+    float lmarch = 0.0;
+    float lodR = 0.0;
+    float lodM = 0.0;
+    float open = 1.0;
+    for (int j = 0; j < 4; j++) {
+      vec3 lp = sp + sunDir * (lmarch + lseg * 0.5);
+      float lalt = length(lp) - R_GROUND;
+      open *= step(0.0, lalt);
+      lodR += exp(-max(lalt, 0.0) / H_RAY) * lseg;
+      lodM += exp(-max(lalt, 0.0) / H_MIE) * lseg;
+      lmarch += lseg;
+    }
+
+    vec3 tau = BETA_R * (odR + lodR) + BETA_M * 1.1 * (odM + lodM);
+    vec3 att = exp(-tau) * open;
+    sumR += hr * att;
+    sumM += hm * att;
+    march += seg;
+  }
+
+  /* Phase functions: how much each scatterer sends light toward
+     the eye for a given angle off the sun. Rayleigh is gentle and
+     almost symmetric; Mie spikes hard forward, which is the glow
+     you see around a low sun. */
+  float mu = dot(dir, sunDir);
+  float phaseR = 3.0 / (16.0 * PI_S) * (1.0 + mu * mu);
+  float g2 = MIE_G * MIE_G;
+  float phaseM = 3.0 / (8.0 * PI_S) * ((1.0 - g2) * (1.0 + mu * mu)) /
+                 ((2.0 + g2) * pow(max(1.0 + g2 - 2.0 * MIE_G * mu, 1e-4), 1.5));
+
+  return intensity * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
+}
+
+void main() {
         /**
          * Angles, not texture coordinates.
          *
@@ -2674,8 +2919,35 @@ export function buildRoom(): Built {
           uv = vec2(atan(vDir.z, vDir.x) / 6.2831853 + 0.5, el / 1.5707963 * 0.5 + 0.5);
         }
         float h = uv.y;
-        vec3 col = mix(uBot, uMid, smoothstep(0.42, 0.62, h));
-        col = mix(col, uTop, smoothstep(0.6, 1.0, h));
+
+        /* The sky, scattered rather than painted.
+         *
+         * The authored uTop/uMid/uBot still exist and still carry
+         * the hour's mood — they are what makes this room feel
+         * like this room — but they now tint a computed sky
+         * instead of being the whole of it. The structure comes
+         * from the physics: the pale band at the horizon, the
+         * bloom around the sun, the way the top of the frame goes
+         * deeper than the bottom. Those were the things a
+         * three-stop gradient could never give, and they are
+         * exactly what reads as real. */
+        vec3 skyDir = normalize(vec3(
+          cos((uv.x - 0.5) * 6.2831853),
+          max(sin((h - 0.5) * 3.1415927), -0.12),
+          sin((uv.x - 0.5) * 6.2831853)
+        ));
+        vec3 scattered = atmosphere(skyDir, normalize(uSunDir), uSunI);
+        // Tonemap: the real range is enormous and the screen's is not.
+        scattered = vec3(1.0) - exp(-scattered * 1.9);
+
+        /* Marry it to the hour. The mood colours decide the cast,
+           the scattering decides the shape, and the two multiplied
+           keeps both — a night sky stays this room's violet, but
+           it is a violet with a horizon in it. */
+        vec3 mood = mix(uBot, uMid, smoothstep(0.42, 0.62, h));
+        mood = mix(mood, uTop, smoothstep(0.6, 1.0, h));
+        float lum = dot(scattered, vec3(0.2126, 0.7152, 0.0722));
+        vec3 col = mood * (0.42 + lum * 2.1) + scattered * 0.55;
 
         float s = uScene;
 
@@ -2747,7 +3019,11 @@ export function buildRoom(): Built {
           for (int i = 0; i < 6; i++) {
             float fi = float(i);
             float near = fi / 5.0;
-            float cols = 72.0 - fi * 9.0;
+            /* 72 columns put a tower every twelve pixels in the
+               far ranks, so the distance read as vertical static
+               rather than as buildings. Fewer and wider lets each
+               one resolve. */
+            float cols = 46.0 - fi * 5.2;
             float gx = uv.x * cols;
             float id = floor(gx);
             float fx = fract(gx);
@@ -2779,14 +3055,25 @@ export function buildRoom(): Built {
 
               float wh = hash21(wi + id * 17.0 + fi * 101.0);
               // Occupancy falls off with height, as it does at night.
-              float occ = 0.12 + 0.22 * smoothstep(top, base, h);
+              // Sparser far away: a distant tower should be a few
+              // lights on a dark mass, not a lit grid.
+              float occ = (0.07 + 0.19 * smoothstep(top, base, h)) * (0.55 + near * 0.55);
               if (pane > 0.5 && wh < occ) {
+                /* Office windows are warm white, almost all of
+                   them. The previous split put 82% of them on
+                   saturated cyan, magenta, purple and blue in
+                   roughly equal shares, which is why the towers
+                   read as a Lite-Brite board rather than as a
+                   city — a skyline gets its colour from signage
+                   and sky, not from everybody's ceiling lights.
+                   The neon stays; it moves to where it belongs,
+                   which is the billboards below. */
                 float t = hash11(wh * 91.0);
-                vec3 lamp = t > 0.80 ? vec3(0.10, 0.90, 1.00)
-                          : t > 0.58 ? vec3(1.00, 0.12, 0.62)
-                          : t > 0.40 ? vec3(0.48, 0.20, 1.00)
-                          : t > 0.18 ? vec3(0.22, 0.60, 1.00)
-                                     : vec3(1.00, 0.66, 0.20);
+                vec3 lamp = t > 0.962 ? vec3(0.30, 0.85, 1.00)
+                          : t > 0.925 ? vec3(1.00, 0.34, 0.68)
+                          : t > 0.740 ? vec3(0.80, 0.87, 1.00)
+                          : t > 0.420 ? vec3(1.00, 0.90, 0.72)
+                                      : vec3(1.00, 0.78, 0.46);
                 // A handful blink over on their own clock.
                 float live = hash11(wh * 50.0) > 0.94
                   ? step(0.5, fract(uTime * 0.25 + wh * 10.0)) : 1.0;
@@ -2997,17 +3284,155 @@ export function buildRoom(): Built {
         /* 7 — SNOWFIELD. Pale overcast, rolling hills, falling
            snow in the air. */
         else if (s < 7.5) {
-          col = mix(vec3(0.86, 0.89, 0.95), vec3(0.62, 0.70, 0.84), smoothstep(0.5, 1.0, h));
+          /* Sky. Deepest overhead, opening to a pale cold band at
+             the horizon. The old version ran 0.86 to 0.95 top to
+             bottom, which is no range at all: every pixel in the
+             frame sat between 0.62 and 0.99, so there was no
+             horizon, no form and nothing to look at — a white
+             rectangle, which is exactly what it looked like. */
+          vec3 skyHigh = vec3(0.17, 0.24, 0.39);
+          vec3 skyLow  = vec3(0.80, 0.83, 0.86);
+          col = mix(skyLow, skyHigh, smoothstep(0.50, 1.0, h));
+
+          /* Cloud banding, so the sky is weather rather than a
+             gradient. Flattened toward the horizon the way real
+             overcast stacks up. */
+          for (int i = 0; i < 4; i++) {
+            float fi = float(i);
+            float cy = 0.62 + fi * 0.085;
+            float band = fbm(vec2(uv.x * 2.2 + fi * 5.0 + uTime * 0.012, fi * 3.0));
+            float d = abs(h - (cy + band * 0.045 - 0.022));
+            col = mix(col, vec3(0.90, 0.91, 0.93), smoothstep(0.055, 0.0, d) * (0.34 - fi * 0.05));
+          }
+
+          /* A low winter sun burning through. It is the only warm
+             thing in the frame, which is what makes the rest read
+             as cold rather than merely grey. */
+          vec2 sunp = (uv - vec2(0.30, 0.545)) * vec2(1.0, 2.4);
+          col += vec3(1.00, 0.90, 0.74) * exp(-dot(sunp, sunp) * 34.0) * 0.75;
+          col += vec3(1.00, 0.87, 0.70) * exp(-dot(sunp, sunp) * 2.4) * 0.17;
+
+          /* Far hills. Distance is carried by going bluer and
+             paler, not by changing shape, which is how snow
+             actually recedes. Amplitude matters: the previous
+             pass used 0.018, and ridge() varies by only half its
+             amplitude, so the horizon came out dead straight. */
+          float hz = 0.545;
+          for (int i = 2; i >= 1; i--) {
+            float fi = float(i);
+            float amp = 0.085 + fi * 0.075;
+            float yb = hz - 0.012 + fi * 0.028;
+            float y = ridge(uv.x * (1.5 + fi * 0.6), 5.0 + fi * 3.0, amp, yb);
+            if (h < y) {
+              float ahead = ridge(uv.x * (1.5 + fi * 0.6) + 0.05, 5.0 + fi * 3.0, amp, yb);
+              float lit = smoothstep(-0.02, 0.02, y - ahead);
+              vec3 far = mix(vec3(0.56, 0.63, 0.76), vec3(0.88, 0.90, 0.93), lit);
+              // The further back, the more it dissolves into the sky.
+              col = mix(far, skyLow, fi * 0.34);
+              col += vec3(1.0, 0.96, 0.88) * smoothstep(0.006, 0.0, y - h) * 0.25;
+            }
+          }
+
+          /* A pine treeline along the near ridge. This is the
+             element that was missing: the scene had no dark value
+             and nothing of known size in it, so there was no
+             scale and no contrast to hang the whites on. */
+          float tbase = ridge(uv.x * 1.9, 9.0, 0.055, hz + 0.004);
+          /* Two passes of trees at different scales. One row of
+             evenly spaced triangles reads as a row of huts, which
+             is what the first attempt looked like — a treeline is
+             a ragged mass, so the trees are narrow, their heights
+             vary a lot, they are jittered off their cell centres
+             and a second finer row fills in behind. */
+          for (int i = 0; i < 2; i++) {
+            float fi = float(i);
+            float cells = 240.0 + fi * 170.0;
+            float tcell = uv.x * cells;
+            float tid = floor(tcell) + fi * 613.0;
+            // Jitter, so nothing lines up on a grid.
+            float jit = (hash11(tid * 7.1) - 0.5) * 0.55;
+            float tfx = fract(tcell) - 0.5 - jit;
+            float r = hash11(tid * 3.7);
+            // Most cells hold a tree; the gaps are what make it ragged.
+            float th = (0.012 + r * r * 0.055) * step(0.18, hash11(tid * 1.9)) * (1.0 - fi * 0.35);
+            // Narrow: a pine is far taller than it is wide.
+            float tree = tbase - fi * 0.006 + th * (1.0 - abs(tfx) * 2.6);
+            if (th > 0.0 && h < tree && h > tbase - 0.06) {
+              vec3 pine = mix(vec3(0.05, 0.085, 0.105), vec3(0.13, 0.18, 0.20), r);
+              pine = mix(pine, skyLow, fi * 0.42);
+              // Snow caught on the sunward side of the canopy.
+              pine = mix(pine, vec3(0.80, 0.84, 0.88), smoothstep(0.0, 0.010, tree - h) * 0.34 * step(tfx, 0.0));
+              col = mix(col, pine, smoothstep(0.0025, 0.0, h - tree));
+            }
+          }
+
+          /* The field itself. Snow is near-white where the light
+             reaches it and distinctly BLUE in shadow — that one
+             fact is what gives a snowfield any form at all, and
+             flat white fill is why this had none. */
+          float dy = ridge(uv.x * 2.6, 2.0, 0.055, hz - 0.004);
+          if (h < dy) {
+            /* Ground distance. Everything below is laid out against
+               this rather than against screen height, so detail
+               compresses toward the horizon the way ground does. */
+            float gd = max(0.0015, dy - h);
+            float persp = 1.0 / (gd * 7.5 + 0.09);
+
+            /* Sastrugi — the hard parallel ridges wind carves into
+               open snow. The previous pass shaded with plain fbm in
+               both axes, which gives soft round blobs: it read as
+               fog lying on the ground rather than as a surface with
+               a grain to it. */
+            /* The grain runs at a fixed angle across the field. An
+               earlier pass scaled its frequency by the perspective
+               term, which sheared it into sweeping curves — very
+               striking, and completely wrong: it read as marble or
+               poured silk rather than snow. Depth belongs in the
+               detail density, not in the direction. */
+            float grain = uv.x * 2.3 + gd * 0.9;
+            float ridges = fbm(vec2(grain * 3.2, gd * 9.0));
+            float fine = fbm(vec2(grain * 11.0, gd * 26.0));
+            float form = ridges * 0.66 + fine * 0.34;
+
+            /* Snow is mostly smooth. The shading has to stay narrow
+               around mid or the field turns into bruised fabric, so
+               this rides a small band rather than the full range. */
+            float lit = smoothstep(0.42, 0.60, form);
+            vec3 sunlit = vec3(0.955, 0.960, 0.965);
+            vec3 shade  = vec3(0.62, 0.69, 0.82);
+            col = mix(shade, sunlit, lit);
+
+            // A thin highlight on the crests, kept sparse.
+            col += vec3(1.0, 0.99, 0.96) * smoothstep(0.68, 0.80, form) * 0.16;
+
+            // Warm bounce from the low sun across the open field.
+            col += vec3(0.24, 0.15, 0.05) * exp(-pow((uv.x - 0.30) * 1.6, 2.0)) * smoothstep(dy, 0.0, h) * 0.50;
+
+            // Distance haze: the far field lifts toward the sky.
+            col = mix(col, skyLow * 0.99, smoothstep(0.075, 0.0, gd) * 0.62);
+
+            // A bright lip where the field meets the sky.
+            col += vec3(1.0, 0.97, 0.90) * smoothstep(0.0035, 0.0, dy - h) * 0.45;
+          }
+
+          /* Falling snow, in three depths. One flat grid of bright
+             dots is a glare laid over a glare; near flakes are
+             bigger, faster and softer, far ones small and slow,
+             and none of them are pure white against a pale sky. */
           for (int i = 0; i < 3; i++) {
             float fi = float(i);
-            float y = ridge(uv.x * 5.0, 5.0 + fi * 2.0, 0.018, 0.51 - fi * 0.016);
-            if (h < y) col = mix(vec3(0.95, 0.96, 0.99), vec3(0.72, 0.78, 0.88), fi / 2.0);
+            float sc = 120.0 + fi * 165.0;
+            vec2 sp = uv * vec2(sc, sc * 0.44);
+            sp.y += uTime * (1.05 - fi * 0.28);
+            sp.x += sin(sp.y * 0.5 + fi * 2.0) * (1.0 - fi * 0.26);
+            vec2 cell = floor(sp);
+            if (hash21(cell + fi * 37.0) > 0.9948 - fi * 0.0015) {
+              vec2 f = fract(sp) - 0.5;
+              float d = length(f * vec2(1.0, 1.25));
+              float soft = smoothstep(0.44 - fi * 0.11, 0.0, d);
+              col = mix(col, vec3(0.99, 0.99, 1.0), soft * (0.66 - fi * 0.17));
+            }
           }
-          vec2 sp = uv * vec2(600.0, 160.0);
-          sp.y += uTime * 1.2;
-          sp.x += sin(sp.y * 0.6) * 0.5;
-          float flake = step(0.982, hash21(floor(sp)));
-          col = mix(col, vec3(1.0), flake * 0.8);
         }
 
         /* 8 — SUNSET. Banded cloud over a burning horizon. */
@@ -3483,7 +3908,13 @@ export function buildRoom(): Built {
       width: SCREEN_W,
       height: SCREEN_H,
     },
-    tv: { position: tvScreenPos, width: TV_W, height: TV_H, rotationY: TV_YAW },
+    // The picture fills the glass, which is inset from the opening.
+    tv: {
+      position: tvScreenPos,
+      width: TV_W - GLASS_INSET * 2,
+      height: TV_H - GLASS_INSET * 2,
+      rotationY: TV_YAW,
+    },
     flat: { position: flatScreenPos, width: FLAT_W, height: FLAT_H, rotationY: FLAT_YAW },
     targets,
     life,

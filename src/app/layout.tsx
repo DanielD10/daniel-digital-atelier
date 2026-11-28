@@ -73,8 +73,22 @@ export const viewport: Viewport = {
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  /*
+    suppressHydrationWarning below is for this element's own
+    attributes, not its children. The inline script further down adds
+    a `js` class to <html> before React hydrates — on purpose, so the
+    page hides pre-animation content only when scripting is actually
+    alive. By the time React looks, the class is there and the server
+    markup says it isn't, so React logs a hydration mismatch for a
+    difference we wrote deliberately. This silences that one
+    attribute and nothing else.
+  */
   return (
-    <html lang="en" className={`${bodoni.variable} ${inter.variable}`}>
+    <html
+      lang="en"
+      className={`${bodoni.variable} ${inter.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         {/*
           Marks the document as JS-capable before first paint, so the
