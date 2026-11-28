@@ -124,7 +124,10 @@
   border-radius: var(--nex-r);
   background: linear-gradient(180deg, var(--nex-panel), var(--nex-ink));
 }
-.nex-head-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
+/* row-gap matters once the tags wrap: a long filename plus three
+   tags will not sit on one phone line, and dropping them to a
+   second line beats clipping the last one off the edge. */
+.nex-head-id { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .nex-head-dot {
   width: 6px; height: 6px; border-radius: 50%;
   background: var(--nex-signal);
@@ -140,6 +143,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Without this the ellipsis never fires: a flex item defaults to
+     min-width:auto, so it refuses to shrink below its own text and
+     overflows the row instead of truncating inside it. */
+  min-width: 0;
 }
 .nex-tag {
   font-size: 9px;
@@ -597,16 +604,58 @@
 
 @media (max-width: 760px) {
   .nex-head { flex-direction: column; align-items: stretch; gap: 14px; }
-  .nex-head-acts { margin-left: 0; }
   .nex-btn { flex: 1; }
   .nex-head-stats { gap: 18px; flex-wrap: wrap; }
+
+  /* Five actions do not sit in one row on a phone. Left to itself
+     the row refuses to shrink past its longest button, grows wider
+     than the header, and the overflow is clipped — the last action
+     disappears off the right edge with nothing to say it is there.
+     So the row wraps, two to a line. A lone last button takes the
+     full width rather than sitting half-empty beside a gap, which
+     is what flex-grow on a half-width basis does for free however
+     many buttons there are. min-width lets the labels wrap instead
+     of setting a floor the row cannot go below. */
+  .nex-head-acts { margin-left: 0; flex-wrap: wrap; max-width: 100%; }
+  .nex-head-acts > .nex-btn {
+    flex: 1 1 calc(50% - 4px);
+    min-width: 0;
+    padding: 12px 10px;
+    text-align: center;
+    line-height: 1.35;
+  }
+  /* The primary action gets its own line. */
+  .nex-head-acts > .nex-btn:not(.nex-btn--ghost) { flex-basis: 100%; }
+  .nex-btn-tag { margin-left: 6px; display: inline-block; }
+
   .nex-ask { flex-wrap: wrap; padding: 12px 14px; }
   .nex-ask-input { flex-basis: 100%; order: 2; }
   .nex-ask .nex-btn { order: 3; }
-  .nex-div-row { grid-template-columns: minmax(58px, 92px) 1fr 54px; }
-  .nex-bars-row { grid-template-columns: minmax(58px, 96px) 1fr 62px; }
+
+  /* A clipped label is one thing on a category name and another on
+     a date: "Before 2025-05-2…" reads as a different day. Let the
+     bucket labels wrap onto a second line instead. */
+  .nex-div-row { grid-template-columns: minmax(62px, 104px) 1fr 54px; }
+  .nex-bars-row { grid-template-columns: minmax(62px, 108px) 1fr 62px; }
+  .nex-div-label,
+  .nex-bars-label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+    line-height: 1.25;
+  }
+
   .nex-find { padding: 15px 14px; }
   .nex-work-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+
+  /* Thumb-sized controls. Padding only — the type and the weight of
+     the page are unchanged. */
+  .nex-ask-input { padding-top: 11px; padding-bottom: 11px; }
+  .nex-find-rows-btn,
+  .nex-read-head { min-height: 44px; }
+  .nex-find-toggle { padding: 9px 0; }
+  .nex-col-head { padding: 12px 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
