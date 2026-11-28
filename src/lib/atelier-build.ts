@@ -2673,6 +2673,10 @@ export function buildRoom(): Built {
       uScene: { value: 0 },
       uZoom: { value: 7.0 },
       uMode: { value: 0 },
+      /* Where the sun is. Everything about the sky follows from
+         this one vector, which is the point of computing it. */
+      uSunDir: { value: new THREE.Vector3(0.35, -0.12, -0.93).normalize() },
+      uSunI: { value: 22.0 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -2685,6 +2689,7 @@ export function buildRoom(): Built {
     `,
     fragmentShader: `
       uniform vec3 uTop; uniform vec3 uMid; uniform vec3 uBot;
+      uniform vec3 uSunDir; uniform float uSunI;
       uniform float uStars; uniform float uTime;
       uniform float uScene; uniform float uZoom; uniform float uMode;
       varying vec3 vDir;
@@ -2768,7 +2773,115 @@ export function buildRoom(): Built {
         return base + amp * (fbm(vec2(x * 2.2 + seed * 11.0, seed)) - 0.5);
       }
 
-      void main() {
+      /* ── Sky, from physics rather than from a palette ──────────
+ *
+ * This was three hand-picked colours blended by height, which is
+ * why it never looked like sky: a real one is not a gradient, it
+ * is the sum of sunlight bouncing off the air on its way to you,
+ * and every feature worth having falls out of that. Blue overhead
+ * and red at sunset are the same effect at different path
+ * lengths; the pale band at the horizon, the glow around the sun
+ * and the way colour drains as it sets are not separate tricks
+ * that have to be authored one by one.
+ *
+ * Two scatterers, which is what the games do:
+ *
+ *   RAYLEIGH — off air molecules, far stronger at short
+ *   wavelengths (the 5.8/13.5/33.1 below are per-metre
+ *   coefficients for red, green, blue). Blue is scattered out of
+ *   the beam about six times as hard as red. Overhead the path is
+ *   short, so you see that scattered blue; at sunset the path is
+ *   hundreds of kilometres, the blue has been scattered away
+ *   before it reaches you, and what is left is red.
+ *
+ *   MIE — off aerosol and dust, near enough wavelength
+ *   independent, and thrown sharply forward. This is the white
+ *   haze near the horizon and the bloom around the sun.
+ *
+ * The integral has no closed form, so it is marched: step along
+ * the view ray, and at each step march a second ray toward the
+ * sun to find how much light survives to that point. Twelve
+ * samples by four is coarse for film and ample behind a window.
+ */
+const float PI_S = 3.14159265;
+const float R_GROUND = 6371000.0;
+const float R_SKY    = 6471000.0;
+const vec3  BETA_R   = vec3(5.8e-6, 13.5e-6, 33.1e-6);
+const float BETA_M   = 21e-6;
+const float H_RAY    = 8000.0;
+const float H_MIE    = 1200.0;
+const float MIE_G    = 0.76;
+
+/* Distance from a point to the top of the atmosphere along dir.
+   Negative when the ray never reaches it. */
+float skyHit(vec3 o, vec3 d) {
+  float b = dot(o, d);
+  float c = dot(o, o) - R_SKY * R_SKY;
+  float disc = b * b - c;
+  if (disc < 0.0) return -1.0;
+  return -b + sqrt(disc);
+}
+
+vec3 atmosphere(vec3 dir, vec3 sunDir, float intensity) {
+  vec3 origin = vec3(0.0, R_GROUND + 2.0, 0.0);
+  float far = skyHit(origin, dir);
+  if (far <= 0.0) return vec3(0.0);
+
+  float seg = far / 12.0;
+  float march = 0.0;
+  vec3 sumR = vec3(0.0);
+  vec3 sumM = vec3(0.0);
+  float odR = 0.0;
+  float odM = 0.0;
+
+  for (int i = 0; i < 12; i++) {
+    vec3 sp = origin + dir * (march + seg * 0.5);
+    float alt = length(sp) - R_GROUND;
+    float hr = exp(-alt / H_RAY) * seg;
+    float hm = exp(-alt / H_MIE) * seg;
+    odR += hr;
+    odM += hm;
+
+    /* Second march, toward the sun, for how much light actually
+       arrives here. No break: a loop that exits early is not
+       reliably compilable on older GLSL, so a ray that dips into
+       the planet is zeroed with a multiplier instead. */
+    float lfar = skyHit(sp, sunDir);
+    float lseg = max(lfar, 0.0) / 4.0;
+    float lmarch = 0.0;
+    float lodR = 0.0;
+    float lodM = 0.0;
+    float open = 1.0;
+    for (int j = 0; j < 4; j++) {
+      vec3 lp = sp + sunDir * (lmarch + lseg * 0.5);
+      float lalt = length(lp) - R_GROUND;
+      open *= step(0.0, lalt);
+      lodR += exp(-max(lalt, 0.0) / H_RAY) * lseg;
+      lodM += exp(-max(lalt, 0.0) / H_MIE) * lseg;
+      lmarch += lseg;
+    }
+
+    vec3 tau = BETA_R * (odR + lodR) + BETA_M * 1.1 * (odM + lodM);
+    vec3 att = exp(-tau) * open;
+    sumR += hr * att;
+    sumM += hm * att;
+    march += seg;
+  }
+
+  /* Phase functions: how much each scatterer sends light toward
+     the eye for a given angle off the sun. Rayleigh is gentle and
+     almost symmetric; Mie spikes hard forward, which is the glow
+     you see around a low sun. */
+  float mu = dot(dir, sunDir);
+  float phaseR = 3.0 / (16.0 * PI_S) * (1.0 + mu * mu);
+  float g2 = MIE_G * MIE_G;
+  float phaseM = 3.0 / (8.0 * PI_S) * ((1.0 - g2) * (1.0 + mu * mu)) /
+                 ((2.0 + g2) * pow(max(1.0 + g2 - 2.0 * MIE_G * mu, 1e-4), 1.5));
+
+  return intensity * (sumR * BETA_R * phaseR + sumM * BETA_M * phaseM);
+}
+
+void main() {
         /**
          * Angles, not texture coordinates.
          *
@@ -2806,8 +2919,35 @@ export function buildRoom(): Built {
           uv = vec2(atan(vDir.z, vDir.x) / 6.2831853 + 0.5, el / 1.5707963 * 0.5 + 0.5);
         }
         float h = uv.y;
-        vec3 col = mix(uBot, uMid, smoothstep(0.42, 0.62, h));
-        col = mix(col, uTop, smoothstep(0.6, 1.0, h));
+
+        /* The sky, scattered rather than painted.
+         *
+         * The authored uTop/uMid/uBot still exist and still carry
+         * the hour's mood — they are what makes this room feel
+         * like this room — but they now tint a computed sky
+         * instead of being the whole of it. The structure comes
+         * from the physics: the pale band at the horizon, the
+         * bloom around the sun, the way the top of the frame goes
+         * deeper than the bottom. Those were the things a
+         * three-stop gradient could never give, and they are
+         * exactly what reads as real. */
+        vec3 skyDir = normalize(vec3(
+          cos((uv.x - 0.5) * 6.2831853),
+          max(sin((h - 0.5) * 3.1415927), -0.12),
+          sin((uv.x - 0.5) * 6.2831853)
+        ));
+        vec3 scattered = atmosphere(skyDir, normalize(uSunDir), uSunI);
+        // Tonemap: the real range is enormous and the screen's is not.
+        scattered = vec3(1.0) - exp(-scattered * 1.9);
+
+        /* Marry it to the hour. The mood colours decide the cast,
+           the scattering decides the shape, and the two multiplied
+           keeps both — a night sky stays this room's violet, but
+           it is a violet with a horizon in it. */
+        vec3 mood = mix(uBot, uMid, smoothstep(0.42, 0.62, h));
+        mood = mix(mood, uTop, smoothstep(0.6, 1.0, h));
+        float lum = dot(scattered, vec3(0.2126, 0.7152, 0.0722));
+        vec3 col = mood * (0.42 + lum * 2.1) + scattered * 0.55;
 
         float s = uScene;
 

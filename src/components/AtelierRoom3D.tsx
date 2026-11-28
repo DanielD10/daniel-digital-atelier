@@ -1182,6 +1182,27 @@ export default function AtelierRoom3D() {
       (vu.uMid.value as THREE.Color).lerp(skyMid, k);
       (vu.uBot.value as THREE.Color).lerp(skyBot, k);
       vu.uStars.value = starAmt;
+
+      /* Where the sun is, which is now the whole sky.
+       *
+       * The scattering model takes one vector and derives
+       * everything from it, so this is the only thing that has to
+       * move for dawn to look like dawn. Elevation tracks the
+       * hour on a sine through the day; at night it sits just
+       * below the horizon, which is what leaves a little light in
+       * the band above it rather than a flat black. Azimuth
+       * swings so the glow crosses the window over the day
+       * instead of sitting in one corner of it. */
+      const nowD = new Date();
+      const mins = nowD.getHours() * 60 + nowD.getMinutes();
+      const dayT = (mins - 6 * 60) / (12 * 60); // 0 at 6am, 1 at 6pm
+      const elev = Math.sin(dayT * Math.PI) * 0.78 - 0.085;
+      const azim = (-0.55 + dayT * 1.15) * Math.PI;
+      const sun = vu.uSunDir.value as THREE.Vector3;
+      sun.set(Math.cos(azim) * Math.cos(elev), Math.sin(elev), Math.sin(azim) * Math.cos(elev));
+      sun.normalize();
+      // Night keeps a trace so the horizon never goes flat black.
+      vu.uSunI.value = 4.0 + Math.max(0, Math.sin(dayT * Math.PI)) * 20.0;
       u.uTime.value = reduced ? 0 : t;
 
       /* A photograph was taken under whatever light it was taken
